@@ -3,14 +3,17 @@
   display: flex;
   min-height: 0;
   background: var(--background-primary);
+  overflow: hidden;
 }
 
 .vault-powershell-terminal {
   flex: 1;
   min-width: 0;
   min-height: 0;
-  padding: 8px;
-  background: var(--background-primary);
+  padding: 6px;
+  background: var(--vault-terminal-bg, #0c1016);
+  color: var(--vault-terminal-fg, #d8dee9);
+  overflow: hidden;
 }
 
 .vault-powershell-terminal .xterm {
@@ -50,8 +53,8 @@
 }
 
 .vault-powershell-terminal .xterm .composition-view {
-  background: #000;
-  color: #fff;
+  background: var(--vault-terminal-bg, #0c1016);
+  color: var(--vault-terminal-fg, #d8dee9);
   display: none;
   position: absolute;
   white-space: nowrap;
@@ -63,7 +66,7 @@
 }
 
 .vault-powershell-terminal .xterm .xterm-viewport {
-  background-color: var(--background-primary);
+  background-color: var(--vault-terminal-bg, #0c1016) !important;
   overflow-y: scroll;
   cursor: default;
   position: absolute;
@@ -71,6 +74,24 @@
   left: 0;
   top: 0;
   bottom: 0;
+}
+
+.vault-powershell-terminal .xterm .xterm-viewport::-webkit-scrollbar {
+  width: 10px;
+}
+
+.vault-powershell-terminal .xterm .xterm-viewport::-webkit-scrollbar-track {
+  background: var(--vault-terminal-bg, #0c1016);
+}
+
+.vault-powershell-terminal .xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  background: var(--vault-terminal-scrollbar, rgba(216, 222, 233, 0.22));
+  border: 2px solid var(--vault-terminal-bg, #0c1016);
+  border-radius: 999px;
+}
+
+.vault-powershell-terminal .xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: var(--vault-terminal-scrollbar-hover, rgba(216, 222, 233, 0.36));
 }
 
 .vault-powershell-terminal .xterm .xterm-screen {

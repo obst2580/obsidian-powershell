@@ -8,7 +8,7 @@ import {
   Setting,
   WorkspaceLeaf
 } from "obsidian";
-import { Terminal } from "@xterm/xterm";
+import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { ChildProcessWithoutNullStreams, spawn } from "child_process";
 import { existsSync } from "fs";
@@ -27,9 +27,12 @@ interface PowerShellSettings {
   executable: string;
   args: string;
   nodeExecutable: string;
+  terminalColorScheme: TerminalColorScheme;
   useSystemCa: boolean;
   extraCaCertPath: string;
 }
+
+type TerminalColorScheme = "dark" | "light" | "obsidian";
 
 interface PtyHostConfig {
   shell: string;
@@ -54,8 +57,67 @@ const DEFAULT_SETTINGS: PowerShellSettings = {
   executable: "",
   args: "",
   nodeExecutable: "",
+  terminalColorScheme: "dark",
   useSystemCa: false,
   extraCaCertPath: ""
+};
+
+const DARK_TERMINAL_THEME: ITheme = {
+  background: "#0c1016",
+  foreground: "#d8dee9",
+  cursor: "#ffffff",
+  cursorAccent: "#0c1016",
+  selectionBackground: "#2f5d7c",
+  selectionForeground: "#ffffff",
+  selectionInactiveBackground: "#243447",
+  scrollbarSliderBackground: "rgba(216, 222, 233, 0.22)",
+  scrollbarSliderHoverBackground: "rgba(216, 222, 233, 0.36)",
+  scrollbarSliderActiveBackground: "rgba(216, 222, 233, 0.5)",
+  black: "#1f2430",
+  red: "#ff6b6b",
+  green: "#8bd17c",
+  yellow: "#f4d35e",
+  blue: "#6ea8fe",
+  magenta: "#c792ea",
+  cyan: "#56d4dd",
+  white: "#d8dee9",
+  brightBlack: "#6b7280",
+  brightRed: "#ff8787",
+  brightGreen: "#a6e3a1",
+  brightYellow: "#ffe082",
+  brightBlue: "#8ab4ff",
+  brightMagenta: "#d0a9ff",
+  brightCyan: "#8be9fd",
+  brightWhite: "#ffffff"
+};
+
+const LIGHT_TERMINAL_THEME: ITheme = {
+  background: "#fbfaf7",
+  foreground: "#1f2937",
+  cursor: "#111827",
+  cursorAccent: "#fbfaf7",
+  selectionBackground: "#bfd7ff",
+  selectionForeground: "#111827",
+  selectionInactiveBackground: "#dbeafe",
+  scrollbarSliderBackground: "rgba(31, 41, 55, 0.2)",
+  scrollbarSliderHoverBackground: "rgba(31, 41, 55, 0.34)",
+  scrollbarSliderActiveBackground: "rgba(31, 41, 55, 0.48)",
+  black: "#24292f",
+  red: "#b91c1c",
+  green: "#166534",
+  yellow: "#854d0e",
+  blue: "#1d4ed8",
+  magenta: "#7e22ce",
+  cyan: "#0f766e",
+  white: "#e5e7eb",
+  brightBlack: "#6b7280",
+  brightRed: "#dc2626",
+  brightGreen: "#15803d",
+  brightYellow: "#a16207",
+  brightBlue: "#2563eb",
+  brightMagenta: "#9333ea",
+  brightCyan: "#0891b2",
+  brightWhite: "#ffffff"
 };
 
 export default class VaultPowerShellPlugin extends Plugin {
@@ -87,6 +149,7 @@ export default class VaultPowerShellPlugin extends Plugin {
   async loadSettings() {
     const saved = (await this.loadData()) as Partial<PowerShellSettings> | null;
     this.settings = Object.assign({}, DEFAULT_SETTINGS, saved ?? {});
+    this.settings.terminalColorScheme = normalizeTerminalColorScheme(this.settings.terminalColorScheme);
   }
 
   async saveSettings() {
@@ -202,7 +265,9 @@ class VaultPowerShellView extends ItemView {
   private fitAddon: FitAddon | null = null;
   private host: ChildProcessWithoutNullStreams | null = null;
   private hostStdoutBuffer = "";
+  private terminalContainer: HTMLElement | null = null;
   private resizeObserver: ResizeObserver | null = null;
+  private themeObserver: MutationObserver | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: VaultPowerShellPlugin) {
     super(leaf);
@@ -235,27 +300,34 @@ class VaultPowerShellView extends ItemView {
     this.disposeShell();
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
+    this.themeObserver?.disconnect();
+    this.themeObserver = null;
     this.terminal?.dispose();
     this.terminal = null;
+    this.terminalContainer = null;
     this.fitAddon = null;
   }
 
   private createTerminal(container: HTMLElement) {
+    const terminalTheme = buildTerminalTheme(this.plugin.settings.terminalColorScheme);
+    applyTerminalThemeVars(container, terminalTheme);
+
     const terminal = new Terminal({
       allowProposedApi: false,
       convertEol: true,
       cursorBlink: true,
-      fontFamily: "Cascadia Mono, Consolas, monospace",
+      cursorStyle: "block",
+      drawBoldTextInBrightColors: true,
+      fastScrollSensitivity: 5,
+      fontFamily: "Cascadia Mono, JetBrains Mono, Menlo, Monaco, Consolas, monospace",
       fontSize: 13,
-      lineHeight: 1.2,
+      lineHeight: 1.22,
+      minimumContrastRatio: 4.5,
       rightClickSelectsWord: true,
-      scrollback: 5000,
-      theme: {
-        background: getCssVar("--background-primary", "#1e1e1e"),
-        foreground: getCssVar("--text-normal", "#d4d4d4"),
-        cursor: getCssVar("--text-accent", "#ffffff"),
-        selectionBackground: getCssVar("--text-selection", "#264f78")
-      }
+      scrollback: 10000,
+      scrollSensitivity: 1,
+      smoothScrollDuration: 0,
+      theme: terminalTheme
     });
 
     const fitAddon = new FitAddon();
@@ -298,15 +370,33 @@ class VaultPowerShellView extends ItemView {
     });
 
     this.terminal = terminal;
+    this.terminalContainer = container;
     this.fitAddon = fitAddon;
     this.resizeObserver = new ResizeObserver(() => {
       this.fitTerminal();
     });
     this.resizeObserver.observe(container);
+    this.themeObserver = new MutationObserver(() => {
+      this.refreshTerminalTheme();
+    });
+    this.themeObserver.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["class", "style"]
+    });
 
     requestAnimationFrame(() => {
       this.fitTerminal();
     });
+  }
+
+  private refreshTerminalTheme() {
+    if (!this.terminal || !this.terminalContainer) {
+      return;
+    }
+
+    const terminalTheme = buildTerminalTheme(this.plugin.settings.terminalColorScheme);
+    applyTerminalThemeVars(this.terminalContainer, terminalTheme);
+    this.terminal.options.theme = { ...terminalTheme };
   }
 
   private startShell() {
@@ -508,6 +598,22 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Terminal color scheme")
+      .setDesc("Dark is recommended for agent CLIs such as Codex and Claude Code. Obsidian mode follows the app background while keeping a readable ANSI palette.")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("dark", "Dark terminal")
+          .addOption("light", "Light terminal")
+          .addOption("obsidian", "Follow Obsidian")
+          .setValue(this.plugin.settings.terminalColorScheme)
+          .onChange(async (value) => {
+            this.plugin.settings.terminalColorScheme = normalizeTerminalColorScheme(value);
+            await this.plugin.saveSettings();
+            new Notice("Reopen Vault Terminal to apply the color scheme.");
+          })
+      );
+
+    new Setting(containerEl)
       .setName("Use system certificate store")
       .setDesc("Off by default. Enable only when a corporate TLS proxy requires Node CLIs to trust the OS certificate store.")
       .addToggle((toggle) =>
@@ -701,6 +807,77 @@ function isAutoNodeSetting(value: string): boolean {
 function isPowerShellExecutable(shell: string): boolean {
   const executableName = shell.replace(/\\/g, "/").split("/").pop()?.toLowerCase();
   return executableName === "pwsh" || executableName === "pwsh.exe" || executableName === "powershell.exe";
+}
+
+function buildTerminalTheme(colorScheme: TerminalColorScheme): ITheme {
+  const normalized = normalizeTerminalColorScheme(colorScheme);
+  if (normalized === "light") {
+    return { ...LIGHT_TERMINAL_THEME };
+  }
+
+  if (normalized === "obsidian") {
+    return buildObsidianTerminalTheme();
+  }
+
+  return { ...DARK_TERMINAL_THEME };
+}
+
+function buildObsidianTerminalTheme(): ITheme {
+  const base = isObsidianDarkTheme() ? DARK_TERMINAL_THEME : LIGHT_TERMINAL_THEME;
+
+  return {
+    ...base,
+    background: getCssVar("--background-primary", base.background ?? "#0c1016"),
+    foreground: getCssVar("--text-normal", base.foreground ?? "#d8dee9"),
+    cursor: getCssVar("--text-accent", base.cursor ?? "#ffffff"),
+    selectionBackground: getCssVar("--text-selection", base.selectionBackground ?? "#2f5d7c")
+  };
+}
+
+function applyTerminalThemeVars(container: HTMLElement, theme: ITheme) {
+  container.style.setProperty("--vault-terminal-bg", theme.background ?? "#0c1016");
+  container.style.setProperty("--vault-terminal-fg", theme.foreground ?? "#d8dee9");
+  container.style.setProperty("--vault-terminal-scrollbar", theme.scrollbarSliderBackground ?? "rgba(216, 222, 233, 0.22)");
+  container.style.setProperty("--vault-terminal-scrollbar-hover", theme.scrollbarSliderHoverBackground ?? "rgba(216, 222, 233, 0.36)");
+}
+
+function normalizeTerminalColorScheme(value: string | undefined): TerminalColorScheme {
+  return value === "light" || value === "obsidian" || value === "dark" ? value : "dark";
+}
+
+function isObsidianDarkTheme(): boolean {
+  if (document.body.classList.contains("theme-dark")) {
+    return true;
+  }
+
+  if (document.body.classList.contains("theme-light")) {
+    return false;
+  }
+
+  const brightness = getColorBrightness(getCssVar("--background-primary", "#0c1016"));
+  return brightness === null ? true : brightness < 128;
+}
+
+function getColorBrightness(color: string): number | null {
+  const trimmed = color.trim();
+  const hex = trimmed.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (hex) {
+    const value = hex[1];
+    const parts = value.length === 3
+      ? value.split("").map((part) => parseInt(part + part, 16))
+      : [value.slice(0, 2), value.slice(2, 4), value.slice(4, 6)].map((part) => parseInt(part, 16));
+    return Math.round((parts[0] * 299 + parts[1] * 587 + parts[2] * 114) / 1000);
+  }
+
+  const rgb = trimmed.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+  if (rgb) {
+    const r = Number(rgb[1]);
+    const g = Number(rgb[2]);
+    const b = Number(rgb[3]);
+    return Math.round((r * 299 + g * 587 + b * 114) / 1000);
+  }
+
+  return null;
 }
 
 function getCssVar(name: string, fallback: string): string {

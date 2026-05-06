@@ -1,6 +1,6 @@
 {
   "name": "obsidian-powershell-agent",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Obsidian right-sidebar terminal rooted at the current vault.",
   "main": "main.js",
   "scripts": {

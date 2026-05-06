@@ -11,6 +11,7 @@ An Obsidian desktop plugin that turns a right-sidebar tab into a real terminal r
 - Runs normal interactive shell commands directly in the tab.
 - Lets tools such as Claude Code, Codex, Git, Python, and npm run inside that shell.
 - Supports terminal text selection and copy.
+- Uses a high-contrast terminal palette by default for agent CLIs and includes optional light/Obsidian color modes.
 - Supports configurable Node TLS/CA settings for corporate SSL inspection.
 
 ## Development
@@ -61,6 +62,14 @@ Default shell selection:
 Because the PTY runtime is native, install dependencies on the same OS that will run the plugin before copying it into a vault.
 
 On macOS, Obsidian may not inherit the same `PATH` as a login shell. The plugin adds common Homebrew and system paths automatically, but users with `node` installed only through `nvm` may need to set **Node executable** to an absolute path in plugin settings.
+
+## Terminal Appearance
+
+The default terminal color scheme is **Dark terminal** because fullscreen agent CLIs such as Codex and Claude Code depend on predictable ANSI colors. You can change it in **Settings > Vault Terminal**:
+
+- **Dark terminal**: recommended for Codex, Claude Code, and other TUI tools.
+- **Light terminal**: high-contrast light palette.
+- **Follow Obsidian**: uses the current Obsidian background and text colors while keeping a terminal-safe ANSI palette.
 
 ## SSL / Corporate Proxy
 
