@@ -64,7 +64,9 @@ On macOS, Obsidian may not inherit the same `PATH` as a login shell. The plugin 
 
 ## SSL / Corporate Proxy
 
-For Node-based CLIs such as Claude Code, the plugin can inject TLS-related environment variables into the terminal:
+By default, the plugin does not change Node TLS or certificate behavior and does not ship any corporate certificates.
+
+For users behind a corporate TLS inspection proxy, the plugin can optionally inject TLS-related environment variables into the terminal:
 
 - `NODE_OPTIONS=--use-system-ca`
 - `NODE_EXTRA_CA_CERTS=<path>`
@@ -73,8 +75,8 @@ For Node-based CLIs such as Claude Code, the plugin can inject TLS-related envir
 
 Configure these in **Settings > Vault Terminal**:
 
-- **Use system certificate store**: enables Node's system CA store.
-- **Extra CA certificate**: optional PEM file path. Relative paths are resolved from this plugin folder, for example `certs/extra-ca.pem`.
+- **Use system certificate store**: off by default; enables Node's system CA store when explicitly turned on.
+- **Extra CA certificate**: optional PEM file path for corporate proxy root certificates. Relative paths are resolved from this plugin folder, for example `certs/extra-ca.pem`.
 
 Do not disable TLS verification globally unless you fully understand the security impact.
 

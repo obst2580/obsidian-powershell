@@ -10,7 +10,8 @@ Vault Terminal은 Obsidian 우측 탭에 현재 볼트 경로를 작업 디렉�
 - 플러그인은 볼트마다 따로 설치합니다.
 - Windows용 패키지와 macOS용 패키지는 서로 다릅니다.
 - Claude Code, Codex CLI, Git, Python 등은 필요한 사용자 PC에 별도로 설치되어 있어야 합니다.
-- 회사 SSL 인증서 검사를 사용하는 환경에서는 아래의 SSL 설정 절차를 확인합니다.
+- 일반 인터넷 환경에서는 SSL 설정을 바꿀 필요가 없습니다.
+- 회사 SSL 인증서 검사를 사용하는 환경에서만 아래의 SSL 설정 절차를 확인합니다.
 
 ## Windows 설치
 
@@ -118,6 +119,8 @@ Get-ChildItem "C:\obsidian" -Directory |
 
 ## SSL / 회사 인증서 설정
 
+기본 설치 상태에서는 Vault Terminal이 Node TLS 또는 인증서 동작을 바꾸지 않습니다. 회사 인증서도 패키지에 포함하지 않습니다.
+
 Claude Code 같은 Node 기반 CLI에서 다음 오류가 나오면 회사 SSL 인증서 설정이 필요할 수 있습니다.
 
 ```text
@@ -205,6 +208,7 @@ SSL 오류가 발생하면:
 
 - **Use system certificate store**를 켭니다.
 - 회사 PEM 인증서를 **Extra CA certificate**에 지정합니다.
+- `NODE_TLS_REJECT_UNAUTHORIZED=0`처럼 TLS 검증을 끄는 설정은 사용하지 않습니다.
 
 ## 보안 안내
 

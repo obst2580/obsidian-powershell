@@ -54,7 +54,7 @@ const DEFAULT_SETTINGS: PowerShellSettings = {
   executable: "",
   args: "",
   nodeExecutable: "",
-  useSystemCa: true,
+  useSystemCa: false,
   extraCaCertPath: ""
 };
 
@@ -509,7 +509,7 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Use system certificate store")
-      .setDesc("Adds Node's --use-system-ca option for CLI tools such as Claude Code.")
+      .setDesc("Off by default. Enable only when a corporate TLS proxy requires Node CLIs to trust the OS certificate store.")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.useSystemCa)
@@ -521,7 +521,7 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Extra CA certificate")
-      .setDesc("Optional PEM file path. Relative paths are resolved from this plugin folder, for example certs/extra-ca.pem.")
+      .setDesc("Optional PEM file path for corporate TLS inspection. Relative paths are resolved from this plugin folder, for example certs/extra-ca.pem.")
       .addText((text) =>
         text
           .setPlaceholder("certs/extra-ca.pem")
