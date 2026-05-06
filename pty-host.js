@@ -30,14 +30,19 @@ try {
   const config = decodeConfig(process.argv[2]);
   const pty = loadPty();
 
-  terminal = pty.spawn(config.shell, config.args || [], {
+  const spawnOptions = {
     name: "xterm-256color",
     cols: Math.max(config.cols || 80, 2),
     rows: Math.max(config.rows || 24, 1),
     cwd: config.cwd,
-    env: Object.assign({}, process.env, config.env || {}),
-    useConpty: true
-  });
+    env: Object.assign({}, process.env, config.env || {})
+  };
+
+  if (process.platform === "win32") {
+    spawnOptions.useConpty = true;
+  }
+
+  terminal = pty.spawn(config.shell, config.args || [], spawnOptions);
 
   terminal.onData((data) => {
     send({ type: "data", data });

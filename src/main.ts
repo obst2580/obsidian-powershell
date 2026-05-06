@@ -18,6 +18,10 @@ const VIEW_TYPE_POWERSHELL = "vault-powershell";
 const DEFAULT_PWSH_PATH = "C:\\Program Files\\PowerShell\\7\\pwsh.exe";
 const WINDOWS_POWERSHELL_PATH = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
 const DEFAULT_NODE_PATH = "C:\\Program Files\\nodejs\\node.exe";
+const MACOS_PWSH_PATHS = ["/opt/homebrew/bin/pwsh", "/usr/local/bin/pwsh", "/opt/local/bin/pwsh"];
+const MACOS_NODE_PATHS = ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/opt/local/bin/node", "/usr/bin/node"];
+const LINUX_PWSH_PATHS = ["/usr/local/bin/pwsh", "/usr/bin/pwsh", "/snap/bin/pwsh"];
+const LINUX_NODE_PATHS = ["/usr/local/bin/node", "/usr/bin/node", "/bin/node"];
 
 interface PowerShellSettings {
   executable: string;
@@ -47,9 +51,9 @@ type HostOutputMessage =
   | { type: "error"; message: string };
 
 const DEFAULT_SETTINGS: PowerShellSettings = {
-  executable: "pwsh.exe",
-  args: "-NoLogo",
-  nodeExecutable: "node.exe",
+  executable: "",
+  args: "",
+  nodeExecutable: "",
   useSystemCa: true,
   extraCaCertPath: ""
 };
@@ -65,13 +69,13 @@ export default class VaultPowerShellPlugin extends Plugin {
       (leaf) => new VaultPowerShellView(leaf, this)
     );
 
-    this.addRibbonIcon("terminal", "Open vault PowerShell", async () => {
+    this.addRibbonIcon("terminal", "Open vault terminal", async () => {
       await this.activateView();
     });
 
     this.addCommand({
       id: "open-vault-powershell-view",
-      name: "Open vault PowerShell",
+      name: "Open vault terminal",
       callback: async () => {
         await this.activateView();
       }
@@ -100,7 +104,7 @@ export default class VaultPowerShellPlugin extends Plugin {
 
   getShellExecutable(): string {
     const configured = this.settings.executable.trim();
-    if (configured && configured !== DEFAULT_SETTINGS.executable) {
+    if (!isAutoShellSetting(configured)) {
       return configured;
     }
 
@@ -112,11 +116,24 @@ export default class VaultPowerShellPlugin extends Plugin {
       return WINDOWS_POWERSHELL_PATH;
     }
 
-    return configured || DEFAULT_SETTINGS.executable;
+    if (process.platform === "darwin") {
+      return firstExistingPath(MACOS_PWSH_PATHS) ?? getUserShell() ?? firstExistingPath(["/bin/zsh", "/bin/bash", "/bin/sh"]) ?? "/bin/zsh";
+    }
+
+    if (process.platform === "linux") {
+      return firstExistingPath(LINUX_PWSH_PATHS) ?? getUserShell() ?? firstExistingPath(["/bin/bash", "/bin/sh"]) ?? "/bin/sh";
+    }
+
+    return getUserShell() ?? "pwsh";
   }
 
-  getShellArgs(): string[] {
-    return tokenizeArgs(this.settings.args);
+  getShellArgs(shell: string): string[] {
+    const configured = this.settings.args.trim();
+    if (!isAutoShellArgsSetting(configured)) {
+      return tokenizeArgs(configured);
+    }
+
+    return isPowerShellExecutable(shell) ? ["-NoLogo"] : [];
   }
 
   getPluginBasePath(): string {
@@ -135,7 +152,7 @@ export default class VaultPowerShellPlugin extends Plugin {
 
   getNodeExecutable(): string {
     const configured = this.settings.nodeExecutable.trim();
-    if (configured && configured !== DEFAULT_SETTINGS.nodeExecutable) {
+    if (!isAutoNodeSetting(configured)) {
       return configured;
     }
 
@@ -143,7 +160,15 @@ export default class VaultPowerShellPlugin extends Plugin {
       return DEFAULT_NODE_PATH;
     }
 
-    return configured || DEFAULT_SETTINGS.nodeExecutable;
+    if (process.platform === "darwin") {
+      return firstExistingPath(MACOS_NODE_PATHS) ?? "node";
+    }
+
+    if (process.platform === "linux") {
+      return firstExistingPath(LINUX_NODE_PATHS) ?? "node";
+    }
+
+    return "node";
   }
 
   getExtraCaCertPath(): string | null {
@@ -189,7 +214,7 @@ class VaultPowerShellView extends ItemView {
   }
 
   getDisplayText(): string {
-    return "Vault PowerShell";
+    return "Vault Terminal";
   }
 
   getIcon(): string {
@@ -301,9 +326,10 @@ class VaultPowerShellView extends ItemView {
         useSystemCa: this.plugin.settings.useSystemCa,
         extraCaCertPath: this.plugin.getExtraCaCertPath()
       });
+      const shell = this.plugin.getShellExecutable();
       const host = spawn(this.plugin.getNodeExecutable(), [this.plugin.getPtyHostPath(), encodeConfig({
-        shell: this.plugin.getShellExecutable(),
-        args: this.plugin.getShellArgs(),
+        shell,
+        args: this.plugin.getShellArgs(shell),
         cols: Math.max(terminal.cols, 80),
         rows: Math.max(terminal.rows, 24),
         cwd,
@@ -325,18 +351,18 @@ class VaultPowerShellView extends ItemView {
       });
 
       host.on("error", (error: Error) => {
-        terminal.writeln(`Failed to start PowerShell host: ${error.message}`);
+        terminal.writeln(`Failed to start terminal host: ${error.message}`);
       });
 
       host.on("close", (code: number | null) => {
         terminal.writeln("");
-        terminal.writeln(`[PowerShell host exited with code ${code ?? "unknown"}]`);
+        terminal.writeln(`[terminal host exited with code ${code ?? "unknown"}]`);
         this.host = null;
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      terminal.writeln(`Failed to start PowerShell: ${message}`);
-      new Notice(`Failed to start PowerShell: ${message}`);
+      terminal.writeln(`Failed to start terminal: ${message}`);
+      new Notice(`Failed to start terminal: ${message}`);
     }
   }
 
@@ -418,9 +444,9 @@ class VaultPowerShellView extends ItemView {
           this.terminal?.write(message.data);
         } else if (message.type === "exit") {
           this.terminal?.writeln("");
-          this.terminal?.writeln(`[PowerShell exited with code ${message.exitCode ?? "unknown"}]`);
+          this.terminal?.writeln(`[terminal exited with code ${message.exitCode ?? "unknown"}]`);
         } else if (message.type === "error") {
-          this.terminal?.writeln(`Failed to start PowerShell: ${message.message}`);
+          this.terminal?.writeln(`Failed to start terminal: ${message.message}`);
         }
       } catch {
         this.terminal?.write(line);
@@ -440,30 +466,30 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "Vault PowerShell" });
+    containerEl.createEl("h2", { text: "Vault Terminal" });
 
     new Setting(containerEl)
-      .setName("PowerShell executable")
-      .setDesc("Use pwsh.exe, powershell.exe, or an absolute executable path.")
+      .setName("Shell executable")
+      .setDesc("Leave empty for automatic selection. Uses PowerShell on Windows, then pwsh/zsh/bash on macOS or Linux.")
       .addText((text) =>
         text
-          .setPlaceholder(DEFAULT_SETTINGS.executable)
+          .setPlaceholder("auto")
           .setValue(this.plugin.settings.executable)
           .onChange(async (value) => {
-            this.plugin.settings.executable = value.trim() || DEFAULT_SETTINGS.executable;
+            this.plugin.settings.executable = value.trim();
             await this.plugin.saveSettings();
           })
       );
 
     new Setting(containerEl)
-      .setName("PowerShell arguments")
-      .setDesc("Arguments used when the terminal starts.")
+      .setName("Shell arguments")
+      .setDesc("Leave empty for automatic arguments. PowerShell gets -NoLogo; zsh/bash get no startup arguments.")
       .addText((text) =>
         text
-          .setPlaceholder(DEFAULT_SETTINGS.args)
+          .setPlaceholder("auto")
           .setValue(this.plugin.settings.args)
           .onChange(async (value) => {
-            this.plugin.settings.args = value;
+            this.plugin.settings.args = value.trim();
             await this.plugin.saveSettings();
           })
       );
@@ -473,10 +499,10 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
       .setDesc("Used only to run the PTY host process.")
       .addText((text) =>
         text
-          .setPlaceholder(DEFAULT_SETTINGS.nodeExecutable)
+          .setPlaceholder("auto")
           .setValue(this.plugin.settings.nodeExecutable)
           .onChange(async (value) => {
-            this.plugin.settings.nodeExecutable = value.trim() || DEFAULT_SETTINGS.nodeExecutable;
+            this.plugin.settings.nodeExecutable = value.trim();
             await this.plugin.saveSettings();
           })
       );
@@ -557,9 +583,7 @@ function tokenizeArgs(template: string): string[] {
 function buildProcessEnv(options: { useSystemCa: boolean; extraCaCertPath?: string | null }): { [key: string]: string | undefined } {
   const env: { [key: string]: string | undefined } = { ...process.env };
 
-  if (process.platform === "win32") {
-    addWindowsPathEntries(env);
-  }
+  addDefaultPathEntries(env);
 
   if (options.useSystemCa) {
     addNodeSystemCaOption(env);
@@ -569,32 +593,23 @@ function buildProcessEnv(options: { useSystemCa: boolean; extraCaCertPath?: stri
   return env;
 }
 
-function addWindowsPathEntries(env: { [key: string]: string | undefined }) {
-  if (process.platform !== "win32") {
-    return env;
-  }
-
-  const pathKey = Object.keys(env).find((key) => key.toLowerCase() === "path") ?? "Path";
+function addDefaultPathEntries(env: { [key: string]: string | undefined }) {
+  const pathKey = getPathKey(env);
+  const delimiter = process.platform === "win32" ? ";" : ":";
   const existingPath = env[pathKey] ?? "";
-  const pathEntries = existingPath.split(";").filter(Boolean);
-  const lowerEntries = new Set(pathEntries.map((entry) => entry.toLowerCase()));
-  const candidates = [
-    "C:\\Program Files\\PowerShell\\7",
-    process.env.APPDATA ? `${process.env.APPDATA}\\npm` : undefined,
-    process.env.USERPROFILE ? `${process.env.USERPROFILE}\\AppData\\Roaming\\npm` : undefined,
-    process.env.LOCALAPPDATA ? `${process.env.LOCALAPPDATA}\\OpenAI\\Codex\\bin` : undefined,
-    process.env.ProgramFiles ? `${process.env.ProgramFiles}\\nodejs` : undefined,
-    "C:\\Program Files\\nodejs"
-  ].filter((entry): entry is string => Boolean(entry));
+  const pathEntries = existingPath.split(delimiter).filter(Boolean);
+  const knownEntries = new Set(pathEntries.map((entry) => normalizePathEntry(entry)));
+  const candidates = getDefaultPathCandidates();
 
   for (const candidate of candidates) {
-    if (!lowerEntries.has(candidate.toLowerCase())) {
+    const normalized = normalizePathEntry(candidate);
+    if (!knownEntries.has(normalized)) {
       pathEntries.push(candidate);
-      lowerEntries.add(candidate.toLowerCase());
+      knownEntries.add(normalized);
     }
   }
 
-  env[pathKey] = pathEntries.join(";");
+  env[pathKey] = pathEntries.join(delimiter);
 }
 
 function encodeConfig(config: PtyHostConfig): string {
@@ -618,6 +633,74 @@ function addExtraCaCert(env: { [key: string]: string | undefined }, extraCaCertP
   env.NODE_EXTRA_CA_CERTS = extraCaCertPath;
   env.SSL_CERT_FILE = extraCaCertPath;
   env.REQUESTS_CA_BUNDLE = extraCaCertPath;
+}
+
+function getDefaultPathCandidates(): string[] {
+  if (process.platform === "win32") {
+    return [
+      "C:\\Program Files\\PowerShell\\7",
+      process.env.APPDATA ? `${process.env.APPDATA}\\npm` : undefined,
+      process.env.USERPROFILE ? `${process.env.USERPROFILE}\\AppData\\Roaming\\npm` : undefined,
+      process.env.LOCALAPPDATA ? `${process.env.LOCALAPPDATA}\\OpenAI\\Codex\\bin` : undefined,
+      process.env.ProgramFiles ? `${process.env.ProgramFiles}\\nodejs` : undefined,
+      "C:\\Program Files\\nodejs"
+    ].filter((entry): entry is string => Boolean(entry));
+  }
+
+  const home = process.env.HOME;
+  const unixPaths = [
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "/opt/local/bin",
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+    home ? `${home}/.npm-global/bin` : undefined,
+    home ? `${home}/.local/bin` : undefined
+  ];
+
+  return unixPaths.filter((entry): entry is string => Boolean(entry));
+}
+
+function getPathKey(env: { [key: string]: string | undefined }): string {
+  if (process.platform === "win32") {
+    return Object.keys(env).find((key) => key.toLowerCase() === "path") ?? "Path";
+  }
+
+  return Object.keys(env).find((key) => key === "PATH") ?? "PATH";
+}
+
+function normalizePathEntry(entry: string): string {
+  return process.platform === "win32" ? entry.toLowerCase() : entry;
+}
+
+function firstExistingPath(candidates: string[]): string | null {
+  return candidates.find((candidate) => existsSync(candidate)) ?? null;
+}
+
+function getUserShell(): string | null {
+  const shell = process.env.SHELL?.trim();
+  return shell && existsSync(shell) ? shell : null;
+}
+
+function isAutoShellSetting(value: string): boolean {
+  const normalized = value.toLowerCase();
+  return normalized === "" || normalized === "pwsh.exe";
+}
+
+function isAutoShellArgsSetting(value: string): boolean {
+  return value === "" || value.toLowerCase() === "-nologo";
+}
+
+function isAutoNodeSetting(value: string): boolean {
+  const normalized = value.toLowerCase();
+  return normalized === "" || normalized === "node.exe" || normalized === "node";
+}
+
+function isPowerShellExecutable(shell: string): boolean {
+  const executableName = shell.replace(/\\/g, "/").split("/").pop()?.toLowerCase();
+  return executableName === "pwsh" || executableName === "pwsh.exe" || executableName === "powershell.exe";
 }
 
 function getCssVar(name: string, fallback: string): string {

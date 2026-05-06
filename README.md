@@ -1,12 +1,12 @@
-# Vault PowerShell
+# Vault Terminal
 
-An Obsidian desktop plugin that turns a right-sidebar tab into a PowerShell terminal rooted at the current vault path.
+An Obsidian desktop plugin that turns a right-sidebar tab into a real terminal rooted at the current vault path.
 
-> Status: early Windows-focused beta. The plugin works by combining an Obsidian view, xterm.js, and a separate Node PTY helper process.
+> Status: early desktop beta. Windows is the primary tested path; macOS and Linux support is included through platform-specific shell and install handling.
 
 ## What It Does
 
-- Starts PowerShell automatically when the tab opens.
+- Starts a terminal automatically when the tab opens.
 - Uses the current Obsidian vault as the shell working directory.
 - Runs normal interactive shell commands directly in the tab.
 - Lets tools such as Claude Code, Codex, Git, Python, and npm run inside that shell.
@@ -20,13 +20,21 @@ npm install
 npm run build
 ```
 
-Install into a vault:
+Install into a Windows vault:
 
 ```powershell
 .\install.ps1 -VaultPath "C:\path\to\vault"
 ```
 
-Then enable **Vault PowerShell** in Obsidian community plugins.
+Install into a macOS/Linux vault:
+
+```bash
+npm install
+npm run build
+./install.sh /path/to/vault
+```
+
+Then enable **Vault Terminal** in Obsidian community plugins.
 
 ## Runtime Files
 
@@ -42,7 +50,15 @@ node_modules/@homebridge/node-pty-prebuilt-multiarch/
 
 `pty-host.js` runs as a separate Node process so the native PTY does not run inside Obsidian's renderer process.
 
-The default shell is PowerShell 7 when available, otherwise Windows PowerShell.
+Default shell selection:
+
+- Windows: PowerShell 7 when available, otherwise Windows PowerShell.
+- macOS: `pwsh` from Homebrew when available, otherwise the user's `$SHELL`, then `zsh`/`bash`.
+- Linux: `pwsh` when available, otherwise the user's `$SHELL`, then `bash`/`sh`.
+
+Because the PTY runtime is native, install dependencies on the same OS that will run the plugin before copying it into a vault.
+
+On macOS, Obsidian may not inherit the same `PATH` as a login shell. The plugin adds common Homebrew and system paths automatically, but users with `node` installed only through `nvm` may need to set **Node executable** to an absolute path in plugin settings.
 
 ## SSL / Corporate Proxy
 
@@ -53,7 +69,7 @@ For Node-based CLIs such as Claude Code, the plugin can inject TLS-related envir
 - `SSL_CERT_FILE=<path>`
 - `REQUESTS_CA_BUNDLE=<path>`
 
-Configure these in **Settings > Vault PowerShell**:
+Configure these in **Settings > Vault Terminal**:
 
 - **Use system certificate store**: enables Node's system CA store.
 - **Extra CA certificate**: optional PEM file path. Relative paths are resolved from this plugin folder, for example `certs/extra-ca.pem`.

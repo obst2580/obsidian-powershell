@@ -1,7 +1,7 @@
 {
   "name": "obsidian-powershell-agent",
   "version": "0.1.0",
-  "description": "Obsidian right-sidebar PowerShell console rooted at the current vault.",
+  "description": "Obsidian right-sidebar terminal rooted at the current vault.",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs --watch",
@@ -12,6 +12,7 @@
     "codex",
     "claude",
     "powershell",
+    "terminal",
     "vault"
   ],
   "author": "obst2580",
