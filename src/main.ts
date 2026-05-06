@@ -57,7 +57,7 @@ const DEFAULT_SETTINGS: PowerShellSettings = {
   executable: "",
   args: "",
   nodeExecutable: "",
-  terminalColorScheme: "dark",
+  terminalColorScheme: "obsidian",
   useSystemCa: false,
   extraCaCertPath: ""
 };
@@ -701,12 +701,12 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Terminal color scheme")
-      .setDesc("Dark is recommended for agent CLIs such as Codex and Claude Code. Obsidian mode follows the app background while keeping a readable ANSI palette.")
+      .setDesc("Follows Obsidian by default while keeping a readable ANSI palette for agent CLIs such as Codex and Claude Code.")
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("dark", "Dark terminal")
-          .addOption("light", "Light terminal")
           .addOption("obsidian", "Follow Obsidian")
+          .addOption("light", "Light terminal")
+          .addOption("dark", "Dark terminal")
           .setValue(this.plugin.settings.terminalColorScheme)
           .onChange(async (value) => {
             this.plugin.settings.terminalColorScheme = normalizeTerminalColorScheme(value);
@@ -944,7 +944,7 @@ function applyTerminalThemeVars(container: HTMLElement, theme: ITheme) {
 }
 
 function normalizeTerminalColorScheme(value: string | undefined): TerminalColorScheme {
-  return value === "light" || value === "obsidian" || value === "dark" ? value : "dark";
+  return value === "light" || value === "dark" || value === "obsidian" ? value : "obsidian";
 }
 
 function isObsidianDarkTheme(): boolean {

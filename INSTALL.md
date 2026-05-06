@@ -63,7 +63,7 @@ Settings > Community plugins > Vault Terminal > Enable
 
 ## 화면 색상 설정
 
-기본값은 **Dark terminal**입니다. Codex, Claude Code 같은 CLI 도구는 ANSI 색상을 많이 쓰기 때문에 안정적인 다크 터미널 팔레트가 가장 읽기 쉽습니다.
+기본값은 **Follow Obsidian**입니다. Obsidian이 라이트 테마이면 밝은 터미널 배경을 쓰고, 다크 테마이면 어두운 터미널 배경을 쓰며, Codex/Claude Code 같은 CLI 도구의 ANSI 색상은 읽기 쉬운 팔레트로 유지합니다.
 
 색상을 바꾸려면:
 
@@ -73,9 +73,9 @@ Settings > Vault Terminal > Terminal color scheme
 
 선택지:
 
-- **Dark terminal**: Codex/Claude Code 사용 권장값
-- **Light terminal**: 밝은 배경의 고대비 터미널
 - **Follow Obsidian**: Obsidian 배경/텍스트 색을 따르되 ANSI 색상은 읽기 쉬운 팔레트 유지
+- **Light terminal**: 밝은 배경의 고대비 터미널
+- **Dark terminal**: 어두운 배경의 고대비 터미널
 
 스크롤이 CLI에 잡혀서 위 내용이 잘 안 보이면:
 
