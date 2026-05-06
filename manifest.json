@@ -1,0 +1,10 @@
+{
+  "id": "obsidian-powershell-agent",
+  "name": "Vault PowerShell",
+  "version": "0.1.0",
+  "minAppVersion": "1.7.0",
+  "description": "Open and run PowerShell commands from a right-sidebar console rooted at the current vault.",
+  "author": "obst2580",
+  "authorUrl": "https://github.com/obst2580",
+  "isDesktopOnly": true
+}

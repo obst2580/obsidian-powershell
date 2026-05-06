@@ -1,0 +1,173 @@
+.vault-powershell-view {
+  height: 100%;
+  display: flex;
+  min-height: 0;
+  background: var(--background-primary);
+}
+
+.vault-powershell-terminal {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 8px;
+  background: var(--background-primary);
+}
+
+.vault-powershell-terminal .xterm {
+  height: 100%;
+  cursor: text;
+  position: relative;
+  user-select: none;
+  -ms-user-select: none;
+  -webkit-user-select: none;
+}
+
+.vault-powershell-terminal .xterm.focus,
+.vault-powershell-terminal .xterm:focus {
+  outline: none;
+}
+
+.vault-powershell-terminal .xterm .xterm-helpers {
+  position: absolute;
+  top: 0;
+  z-index: 5;
+}
+
+.vault-powershell-terminal .xterm .xterm-helper-textarea {
+  padding: 0;
+  border: 0;
+  margin: 0;
+  position: absolute;
+  opacity: 0;
+  left: -9999em;
+  top: 0;
+  width: 0;
+  height: 0;
+  z-index: -5;
+  white-space: nowrap;
+  overflow: hidden;
+  resize: none;
+}
+
+.vault-powershell-terminal .xterm .composition-view {
+  background: #000;
+  color: #fff;
+  display: none;
+  position: absolute;
+  white-space: nowrap;
+  z-index: 1;
+}
+
+.vault-powershell-terminal .xterm .composition-view.active {
+  display: block;
+}
+
+.vault-powershell-terminal .xterm .xterm-viewport {
+  background-color: var(--background-primary);
+  overflow-y: scroll;
+  cursor: default;
+  position: absolute;
+  right: 0;
+  left: 0;
+  top: 0;
+  bottom: 0;
+}
+
+.vault-powershell-terminal .xterm .xterm-screen {
+  position: relative;
+}
+
+.vault-powershell-terminal .xterm .xterm-screen canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+.vault-powershell-terminal .xterm-char-measure-element {
+  display: inline-block;
+  visibility: hidden;
+  position: absolute;
+  top: 0;
+  left: -9999em;
+  line-height: normal;
+}
+
+.vault-powershell-terminal .xterm.enable-mouse-events {
+  cursor: default;
+}
+
+.vault-powershell-terminal .xterm.xterm-cursor-pointer,
+.vault-powershell-terminal .xterm .xterm-cursor-pointer {
+  cursor: pointer;
+}
+
+.vault-powershell-terminal .xterm.column-select.focus {
+  cursor: crosshair;
+}
+
+.vault-powershell-terminal .xterm .xterm-accessibility:not(.debug),
+.vault-powershell-terminal .xterm .xterm-message {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  z-index: 10;
+  color: transparent;
+  pointer-events: none;
+}
+
+.vault-powershell-terminal .xterm .xterm-accessibility-tree:not(.debug) *::selection {
+  color: transparent;
+}
+
+.vault-powershell-terminal .xterm .xterm-accessibility-tree {
+  font-family: monospace;
+  user-select: text;
+  white-space: pre;
+}
+
+.vault-powershell-terminal .xterm .xterm-accessibility-tree > div {
+  transform-origin: left;
+  width: fit-content;
+}
+
+.vault-powershell-terminal .xterm .live-region {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.vault-powershell-terminal .xterm-dim {
+  opacity: 1 !important;
+}
+
+.vault-powershell-terminal .xterm-underline-1 {
+  text-decoration: underline;
+}
+
+.vault-powershell-terminal .xterm-underline-2 {
+  text-decoration: double underline;
+}
+
+.vault-powershell-terminal .xterm-underline-3 {
+  text-decoration: wavy underline;
+}
+
+.vault-powershell-terminal .xterm-underline-4 {
+  text-decoration: dotted underline;
+}
+
+.vault-powershell-terminal .xterm-underline-5 {
+  text-decoration: dashed underline;
+}
+
+.vault-powershell-terminal .xterm-overline {
+  text-decoration: overline;
+}
+
+.vault-powershell-terminal .xterm-strikethrough {
+  text-decoration: line-through;
+}
