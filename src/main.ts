@@ -268,6 +268,8 @@ class VaultPowerShellView extends ItemView {
   private terminalContainer: HTMLElement | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private themeObserver: MutationObserver | null = null;
+  private pendingFitFrame: number | null = null;
+  private wheelLineAccumulator = 0;
 
   constructor(leaf: WorkspaceLeaf, plugin: VaultPowerShellPlugin) {
     super(leaf);
@@ -302,6 +304,10 @@ class VaultPowerShellView extends ItemView {
     this.resizeObserver = null;
     this.themeObserver?.disconnect();
     this.themeObserver = null;
+    if (this.pendingFitFrame !== null) {
+      cancelAnimationFrame(this.pendingFitFrame);
+      this.pendingFitFrame = null;
+    }
     this.terminal?.dispose();
     this.terminal = null;
     this.terminalContainer = null;
@@ -318,14 +324,15 @@ class VaultPowerShellView extends ItemView {
       cursorBlink: true,
       cursorStyle: "block",
       drawBoldTextInBrightColors: true,
-      fastScrollSensitivity: 5,
+      fastScrollSensitivity: 12,
       fontFamily: "Cascadia Mono, JetBrains Mono, Menlo, Monaco, Consolas, monospace",
       fontSize: 13,
       lineHeight: 1.22,
       minimumContrastRatio: 4.5,
       rightClickSelectsWord: true,
-      scrollback: 10000,
-      scrollSensitivity: 1,
+      scrollback: 50000,
+      scrollOnEraseInDisplay: true,
+      scrollSensitivity: 3,
       smoothScrollDuration: 0,
       theme: terminalTheme
     });
@@ -357,8 +364,16 @@ class VaultPowerShellView extends ItemView {
         return false;
       }
 
+      if (this.handleScrollKey(event, terminal)) {
+        return false;
+      }
+
       return true;
     });
+
+    container.addEventListener("wheel", (event) => {
+      this.handleTerminalWheel(event, terminal);
+    }, { passive: false, capture: true });
 
     container.addEventListener("contextmenu", (event) => {
       if (!terminal.hasSelection()) {
@@ -373,7 +388,7 @@ class VaultPowerShellView extends ItemView {
     this.terminalContainer = container;
     this.fitAddon = fitAddon;
     this.resizeObserver = new ResizeObserver(() => {
-      this.fitTerminal();
+      this.scheduleFitTerminal();
     });
     this.resizeObserver.observe(container);
     this.themeObserver = new MutationObserver(() => {
@@ -387,6 +402,82 @@ class VaultPowerShellView extends ItemView {
     requestAnimationFrame(() => {
       this.fitTerminal();
     });
+  }
+
+  private handleScrollKey(event: KeyboardEvent, terminal: Terminal): boolean {
+    if (!event.shiftKey || !event.ctrlKey) {
+      return false;
+    }
+
+    if (event.key === "PageUp") {
+      terminal.scrollPages(-1);
+      return true;
+    }
+
+    if (event.key === "PageDown") {
+      terminal.scrollPages(1);
+      return true;
+    }
+
+    if (event.key === "Home") {
+      terminal.scrollToTop();
+      return true;
+    }
+
+    if (event.key === "End") {
+      terminal.scrollToBottom();
+      return true;
+    }
+
+    if (event.key === "ArrowUp") {
+      terminal.scrollLines(-3);
+      return true;
+    }
+
+    if (event.key === "ArrowDown") {
+      terminal.scrollLines(3);
+      return true;
+    }
+
+    return false;
+  }
+
+  private handleTerminalWheel(event: WheelEvent, terminal: Terminal) {
+    if (event.ctrlKey) {
+      return;
+    }
+
+    const activeBuffer = terminal.buffer.active;
+    if (activeBuffer.type === "alternate" && !event.shiftKey) {
+      return;
+    }
+
+    const lines = this.normalizeWheelLines(event, terminal);
+    if (lines === 0) {
+      return;
+    }
+
+    terminal.scrollLines(lines);
+    terminal.focus();
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  private normalizeWheelLines(event: WheelEvent, terminal: Terminal): number {
+    const pixelsPerLine = 18;
+    const rawLines = event.deltaMode === WheelEvent.DOM_DELTA_PIXEL
+      ? event.deltaY / pixelsPerLine
+      : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+        ? event.deltaY * terminal.rows
+        : event.deltaY;
+
+    this.wheelLineAccumulator += rawLines;
+    const lines = this.wheelLineAccumulator > 0
+      ? Math.floor(this.wheelLineAccumulator)
+      : Math.ceil(this.wheelLineAccumulator);
+
+    this.wheelLineAccumulator -= lines;
+    return lines;
   }
 
   private refreshTerminalTheme() {
@@ -471,6 +562,17 @@ class VaultPowerShellView extends ItemView {
     } catch {
       // xterm can throw while the Obsidian leaf is still measuring.
     }
+  }
+
+  private scheduleFitTerminal() {
+    if (this.pendingFitFrame !== null) {
+      return;
+    }
+
+    this.pendingFitFrame = requestAnimationFrame(() => {
+      this.pendingFitFrame = null;
+      this.fitTerminal();
+    });
   }
 
   private async copySelection() {

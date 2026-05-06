@@ -77,6 +77,16 @@ Settings > Vault Terminal > Terminal color scheme
 - **Light terminal**: 밝은 배경의 고대비 터미널
 - **Follow Obsidian**: Obsidian 배경/텍스트 색을 따르되 ANSI 색상은 읽기 쉬운 팔레트 유지
 
+스크롤이 CLI에 잡혀서 위 내용이 잘 안 보이면:
+
+```text
+Shift + 마우스 휠
+Ctrl + Shift + PageUp / PageDown
+Ctrl + Shift + Home / End
+```
+
+Codex, Claude Code 같은 fullscreen TUI 도구는 alternate screen을 사용할 수 있습니다. 이 모드에서는 오래된 출력이 일반 터미널 scrollback이 아니라 CLI 내부 화면에 들어가기 때문에, 일반 PowerShell 출력처럼 전부 위로 스크롤되지 않을 수 있습니다.
+
 ## macOS / Linux 설치
 
 macOS 또는 Linux에서는 해당 OS에서 만들어진 패키지를 사용해야 합니다.

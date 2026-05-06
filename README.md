@@ -12,6 +12,7 @@ An Obsidian desktop plugin that turns a right-sidebar tab into a real terminal r
 - Lets tools such as Claude Code, Codex, Git, Python, and npm run inside that shell.
 - Supports terminal text selection and copy.
 - Uses a high-contrast terminal palette by default for agent CLIs and includes optional light/Obsidian color modes.
+- Keeps a larger terminal scrollback and supports forced scrollback with Shift+Wheel or Ctrl+Shift+PageUp/PageDown.
 - Supports configurable Node TLS/CA settings for corporate SSL inspection.
 
 ## Development
@@ -70,6 +71,13 @@ The default terminal color scheme is **Dark terminal** because fullscreen agent 
 - **Dark terminal**: recommended for Codex, Claude Code, and other TUI tools.
 - **Light terminal**: high-contrast light palette.
 - **Follow Obsidian**: uses the current Obsidian background and text colors while keeping a terminal-safe ANSI palette.
+
+Scrolling notes:
+
+- The terminal keeps 50,000 lines of scrollback for normal shell output.
+- Use **Shift + mouse wheel** to force terminal scrollback when a CLI captures mouse input.
+- Use **Ctrl + Shift + PageUp/PageDown** to move by page.
+- Fullscreen TUI tools may use an alternate screen buffer; in that mode, older output belongs to the CLI's own UI rather than normal terminal scrollback.
 
 ## SSL / Corporate Proxy
 

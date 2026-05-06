@@ -14,6 +14,7 @@
   background: var(--vault-terminal-bg, #0c1016);
   color: var(--vault-terminal-fg, #d8dee9);
   overflow: hidden;
+  overscroll-behavior: contain;
 }
 
 .vault-powershell-terminal .xterm {
@@ -68,6 +69,7 @@
 .vault-powershell-terminal .xterm .xterm-viewport {
   background-color: var(--vault-terminal-bg, #0c1016) !important;
   overflow-y: scroll;
+  overscroll-behavior: contain;
   cursor: default;
   position: absolute;
   right: 0;
