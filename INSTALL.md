@@ -1,0 +1,216 @@
+# Vault Terminal 설치 매뉴얼
+
+이 문서는 회사 내부 사용자가 Obsidian 볼트에 Vault Terminal 플러그인을 설치하고 활성화하는 절차를 설명합니다.
+
+Vault Terminal은 Obsidian 우측 탭에 현재 볼트 경로를 작업 디렉터리로 사용하는 터미널을 띄웁니다. 이 터미널 안에서 PowerShell, Git, npm, Python, Claude Code, Codex CLI 같은 명령을 실행할 수 있습니다.
+
+## 설치 전 확인
+
+- Obsidian Desktop 앱에서만 사용합니다.
+- 플러그인은 볼트마다 따로 설치합니다.
+- Windows용 패키지와 macOS용 패키지는 서로 다릅니다.
+- Claude Code, Codex CLI, Git, Python 등은 필요한 사용자 PC에 별도로 설치되어 있어야 합니다.
+- 회사 SSL 인증서 검사를 사용하는 환경에서는 아래의 SSL 설정 절차를 확인합니다.
+
+## Windows 설치
+
+관리자가 배포한 Windows용 ZIP 파일을 받습니다.
+
+예시:
+
+```text
+VaultTerminal-0.1.0-windows.zip
+```
+
+설치할 Obsidian 볼트 경로를 확인합니다.
+
+예시:
+
+```text
+C:\obsidian\labide-validation
+```
+
+ZIP 파일을 아래 위치에 압축 해제합니다.
+
+```text
+<볼트경로>\.obsidian\plugins\obsidian-powershell-agent\
+```
+
+예시:
+
+```text
+C:\obsidian\labide-validation\.obsidian\plugins\obsidian-powershell-agent\
+```
+
+압축 해제 후 폴더 안에 다음 파일과 폴더가 있어야 합니다.
+
+```text
+manifest.json
+main.js
+styles.css
+pty-host.js
+node_modules\
+```
+
+Obsidian을 재시작한 뒤 플러그인을 활성화합니다.
+
+```text
+Settings > Community plugins > Vault Terminal > Enable
+```
+
+좌측 리본 메뉴의 터미널 아이콘을 누르면 우측 탭에 Vault Terminal이 열립니다.
+
+## macOS / Linux 설치
+
+macOS 또는 Linux에서는 해당 OS에서 만들어진 패키지를 사용해야 합니다.
+
+예시:
+
+```text
+VaultTerminal-0.1.0-macos-arm64.zip
+VaultTerminal-0.1.0-macos-x64.zip
+VaultTerminal-0.1.0-linux-x64.zip
+```
+
+ZIP 파일을 아래 위치에 압축 해제합니다.
+
+```text
+<볼트경로>/.obsidian/plugins/obsidian-powershell-agent/
+```
+
+Obsidian을 재시작한 뒤 플러그인을 활성화합니다.
+
+```text
+Settings > Community plugins > Vault Terminal > Enable
+```
+
+macOS에서 Node.js를 `nvm`으로만 설치한 경우 Obsidian이 Node 경로를 자동으로 찾지 못할 수 있습니다. 이 경우 플러그인 설정의 **Node executable**에 절대경로를 입력합니다.
+
+## 여러 볼트에 설치
+
+플러그인은 볼트별로 설치됩니다. 다른 볼트에서도 쓰려면 각 볼트의 `.obsidian/plugins/obsidian-powershell-agent` 폴더에 동일하게 설치해야 합니다.
+
+Windows에서 설치 스크립트를 사용하는 경우:
+
+```powershell
+.\install.ps1 -VaultPath "C:\obsidian\labide-validation"
+.\install.ps1 -VaultPath "C:\obsidian\team-vault"
+.\install.ps1 -VaultPath "D:\vaults\project-a"
+```
+
+`C:\obsidian` 아래의 모든 볼트에 설치하려면 먼저 대상 볼트를 확인합니다.
+
+```powershell
+Get-ChildItem "C:\obsidian" -Directory |
+  Where-Object { Test-Path (Join-Path $_.FullName ".obsidian") } |
+  Select-Object -ExpandProperty FullName
+```
+
+목록이 맞으면 설치합니다.
+
+```powershell
+Get-ChildItem "C:\obsidian" -Directory |
+  Where-Object { Test-Path (Join-Path $_.FullName ".obsidian") } |
+  ForEach-Object {
+    .\install.ps1 -VaultPath $_.FullName
+  }
+```
+
+## SSL / 회사 인증서 설정
+
+Claude Code 같은 Node 기반 CLI에서 다음 오류가 나오면 회사 SSL 인증서 설정이 필요할 수 있습니다.
+
+```text
+Self-signed certificate detected
+Unable to connect to API
+```
+
+Obsidian에서 아래 설정을 확인합니다.
+
+```text
+Settings > Vault Terminal
+```
+
+권장 설정:
+
+- **Use system certificate store**: 켬
+- **Extra CA certificate**: 회사에서 제공한 PEM 인증서 경로
+
+예시:
+
+```text
+C:\certs\company-ca.pem
+```
+
+볼트 안에 인증서를 넣는 경우에는 플러그인 폴더 기준 상대경로도 사용할 수 있습니다.
+
+```text
+certs/extra-ca.pem
+```
+
+## 업데이트
+
+새 ZIP 파일을 받으면 기존 폴더에 덮어씁니다.
+
+```text
+<볼트경로>\.obsidian\plugins\obsidian-powershell-agent\
+```
+
+덮어쓴 뒤 Obsidian을 재시작합니다.
+
+문제가 있으면 플러그인을 비활성화한 뒤 다시 활성화합니다.
+
+```text
+Settings > Community plugins > Vault Terminal
+```
+
+## 삭제
+
+Obsidian에서 플러그인을 비활성화합니다.
+
+```text
+Settings > Community plugins > Vault Terminal > Disable
+```
+
+그 다음 아래 폴더를 삭제합니다.
+
+```text
+<볼트경로>\.obsidian\plugins\obsidian-powershell-agent\
+```
+
+## 문제 해결
+
+플러그인이 목록에 보이지 않으면:
+
+- 압축 해제 위치가 맞는지 확인합니다.
+- `manifest.json`이 바로 아래 경로에 있는지 확인합니다.
+
+```text
+<볼트경로>\.obsidian\plugins\obsidian-powershell-agent\manifest.json
+```
+
+터미널이 열리지 않으면:
+
+- Obsidian을 재시작합니다.
+- Node.js가 설치되어 있는지 확인합니다.
+- 플러그인 설정의 **Node executable** 경로를 확인합니다.
+
+Claude Code 또는 Codex CLI 명령이 인식되지 않으면:
+
+- 해당 CLI가 PC에 설치되어 있는지 확인합니다.
+- 일반 PowerShell 또는 터미널에서 먼저 실행되는지 확인합니다.
+- PATH 설정이 필요한 경우 해당 CLI 설치 경로를 사용자 PATH에 추가합니다.
+
+SSL 오류가 발생하면:
+
+- **Use system certificate store**를 켭니다.
+- 회사 PEM 인증서를 **Extra CA certificate**에 지정합니다.
+
+## 보안 안내
+
+Vault Terminal은 Obsidian 볼트 경로에서 실제 터미널 명령을 실행할 수 있게 하는 플러그인입니다.
+
+- 신뢰된 내부 배포본만 설치합니다.
+- 출처를 알 수 없는 ZIP 파일은 설치하지 않습니다.
+- 터미널에서 실행하는 명령은 사용자 PC 권한으로 실행됩니다.
+- 회사 보안 정책에 맞지 않는 외부 API 키나 인증 정보를 볼트에 저장하지 않습니다.

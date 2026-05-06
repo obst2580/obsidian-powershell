@@ -15,6 +15,8 @@ An Obsidian desktop plugin that turns a right-sidebar tab into a real terminal r
 
 ## Development
 
+For employee-facing installation steps, see [INSTALL.md](INSTALL.md).
+
 ```powershell
 npm install
 npm run build
