@@ -20,7 +20,7 @@ jobs:
           - runner: windows-latest
             platform: windows
             arch: x64
-          - runner: macos-13
+          - runner: macos-15-intel
             platform: macos
             arch: x64
           - runner: macos-14

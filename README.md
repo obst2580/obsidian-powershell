@@ -112,7 +112,7 @@ git push origin v0.1.14
 사용하는 GitHub-hosted runner:
 
 - `windows-latest`: Windows x64 패키지
-- `macos-13`: macOS Intel x64 패키지
+- `macos-15-intel`: macOS Intel x64 패키지
 - `macos-14`: macOS Apple Silicon arm64 패키지
 
 macOS runner 라벨은 GitHub 공식 hosted runner 문서를 기준으로 선택했습니다.
