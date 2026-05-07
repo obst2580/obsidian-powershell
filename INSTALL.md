@@ -236,6 +236,37 @@ SSL 오류가 발생하면:
 - 회사 PEM 인증서를 **Extra CA certificate**에 지정합니다.
 - `NODE_TLS_REJECT_UNAUTHORIZED=0`처럼 TLS 검증을 끄는 설정은 사용하지 않습니다.
 
+## 회사 내부 배포 권장 방식
+
+공개 오픈소스 릴리즈에는 회사 인증서를 포함하지 않습니다. 같은 회사 네트워크를 쓰는 사용자에게는 플러그인 ZIP과 함께 회사 CA 설정 스크립트를 제공합니다.
+
+관리자는 사내 루트 인증서의 thumbprint 또는 보안팀이 제공한 PEM 파일을 확인합니다. Windows 인증서 저장소에 회사 루트 인증서가 이미 배포되어 있다면 thumbprint 방식이 가장 간단합니다.
+
+설치 후 각 사용자 PC에서 실행할 명령 예시:
+
+```powershell
+.\configure-corporate-ca.ps1 `
+  -VaultPath "C:\Users\<user>\Documents\ObsidianVault" `
+  -Thumbprint "<company-root-ca-thumbprint>"
+```
+
+PEM 파일을 보안팀에서 따로 제공하는 경우:
+
+```powershell
+.\configure-corporate-ca.ps1 `
+  -VaultPath "C:\Users\<user>\Documents\ObsidianVault" `
+  -PemPath "C:\certs\company-ca.pem"
+```
+
+이 스크립트가 하는 일:
+
+- Windows 인증서 저장소 또는 PEM 파일에서 회사 루트 인증서를 가져옵니다.
+- 플러그인 폴더에 `certs/extra-ca.pem`을 만듭니다.
+- 플러그인 설정 파일 `data.json`에 `useSystemCa: true`와 `extraCaCertPath: "certs/extra-ca.pem"`을 기록합니다.
+- 새 Vault Terminal 세션에서 `NODE_OPTIONS`, `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`이 자동으로 적용되게 합니다.
+
+이미 열려 있던 터미널이나 Claude Code 세션에는 새 환경변수가 적용되지 않습니다. 설정 후 Obsidian을 재시작하거나 Vault Terminal 탭을 새로 열어야 합니다.
+
 ## 보안 안내
 
 Vault Terminal은 Obsidian 볼트 경로에서 실제 터미널 명령을 실행할 수 있게 하는 플러그인입니다.

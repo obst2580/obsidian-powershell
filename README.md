@@ -97,6 +97,20 @@ Configure these in **Settings > Vault Terminal**:
 
 Do not disable TLS verification globally unless you fully understand the security impact.
 
+For internal company deployment, keep the public release certificate-free and apply corporate CA settings after installation:
+
+```powershell
+.\configure-corporate-ca.ps1 -VaultPath "C:\path\to\vault" -Thumbprint "<company-root-ca-thumbprint>"
+```
+
+If your security team provides a PEM file instead of relying on the Windows certificate store:
+
+```powershell
+.\configure-corporate-ca.ps1 -VaultPath "C:\path\to\vault" -PemPath "C:\path\to\company-ca.pem"
+```
+
+The script writes the PEM to `certs/extra-ca.pem` inside the installed plugin folder and updates `data.json` so new terminal sessions inherit the required TLS environment variables.
+
 ## Distribution Notes
 
 This plugin uses a native PTY runtime and a helper process. Standard Obsidian Community Plugin installation downloads `manifest.json`, `main.js`, and `styles.css`; this plugin also needs `pty-host.js` and the `node-pty` runtime folder. For public use, package it as a GitHub release/BRAT beta first, or replace the native runtime with a distribution model accepted by the Obsidian review process.
