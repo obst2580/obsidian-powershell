@@ -22,7 +22,7 @@ const MACOS_PWSH_PATHS = ["/opt/homebrew/bin/pwsh", "/usr/local/bin/pwsh", "/opt
 const MACOS_NODE_PATHS = ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/opt/local/bin/node", "/usr/bin/node"];
 const LINUX_PWSH_PATHS = ["/usr/local/bin/pwsh", "/usr/bin/pwsh", "/snap/bin/pwsh"];
 const LINUX_NODE_PATHS = ["/usr/local/bin/node", "/usr/bin/node", "/bin/node"];
-const SHIFT_ENTER_LINE_FEED = "\n";
+const SHIFT_ENTER_BRACKETED_PASTE_NEWLINE = "\x1b[200~\n\x1b[201~";
 
 interface PowerShellSettings {
   executable: string;
@@ -270,6 +270,7 @@ class VaultPowerShellView extends ItemView {
   private resizeObserver: ResizeObserver | null = null;
   private themeObserver: MutationObserver | null = null;
   private pendingFitFrame: number | null = null;
+  private windowKeydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private wheelLineAccumulator = 0;
 
   constructor(leaf: WorkspaceLeaf, plugin: VaultPowerShellPlugin) {
@@ -305,6 +306,10 @@ class VaultPowerShellView extends ItemView {
     this.resizeObserver = null;
     this.themeObserver?.disconnect();
     this.themeObserver = null;
+    if (this.windowKeydownHandler) {
+      window.removeEventListener("keydown", this.windowKeydownHandler, { capture: true });
+      this.windowKeydownHandler = null;
+    }
     if (this.pendingFitFrame !== null) {
       cancelAnimationFrame(this.pendingFitFrame);
       this.pendingFitFrame = null;
@@ -384,6 +389,13 @@ class VaultPowerShellView extends ItemView {
       this.handleShiftEnter(event);
     }, { passive: false, capture: true });
 
+    this.windowKeydownHandler = (event) => {
+      if (this.isTerminalEventTarget(event)) {
+        this.handleShiftEnter(event);
+      }
+    };
+    window.addEventListener("keydown", this.windowKeydownHandler, { capture: true });
+
     container.addEventListener("contextmenu", (event) => {
       if (!terminal.hasSelection()) {
         return;
@@ -414,14 +426,29 @@ class VaultPowerShellView extends ItemView {
   }
 
   private handleShiftEnter(event: KeyboardEvent): boolean {
-    if (event.key !== "Enter" || !event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) {
+    if (!isEnterKey(event) || !event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) {
       return false;
     }
 
-    this.sendHostMessage({ type: "data", data: SHIFT_ENTER_LINE_FEED });
+    this.sendHostMessage({ type: "data", data: SHIFT_ENTER_BRACKETED_PASTE_NEWLINE });
     event.preventDefault();
     event.stopPropagation();
+    event.stopImmediatePropagation();
     return true;
+  }
+
+  private isTerminalEventTarget(event: KeyboardEvent): boolean {
+    if (!this.terminalContainer) {
+      return false;
+    }
+
+    const target = event.target;
+    if (target instanceof Node && this.terminalContainer.contains(target)) {
+      return true;
+    }
+
+    const activeElement = document.activeElement;
+    return activeElement instanceof Node && this.terminalContainer.contains(activeElement);
   }
 
   private handleScrollKey(event: KeyboardEvent, terminal: Terminal): boolean {
@@ -929,6 +956,10 @@ function isAutoNodeSetting(value: string): boolean {
 function isPowerShellExecutable(shell: string): boolean {
   const executableName = shell.replace(/\\/g, "/").split("/").pop()?.toLowerCase();
   return executableName === "pwsh" || executableName === "pwsh.exe" || executableName === "powershell.exe";
+}
+
+function isEnterKey(event: KeyboardEvent): boolean {
+  return event.key === "Enter" || event.key === "Return" || event.code === "Enter" || event.code === "NumpadEnter";
 }
 
 function buildTerminalTheme(colorScheme: TerminalColorScheme): ITheme {

@@ -85,7 +85,7 @@ Ctrl + Shift + PageUp / PageDown
 Ctrl + Shift + Home / End
 ```
 
-멀티라인 입력을 지원하는 도구에서는 `Shift + Enter`로 줄바꿈을 넣을 수 있습니다. Claude Code, Codex처럼 줄바꿈 입력을 처리하는 CLI에서 동작합니다.
+멀티라인 입력을 지원하는 도구에서는 `Shift + Enter`로 줄바꿈을 넣을 수 있습니다. Vault Terminal은 bracketed newline paste 방식으로 보내므로 Claude Code, Codex처럼 줄바꿈 입력을 처리하는 CLI에서 동작합니다.
 
 Codex, Claude Code 같은 fullscreen TUI 도구는 alternate screen을 사용할 수 있습니다. 이 모드에서는 오래된 출력이 일반 터미널 scrollback이 아니라 CLI 내부 화면에 들어가기 때문에, 일반 PowerShell 출력처럼 전부 위로 스크롤되지 않을 수 있습니다.
 
