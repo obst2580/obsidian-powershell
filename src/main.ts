@@ -22,7 +22,7 @@ const MACOS_PWSH_PATHS = ["/opt/homebrew/bin/pwsh", "/usr/local/bin/pwsh", "/opt
 const MACOS_NODE_PATHS = ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/opt/local/bin/node", "/usr/bin/node"];
 const LINUX_PWSH_PATHS = ["/usr/local/bin/pwsh", "/usr/bin/pwsh", "/snap/bin/pwsh"];
 const LINUX_NODE_PATHS = ["/usr/local/bin/node", "/usr/bin/node", "/bin/node"];
-const SHIFT_ENTER_SEQUENCES: Record<ShiftEnterMode, string> = {
+const SHIFT_ENTER_SEQUENCES: Record<Exclude<ShiftEnterMode, "xterm-paste">, string> = {
   "modified-enter": "\x1b[27;2;13~",
   "csi-u": "\x1b[13;2u",
   "bracketed-paste": "\x1b[200~\n\x1b[201~",
@@ -41,7 +41,7 @@ interface PowerShellSettings {
 }
 
 type TerminalColorScheme = "dark" | "light" | "obsidian";
-type ShiftEnterMode = "modified-enter" | "csi-u" | "bracketed-paste" | "line-feed";
+type ShiftEnterMode = "xterm-paste" | "modified-enter" | "csi-u" | "bracketed-paste" | "line-feed";
 type WindowsPtyBackend = "winpty" | "conpty";
 
 interface PtyHostConfig {
@@ -69,7 +69,7 @@ const DEFAULT_SETTINGS: PowerShellSettings = {
   args: "",
   nodeExecutable: "",
   terminalColorScheme: "obsidian",
-  shiftEnterMode: "modified-enter",
+  shiftEnterMode: "xterm-paste",
   windowsPtyBackend: "winpty",
   useSystemCa: false,
   extraCaCertPath: ""
@@ -285,7 +285,8 @@ class VaultPowerShellView extends ItemView {
   private themeObserver: MutationObserver | null = null;
   private pendingFitFrame: number | null = null;
   private windowKeydownHandler: ((event: KeyboardEvent) => void) | null = null;
-  private documentKeydownHandler: ((event: KeyboardEvent) => void) | null = null;
+  private handledShiftEnterEvents = new WeakSet<KeyboardEvent>();
+  private lastShiftEnterAt = 0;
   private wheelLineAccumulator = 0;
 
   constructor(leaf: WorkspaceLeaf, plugin: VaultPowerShellPlugin) {
@@ -324,10 +325,6 @@ class VaultPowerShellView extends ItemView {
     if (this.windowKeydownHandler) {
       window.removeEventListener("keydown", this.windowKeydownHandler, { capture: true });
       this.windowKeydownHandler = null;
-    }
-    if (this.documentKeydownHandler) {
-      document.removeEventListener("keydown", this.documentKeydownHandler, { capture: true });
-      this.documentKeydownHandler = null;
     }
     if (this.pendingFitFrame !== null) {
       cancelAnimationFrame(this.pendingFitFrame);
@@ -410,8 +407,6 @@ class VaultPowerShellView extends ItemView {
 
     this.windowKeydownHandler = (event) => this.handleGlobalShiftEnter(event);
     window.addEventListener("keydown", this.windowKeydownHandler, { capture: true });
-    this.documentKeydownHandler = (event) => this.handleGlobalShiftEnter(event);
-    document.addEventListener("keydown", this.documentKeydownHandler, { capture: true });
 
     container.addEventListener("contextmenu", (event) => {
       if (!terminal.hasSelection()) {
@@ -447,11 +442,40 @@ class VaultPowerShellView extends ItemView {
       return false;
     }
 
-    this.sendHostMessage({ type: "data", data: SHIFT_ENTER_SEQUENCES[this.plugin.settings.shiftEnterMode] });
+    if (!this.markShiftEnterHandled(event)) {
+      this.consumeKeyboardEvent(event);
+      return true;
+    }
+
+    const mode = this.plugin.settings.shiftEnterMode;
+    if (mode === "xterm-paste") {
+      this.terminal?.paste("\n");
+    } else {
+      this.sendHostMessage({ type: "data", data: SHIFT_ENTER_SEQUENCES[mode] });
+    }
+    this.consumeKeyboardEvent(event);
+    return true;
+  }
+
+  private markShiftEnterHandled(event: KeyboardEvent): boolean {
+    if (this.handledShiftEnterEvents.has(event)) {
+      return false;
+    }
+
+    this.handledShiftEnterEvents.add(event);
+    const now = Date.now();
+    if (now - this.lastShiftEnterAt < 80) {
+      return false;
+    }
+
+    this.lastShiftEnterAt = now;
+    return true;
+  }
+
+  private consumeKeyboardEvent(event: KeyboardEvent) {
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
-    return true;
   }
 
   private handleGlobalShiftEnter(event: KeyboardEvent) {
@@ -797,9 +821,10 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Shift+Enter behavior")
-      .setDesc("Modified Enter is the default for Claude Code and Codex multiline prompts. Reopen Vault Terminal after changing this.")
+      .setDesc("xterm paste newline is the default for Claude Code and Codex multiline prompts. Reopen Vault Terminal after changing this.")
       .addDropdown((dropdown) =>
         dropdown
+          .addOption("xterm-paste", "xterm paste newline")
           .addOption("modified-enter", "Modified Enter")
           .addOption("csi-u", "CSI-u Shift Enter")
           .addOption("bracketed-paste", "Bracketed newline paste")
@@ -1071,11 +1096,11 @@ function normalizeTerminalColorScheme(value: string | undefined): TerminalColorS
 }
 
 function normalizeShiftEnterMode(value: string | undefined): ShiftEnterMode {
-  if (value === "modified-enter" || value === "csi-u" || value === "bracketed-paste" || value === "line-feed") {
+  if (value === "xterm-paste" || value === "modified-enter" || value === "csi-u" || value === "bracketed-paste" || value === "line-feed") {
     return value;
   }
 
-  return "modified-enter";
+  return "xterm-paste";
 }
 
 function normalizeWindowsPtyBackend(value: string | undefined): WindowsPtyBackend {
