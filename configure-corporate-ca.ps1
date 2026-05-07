@@ -73,25 +73,6 @@ function Read-PluginData {
   }
 }
 
-function Set-PluginDataProperty {
-  param(
-    [Parameter(Mandatory = $true)]
-    [psobject]$Data,
-
-    [Parameter(Mandatory = $true)]
-    [string]$Name,
-
-    [AllowNull()]
-    $Value
-  )
-
-  if ($Data.PSObject.Properties.Name -contains $Name) {
-    $Data.$Name = $Value
-  } else {
-    $Data | Add-Member -NotePropertyName $Name -NotePropertyValue $Value
-  }
-}
-
 $resolvedVault = Resolve-Path -LiteralPath $VaultPath
 $obsidianDir = Join-Path $resolvedVault ".obsidian"
 $pluginDir = Join-Path $obsidianDir "plugins\$PluginId"
@@ -107,15 +88,15 @@ if (-not (Test-Path -LiteralPath $pluginDir)) {
 }
 
 $data = Read-PluginData -DataPath $dataPath
-Set-PluginDataProperty -Data $data -Name "useSystemCa" -Value $true
+$data.useSystemCa = $true
 
 if ($UseSystemCaOnly) {
-  Set-PluginDataProperty -Data $data -Name "extraCaCertPath" -Value ""
+  $data.extraCaCertPath = ""
 } elseif ($PemPath) {
   $resolvedPem = Resolve-Path -LiteralPath $PemPath
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $extraCaPath) | Out-Null
   Copy-Item -LiteralPath $resolvedPem -Destination $extraCaPath -Force
-  Set-PluginDataProperty -Data $data -Name "extraCaCertPath" -Value $ExtraCaRelativePath
+  $data.extraCaCertPath = $ExtraCaRelativePath
 } else {
   $certificate = Get-CertificateFromStore -Thumbprint $Thumbprint -SubjectMatch $SubjectMatch
 
@@ -125,7 +106,7 @@ if ($UseSystemCaOnly) {
 
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $extraCaPath) | Out-Null
   Set-Content -LiteralPath $extraCaPath -Value (ConvertTo-PemCertificate -Certificate $certificate) -Encoding ascii
-  Set-PluginDataProperty -Data $data -Name "extraCaCertPath" -Value $ExtraCaRelativePath
+  $data.extraCaCertPath = $ExtraCaRelativePath
 }
 
 $data | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $dataPath -Encoding UTF8
