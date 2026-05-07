@@ -70,7 +70,7 @@ const DEFAULT_SETTINGS: PowerShellSettings = {
   args: "",
   nodeExecutable: "",
   terminalColorScheme: "obsidian",
-  shiftEnterMode: "bracketed-paste",
+  shiftEnterMode: "claude-backslash",
   windowsPtyBackend: "winpty",
   useSystemCa: false,
   extraCaCertPath: ""
@@ -822,11 +822,11 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Shift+Enter behavior")
-      .setDesc("Bracketed newline paste is the default for Claude Code and Codex multiline prompts. Reopen Vault Terminal after changing this.")
+      .setDesc("Claude backslash newline is the default because it uses Claude Code's built-in multiline path. Reopen Vault Terminal after changing this.")
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("bracketed-paste", "Bracketed newline paste")
           .addOption("claude-backslash", "Claude backslash newline")
+          .addOption("bracketed-paste", "Bracketed newline paste")
           .addOption("xterm-paste", "xterm paste newline")
           .addOption("modified-enter", "Modified Enter")
           .addOption("csi-u", "CSI-u Shift Enter")
@@ -1107,7 +1107,7 @@ function normalizeShiftEnterMode(value: string | undefined): ShiftEnterMode {
     return value;
   }
 
-  return "bracketed-paste";
+  return "claude-backslash";
 }
 
 function normalizeWindowsPtyBackend(value: string | undefined): WindowsPtyBackend {
