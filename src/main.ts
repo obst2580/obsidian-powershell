@@ -23,6 +23,7 @@ const MACOS_NODE_PATHS = ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/opt
 const LINUX_PWSH_PATHS = ["/usr/local/bin/pwsh", "/usr/bin/pwsh", "/snap/bin/pwsh"];
 const LINUX_NODE_PATHS = ["/usr/local/bin/node", "/usr/bin/node", "/bin/node"];
 const SHIFT_ENTER_SEQUENCES: Record<Exclude<ShiftEnterMode, "xterm-paste">, string> = {
+  "claude-backslash": "\\\r",
   "modified-enter": "\x1b[27;2;13~",
   "csi-u": "\x1b[13;2u",
   "bracketed-paste": "\x1b[200~\n\x1b[201~",
@@ -41,7 +42,7 @@ interface PowerShellSettings {
 }
 
 type TerminalColorScheme = "dark" | "light" | "obsidian";
-type ShiftEnterMode = "xterm-paste" | "modified-enter" | "csi-u" | "bracketed-paste" | "line-feed";
+type ShiftEnterMode = "bracketed-paste" | "claude-backslash" | "xterm-paste" | "modified-enter" | "csi-u" | "line-feed";
 type WindowsPtyBackend = "winpty" | "conpty";
 
 interface PtyHostConfig {
@@ -69,7 +70,7 @@ const DEFAULT_SETTINGS: PowerShellSettings = {
   args: "",
   nodeExecutable: "",
   terminalColorScheme: "obsidian",
-  shiftEnterMode: "xterm-paste",
+  shiftEnterMode: "bracketed-paste",
   windowsPtyBackend: "winpty",
   useSystemCa: false,
   extraCaCertPath: ""
@@ -821,13 +822,14 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Shift+Enter behavior")
-      .setDesc("xterm paste newline is the default for Claude Code and Codex multiline prompts. Reopen Vault Terminal after changing this.")
+      .setDesc("Bracketed newline paste is the default for Claude Code and Codex multiline prompts. Reopen Vault Terminal after changing this.")
       .addDropdown((dropdown) =>
         dropdown
+          .addOption("bracketed-paste", "Bracketed newline paste")
+          .addOption("claude-backslash", "Claude backslash newline")
           .addOption("xterm-paste", "xterm paste newline")
           .addOption("modified-enter", "Modified Enter")
           .addOption("csi-u", "CSI-u Shift Enter")
-          .addOption("bracketed-paste", "Bracketed newline paste")
           .addOption("line-feed", "Line feed")
           .setValue(this.plugin.settings.shiftEnterMode)
           .onChange(async (value) => {
@@ -1096,11 +1098,16 @@ function normalizeTerminalColorScheme(value: string | undefined): TerminalColorS
 }
 
 function normalizeShiftEnterMode(value: string | undefined): ShiftEnterMode {
-  if (value === "xterm-paste" || value === "modified-enter" || value === "csi-u" || value === "bracketed-paste" || value === "line-feed") {
+  if (value === "bracketed-paste" ||
+    value === "claude-backslash" ||
+    value === "xterm-paste" ||
+    value === "modified-enter" ||
+    value === "csi-u" ||
+    value === "line-feed") {
     return value;
   }
 
-  return "xterm-paste";
+  return "bracketed-paste";
 }
 
 function normalizeWindowsPtyBackend(value: string | undefined): WindowsPtyBackend {
