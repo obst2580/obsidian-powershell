@@ -85,7 +85,7 @@ Ctrl + Shift + PageUp / PageDown
 Ctrl + Shift + Home / End
 ```
 
-멀티라인 입력을 지원하는 도구에서는 `Shift + Enter`로 줄바꿈을 넣을 수 있습니다. 기본값은 **Claude backslash newline**입니다. 이 모드는 Claude Code가 안내하는 줄 끝 `\` + Enter 멀티라인 경로를 사용하며, Claude Code가 입력창에서 이를 줄바꿈으로 변환합니다.
+멀티라인 입력을 지원하는 도구에서는 `Shift + Enter`로 줄바꿈을 넣을 수 있습니다. 기본값은 **Claude backslash newline**입니다. 이 모드는 Claude Code가 안내하는 줄 끝 `\` + Enter 멀티라인 경로를 사용하며, 한글 IME 마지막 글자가 먼저 커밋되도록 아주 짧게 지연한 뒤 Claude Code 입력창에서 줄바꿈으로 변환합니다.
 
 Windows에서는 기본 PTY backend가 **winpty**입니다. ConPTY는 Claude Code/Codex가 쓰는 일부 수정 키 입력 시퀀스를 프로그램에 전달하기 전에 필터링할 수 있어서, 멀티라인 입력이 필요한 agent CLI에는 winpty가 기본값입니다. 필요하면 플러그인 설정의 **Windows PTY backend**에서 ConPTY로 바꾸고 Vault Terminal 탭을 새로 엽니다.
 

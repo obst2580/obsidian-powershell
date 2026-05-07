@@ -29,6 +29,7 @@ const SHIFT_ENTER_SEQUENCES: Record<Exclude<ShiftEnterMode, "xterm-paste">, stri
   "bracketed-paste": "\x1b[200~\n\x1b[201~",
   "line-feed": "\n"
 };
+const CLAUDE_BACKSLASH_NEWLINE_DELAY_MS = 60;
 
 interface PowerShellSettings {
   executable: string;
@@ -287,6 +288,7 @@ class VaultPowerShellView extends ItemView {
   private pendingFitFrame: number | null = null;
   private windowKeydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private handledShiftEnterEvents = new WeakSet<KeyboardEvent>();
+  private pendingShiftEnterTimers = new Set<number>();
   private lastShiftEnterAt = 0;
   private wheelLineAccumulator = 0;
 
@@ -331,6 +333,8 @@ class VaultPowerShellView extends ItemView {
       cancelAnimationFrame(this.pendingFitFrame);
       this.pendingFitFrame = null;
     }
+    this.pendingShiftEnterTimers.forEach((timer) => window.clearTimeout(timer));
+    this.pendingShiftEnterTimers.clear();
     this.terminal?.dispose();
     this.terminal = null;
     this.terminalContainer = null;
@@ -451,11 +455,21 @@ class VaultPowerShellView extends ItemView {
     const mode = this.plugin.settings.shiftEnterMode;
     if (mode === "xterm-paste") {
       this.terminal?.paste("\n");
+    } else if (mode === "claude-backslash") {
+      this.sendDelayedShiftEnterSequence(mode);
     } else {
       this.sendHostMessage({ type: "data", data: SHIFT_ENTER_SEQUENCES[mode] });
     }
     this.consumeKeyboardEvent(event);
     return true;
+  }
+
+  private sendDelayedShiftEnterSequence(mode: Exclude<ShiftEnterMode, "xterm-paste">) {
+    const timer = window.setTimeout(() => {
+      this.pendingShiftEnterTimers.delete(timer);
+      this.sendHostMessage({ type: "data", data: SHIFT_ENTER_SEQUENCES[mode] });
+    }, CLAUDE_BACKSLASH_NEWLINE_DELAY_MS);
+    this.pendingShiftEnterTimers.add(timer);
   }
 
   private markShiftEnterHandled(event: KeyboardEvent): boolean {
