@@ -39,7 +39,7 @@ try {
   };
 
   if (process.platform === "win32") {
-    spawnOptions.useConpty = true;
+    spawnOptions.useConpty = config.windowsPtyBackend === "conpty";
   }
 
   terminal = pty.spawn(config.shell, config.args || [], spawnOptions);

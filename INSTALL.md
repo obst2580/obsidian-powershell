@@ -87,6 +87,8 @@ Ctrl + Shift + Home / End
 
 멀티라인 입력을 지원하는 도구에서는 `Shift + Enter`로 줄바꿈을 넣을 수 있습니다. 기본값은 Claude Code/Codex용 Modified Enter입니다. 도구에 따라 다르면 플러그인 설정의 **Shift+Enter behavior**를 CSI-u, bracketed newline paste, line feed 중 하나로 바꿉니다.
 
+Windows에서는 기본 PTY backend가 **winpty**입니다. ConPTY는 Claude Code/Codex가 쓰는 일부 수정 키 입력 시퀀스를 프로그램에 전달하기 전에 필터링할 수 있어서, 멀티라인 입력이 필요한 agent CLI에는 winpty가 기본값입니다. 필요하면 플러그인 설정의 **Windows PTY backend**에서 ConPTY로 바꾸고 Vault Terminal 탭을 새로 엽니다.
+
 Codex, Claude Code 같은 fullscreen TUI 도구는 alternate screen을 사용할 수 있습니다. 이 모드에서는 오래된 출력이 일반 터미널 scrollback이 아니라 CLI 내부 화면에 들어가기 때문에, 일반 PowerShell 출력처럼 전부 위로 스크롤되지 않을 수 있습니다.
 
 ## macOS / Linux 설치

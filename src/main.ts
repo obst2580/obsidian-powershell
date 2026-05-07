@@ -35,12 +35,14 @@ interface PowerShellSettings {
   nodeExecutable: string;
   terminalColorScheme: TerminalColorScheme;
   shiftEnterMode: ShiftEnterMode;
+  windowsPtyBackend: WindowsPtyBackend;
   useSystemCa: boolean;
   extraCaCertPath: string;
 }
 
 type TerminalColorScheme = "dark" | "light" | "obsidian";
 type ShiftEnterMode = "modified-enter" | "csi-u" | "bracketed-paste" | "line-feed";
+type WindowsPtyBackend = "winpty" | "conpty";
 
 interface PtyHostConfig {
   shell: string;
@@ -49,6 +51,7 @@ interface PtyHostConfig {
   rows: number;
   cwd: string;
   env: { [key: string]: string | undefined };
+  windowsPtyBackend: WindowsPtyBackend;
 }
 
 type HostInputMessage =
@@ -67,6 +70,7 @@ const DEFAULT_SETTINGS: PowerShellSettings = {
   nodeExecutable: "",
   terminalColorScheme: "obsidian",
   shiftEnterMode: "modified-enter",
+  windowsPtyBackend: "winpty",
   useSystemCa: false,
   extraCaCertPath: ""
 };
@@ -160,6 +164,7 @@ export default class VaultPowerShellPlugin extends Plugin {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, saved ?? {});
     this.settings.terminalColorScheme = normalizeTerminalColorScheme(this.settings.terminalColorScheme);
     this.settings.shiftEnterMode = normalizeShiftEnterMode(this.settings.shiftEnterMode);
+    this.settings.windowsPtyBackend = normalizeWindowsPtyBackend(this.settings.windowsPtyBackend);
   }
 
   async saveSettings() {
@@ -588,7 +593,8 @@ class VaultPowerShellView extends ItemView {
         cols: Math.max(terminal.cols, 80),
         rows: Math.max(terminal.rows, 24),
         cwd,
-        env
+        env,
+        windowsPtyBackend: this.plugin.settings.windowsPtyBackend
       })], {
         cwd: this.plugin.getPluginBasePath(),
         env,
@@ -805,6 +811,23 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
             new Notice("Reopen Vault Terminal to apply Shift+Enter behavior.");
           })
       );
+
+    if (process.platform === "win32") {
+      new Setting(containerEl)
+        .setName("Windows PTY backend")
+        .setDesc("winpty preserves raw agent CLI key sequences such as Shift+Enter. ConPTY may filter those sequences before Claude Code/Codex can read them.")
+        .addDropdown((dropdown) =>
+          dropdown
+            .addOption("winpty", "winpty")
+            .addOption("conpty", "ConPTY")
+            .setValue(this.plugin.settings.windowsPtyBackend)
+            .onChange(async (value) => {
+              this.plugin.settings.windowsPtyBackend = normalizeWindowsPtyBackend(value);
+              await this.plugin.saveSettings();
+              new Notice("Reopen Vault Terminal to apply the PTY backend.");
+            })
+        );
+    }
 
     new Setting(containerEl)
       .setName("Use system certificate store")
@@ -1053,6 +1076,10 @@ function normalizeShiftEnterMode(value: string | undefined): ShiftEnterMode {
   }
 
   return "modified-enter";
+}
+
+function normalizeWindowsPtyBackend(value: string | undefined): WindowsPtyBackend {
+  return value === "conpty" ? "conpty" : "winpty";
 }
 
 function isObsidianDarkTheme(): boolean {

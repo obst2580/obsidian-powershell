@@ -12,6 +12,7 @@ An Obsidian desktop plugin that turns a right-sidebar tab into a real terminal r
 - Lets tools such as Claude Code, Codex, Git, Python, and npm run inside that shell.
 - Supports terminal text selection and copy.
 - Sends Shift+Enter as Modified Enter by default for multiline prompts in compatible shells and CLI tools.
+- Uses winpty by default on Windows so agent CLI key sequences are delivered as raw input.
 - Follows the current Obsidian theme by default while keeping terminal ANSI colors readable.
 - Keeps a larger terminal scrollback and supports forced scrollback with Shift+Wheel or Ctrl+Shift+PageUp/PageDown.
 - Supports configurable Node TLS/CA settings for corporate SSL inspection.
@@ -62,6 +63,8 @@ Default shell selection:
 - Linux: `pwsh` when available, otherwise the user's `$SHELL`, then `bash`/`sh`.
 
 Because the PTY runtime is native, install dependencies on the same OS that will run the plugin before copying it into a vault.
+
+On Windows, the default PTY backend is **winpty**. ConPTY filters some raw keyboard/paste escape sequences before Node-based CLIs can read them, including the modified Enter sequences needed by Claude Code/Codex multiline prompts. If a shell behaves better under ConPTY for your environment, change **Windows PTY backend** in plugin settings and reopen Vault Terminal.
 
 On macOS, Obsidian may not inherit the same `PATH` as a login shell. The plugin adds common Homebrew and system paths automatically, but users with `node` installed only through `nvm` may need to set **Node executable** to an absolute path in plugin settings.
 
