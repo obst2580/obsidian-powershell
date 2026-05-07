@@ -22,6 +22,7 @@ const MACOS_PWSH_PATHS = ["/opt/homebrew/bin/pwsh", "/usr/local/bin/pwsh", "/opt
 const MACOS_NODE_PATHS = ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/opt/local/bin/node", "/usr/bin/node"];
 const LINUX_PWSH_PATHS = ["/usr/local/bin/pwsh", "/usr/bin/pwsh", "/snap/bin/pwsh"];
 const LINUX_NODE_PATHS = ["/usr/local/bin/node", "/usr/bin/node", "/bin/node"];
+const SHIFT_ENTER_SEQUENCE = "\x1b[13;2u";
 
 interface PowerShellSettings {
   executable: string;
@@ -364,6 +365,10 @@ class VaultPowerShellView extends ItemView {
         return false;
       }
 
+      if (this.handleShiftEnter(event)) {
+        return false;
+      }
+
       if (this.handleScrollKey(event, terminal)) {
         return false;
       }
@@ -402,6 +407,15 @@ class VaultPowerShellView extends ItemView {
     requestAnimationFrame(() => {
       this.fitTerminal();
     });
+  }
+
+  private handleShiftEnter(event: KeyboardEvent): boolean {
+    if (event.key !== "Enter" || !event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) {
+      return false;
+    }
+
+    this.sendHostMessage({ type: "data", data: SHIFT_ENTER_SEQUENCE });
+    return true;
   }
 
   private handleScrollKey(event: KeyboardEvent, terminal: Terminal): boolean {
