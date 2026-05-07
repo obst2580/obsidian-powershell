@@ -1,38 +1,85 @@
 # Vault Terminal
 
-An Obsidian desktop plugin that turns a right-sidebar tab into a real terminal rooted at the current vault path.
+Obsidian 데스크톱 앱의 우측 사이드바에 현재 볼트 경로를 작업 디렉터리로 사용하는 실제 터미널을 여는 플러그인입니다.
 
-> Status: early desktop beta. Windows is the primary tested path; macOS and Linux support is included through platform-specific shell and install handling.
+> 상태: 초기 데스크톱 베타입니다. Windows와 macOS 릴리스 패키지를 배포하며, Linux는 소스 설치 경로를 유지합니다.
 
-## What It Does
+## 주요 기능
 
-- Starts a terminal automatically when the tab opens.
-- Uses the current Obsidian vault as the shell working directory.
-- Runs normal interactive shell commands directly in the tab.
-- Lets tools such as Claude Code, Codex, Git, Python, and npm run inside that shell.
-- Supports terminal text selection and copy.
-- Sends Shift+Enter through Claude Code's backslash newline path by default for multiline prompts, with a short IME-safe delay for composed text.
-- Uses winpty by default on Windows so agent CLI key sequences are delivered as raw input.
-- Follows the current Obsidian theme by default while keeping terminal ANSI colors readable.
-- Keeps a larger terminal scrollback and supports forced scrollback with Shift+Wheel or Ctrl+Shift+PageUp/PageDown.
-- Supports configurable Node TLS/CA settings for corporate SSL inspection.
+- Vault Terminal 탭을 열면 터미널이 자동으로 시작됩니다.
+- 현재 Obsidian 볼트가 셸의 작업 디렉터리가 됩니다.
+- PowerShell, zsh, bash 같은 일반 셸 명령을 탭 안에서 실행합니다.
+- Claude Code, Codex CLI, Git, Python, npm 같은 CLI 도구를 볼트 기준으로 실행합니다.
+- 터미널 텍스트 선택과 복사를 지원합니다.
+- Claude Code 멀티라인 입력을 위해 `Shift + Enter`를 기본적으로 Claude의 `\` + Return 줄바꿈 경로로 보냅니다.
+- 한글 IME 조합 중 마지막 글자가 다음 줄로 밀리지 않도록 짧은 지연 후 줄바꿈을 보냅니다.
+- Obsidian 테마를 기본으로 따르되 Codex/Claude Code ANSI 색상이 읽히도록 터미널 팔레트를 보정합니다.
+- 긴 scrollback과 `Shift + Wheel`, `Ctrl + Shift + PageUp/PageDown` 강제 스크롤을 지원합니다.
+- 회사 SSL 검사 환경을 위해 Node TLS/CA 설정을 선택적으로 주입할 수 있습니다.
 
-## Development
+## 릴리스 다운로드
 
-For employee-facing installation steps, see [INSTALL.md](INSTALL.md).
+GitHub Actions가 태그 릴리스마다 OS별 ZIP을 자동 생성합니다.
+
+| 파일 | 대상 |
+| --- | --- |
+| `VaultTerminal-<version>-windows-x64.zip` | Windows x64 |
+| `VaultTerminal-<version>-macos-x64.zip` | macOS Intel |
+| `VaultTerminal-<version>-macos-arm64.zip` | macOS Apple Silicon |
+
+릴리스 페이지:
+
+```text
+https://github.com/obst2580/obsidian-powershell/releases
+```
+
+Windows 회사 인증서 설정 스크립트도 릴리스 asset으로 함께 올라갑니다.
+
+```text
+configure-corporate-ca.ps1
+configure-corporate-ca.cmd
+```
+
+## 설치
+
+플러그인은 볼트마다 설치됩니다. ZIP을 아래 경로에 압축 해제합니다.
+
+```text
+<볼트경로>/.obsidian/plugins/obsidian-powershell-agent/
+```
+
+압축 해제 후 플러그인 폴더에는 다음 파일과 폴더가 있어야 합니다.
+
+```text
+manifest.json
+main.js
+styles.css
+pty-host.js
+node_modules/
+```
+
+Obsidian을 재시작한 뒤 아래 메뉴에서 플러그인을 활성화합니다.
+
+```text
+Settings > Community plugins > Vault Terminal > Enable
+```
+
+업데이트할 때도 같은 위치에 새 ZIP을 덮어쓴 뒤 Obsidian을 재시작하거나 플러그인을 껐다 켭니다.
+
+## 개발
 
 ```powershell
 npm install
 npm run build
 ```
 
-Install into a Windows vault:
+Windows 볼트에 설치:
 
 ```powershell
 .\install.ps1 -VaultPath "C:\path\to\vault"
 ```
 
-Install into a macOS/Linux vault:
+macOS/Linux 볼트에 설치:
 
 ```bash
 npm install
@@ -40,88 +87,130 @@ npm run build
 ./install.sh /path/to/vault
 ```
 
-Then enable **Vault Terminal** in Obsidian community plugins.
+로컬 릴리스 ZIP 생성:
 
-## Runtime Files
-
-The plugin uses `xterm` for the terminal UI and `node-pty` for a real pseudo-terminal. The install script copies:
-
-```text
-manifest.json
-main.js
-styles.css
-pty-host.js
-node_modules/@homebridge/node-pty-prebuilt-multiarch/
+```powershell
+pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 -OutputDir dist
 ```
 
-`pty-host.js` runs as a separate Node process so the native PTY does not run inside Obsidian's renderer process.
+## GitHub Actions 릴리스
 
-Default shell selection:
+태그를 푸시하면 `.github/workflows/release.yml`이 실행됩니다.
 
-- Windows: PowerShell 7 when available, otherwise Windows PowerShell.
-- macOS: `pwsh` from Homebrew when available, otherwise the user's `$SHELL`, then `zsh`/`bash`.
-- Linux: `pwsh` when available, otherwise the user's `$SHELL`, then `bash`/`sh`.
+```powershell
+git tag v0.1.14
+git push origin v0.1.14
+```
 
-Because the PTY runtime is native, install dependencies on the same OS that will run the plugin before copying it into a vault.
+워크플로는 다음 작업을 수행합니다.
 
-On Windows, the default PTY backend is **winpty**. ConPTY filters some raw keyboard/paste escape sequences before Node-based CLIs can read them, including the modified Enter sequences needed by Claude Code/Codex multiline prompts. If a shell behaves better under ConPTY for your environment, change **Windows PTY backend** in plugin settings and reopen Vault Terminal.
+- `npm ci`
+- `npm run build`
+- OS별 ZIP 패키징
+- GitHub Release 생성 또는 기존 Release asset 갱신
 
-On macOS, Obsidian may not inherit the same `PATH` as a login shell. The plugin adds common Homebrew and system paths automatically, but users with `node` installed only through `nvm` may need to set **Node executable** to an absolute path in plugin settings.
+사용하는 GitHub-hosted runner:
 
-## Terminal Appearance
+- `windows-latest`: Windows x64 패키지
+- `macos-13`: macOS Intel x64 패키지
+- `macos-14`: macOS Apple Silicon arm64 패키지
 
-The default terminal color scheme is **Follow Obsidian**. It uses the current Obsidian background and text colors while keeping a terminal-safe ANSI palette for tools such as Codex and Claude Code. You can change it in **Settings > Vault Terminal**:
+macOS runner 라벨은 GitHub 공식 hosted runner 문서를 기준으로 선택했습니다.
 
-- **Follow Obsidian**: uses the current Obsidian background and text colors while keeping a terminal-safe ANSI palette.
-- **Light terminal**: high-contrast light palette.
-- **Dark terminal**: high-contrast dark palette.
+## 런타임 파일
 
-Scrolling notes:
+이 플러그인은 터미널 UI에 `xterm`, 실제 pseudo-terminal에 `node-pty` 런타임을 사용합니다.
 
-- The terminal keeps 50,000 lines of scrollback for normal shell output.
-- Use **Shift + Enter** for multiline prompts in Claude Code. The default sends backslash plus Return, which Claude Code documents as its multiline path and converts into an inserted newline. The send is slightly delayed so Korean IME composition can commit the last syllable before the newline. Other modes remain available in **Shift+Enter behavior** for tools that support bracketed paste or modified Enter.
-- Use **Shift + mouse wheel** to force terminal scrollback when a CLI captures mouse input.
-- Use **Ctrl + Shift + PageUp/PageDown** to move by page.
-- Fullscreen TUI tools may use an alternate screen buffer; in that mode, older output belongs to the CLI's own UI rather than normal terminal scrollback.
+`pty-host.js`는 Obsidian renderer 프로세스 안에서 native PTY를 직접 로드하지 않도록 별도 Node 프로세스로 실행됩니다.
 
-## SSL / Corporate Proxy
+기본 셸 선택:
 
-By default, the plugin does not change Node TLS or certificate behavior and does not ship any corporate certificates.
+- Windows: PowerShell 7이 있으면 PowerShell 7, 없으면 Windows PowerShell
+- macOS: Homebrew `pwsh`가 있으면 `pwsh`, 없으면 사용자 `$SHELL`, 그 다음 `zsh`/`bash`
+- Linux: `pwsh`가 있으면 `pwsh`, 없으면 사용자 `$SHELL`, 그 다음 `bash`/`sh`
 
-For users behind a corporate TLS inspection proxy, the plugin can optionally inject TLS-related environment variables into the terminal:
+native PTY 런타임이 포함되므로 릴리스 ZIP은 OS/아키텍처별로 분리됩니다.
 
-- `NODE_OPTIONS=--use-system-ca`
-- `NODE_EXTRA_CA_CERTS=<path>`
-- `SSL_CERT_FILE=<path>`
-- `REQUESTS_CA_BUNDLE=<path>`
+## Windows PTY
 
-Configure these in **Settings > Vault Terminal**:
+Windows 기본 PTY backend는 `winpty`입니다.
 
-- **Use system certificate store**: off by default; enables Node's system CA store when explicitly turned on.
-- **Extra CA certificate**: optional PEM file path for corporate proxy root certificates. Relative paths are resolved from this plugin folder, for example `certs/extra-ca.pem`.
+ConPTY는 일부 raw keyboard/paste escape sequence를 Node 기반 CLI가 읽기 전에 필터링할 수 있습니다. Claude Code/Codex 같은 agent CLI의 특수 입력을 안정적으로 전달하기 위해 Windows 기본값은 `winpty`입니다.
 
-Do not disable TLS verification globally unless you fully understand the security impact.
+환경에 따라 ConPTY가 더 잘 맞으면 플러그인 설정에서 바꿀 수 있습니다.
 
-For internal company deployment, keep the public release certificate-free and apply corporate CA settings after installation:
+```text
+Settings > Vault Terminal > Windows PTY backend
+```
+
+## Shift + Enter
+
+기본값은 **Claude backslash newline**입니다.
+
+Claude Code는 줄 끝의 `\` + Return을 멀티라인 줄바꿈으로 처리합니다. Vault Terminal은 `Shift + Enter`를 이 경로로 보내며, 한글 IME 마지막 글자가 먼저 커밋되도록 짧게 지연합니다.
+
+다른 도구를 위해 아래 모드도 남겨두었습니다.
+
+- `Claude backslash newline`
+- `Bracketed newline paste`
+- `xterm paste newline`
+- `Modified Enter`
+- `CSI-u Shift Enter`
+- `Line feed`
+
+설정 위치:
+
+```text
+Settings > Vault Terminal > Shift+Enter behavior
+```
+
+## 화면 색상과 스크롤
+
+기본 색상은 **Follow Obsidian**입니다. Obsidian의 라이트/다크 테마를 따르되, 터미널 ANSI 색상은 읽기 쉬운 팔레트로 보정합니다.
+
+스크롤 관련 동작:
+
+- 일반 출력은 50,000줄 scrollback을 유지합니다.
+- CLI가 마우스 입력을 잡고 있으면 `Shift + mouse wheel`로 터미널 scrollback을 강제 스크롤합니다.
+- `Ctrl + Shift + PageUp/PageDown`으로 페이지 단위 이동을 할 수 있습니다.
+- fullscreen TUI 도구는 alternate screen buffer를 사용할 수 있습니다. 이 경우 오래된 출력은 일반 scrollback이 아니라 CLI 내부 화면에 있을 수 있습니다.
+
+## SSL / 회사 프록시
+
+기본 설치 상태에서는 Node TLS 또는 인증서 동작을 바꾸지 않고, 회사 인증서를 포함하지 않습니다.
+
+회사 TLS inspection proxy 뒤에서 Claude Code 같은 Node 기반 CLI가 아래 오류를 내면 인증서 설정이 필요할 수 있습니다.
+
+```text
+Self-signed certificate detected
+Unable to connect to API
+```
+
+플러그인 설정:
+
+- **Use system certificate store**: Node의 system CA store 사용
+- **Extra CA certificate**: PEM 인증서 파일 경로. 상대 경로는 플러그인 폴더 기준입니다.
+
+Windows에서 회사 루트 인증서를 내보내고 설정하려면 릴리스의 스크립트를 사용합니다.
 
 ```powershell
 .\configure-corporate-ca.ps1 -VaultPath "C:\path\to\vault" -Thumbprint "<company-root-ca-thumbprint>"
 ```
 
-`.ps1` files are PowerShell scripts. Browsers do not execute them automatically; run them from PowerShell, or download `configure-corporate-ca.cmd` next to the `.ps1` file and double-click the `.cmd` wrapper for an interactive prompt.
-
-If your security team provides a PEM file instead of relying on the Windows certificate store:
+PEM 파일을 직접 받은 경우:
 
 ```powershell
 .\configure-corporate-ca.ps1 -VaultPath "C:\path\to\vault" -PemPath "C:\path\to\company-ca.pem"
 ```
 
-The script writes the PEM to `certs/extra-ca.pem` inside the installed plugin folder and updates `data.json` so new terminal sessions inherit the required TLS environment variables.
+브라우저는 `.ps1`을 자동 실행하지 않습니다. PowerShell에서 직접 실행하거나, 같은 폴더에 있는 `configure-corporate-ca.cmd`를 실행합니다.
 
-## Distribution Notes
+## 배포 메모
 
-This plugin uses a native PTY runtime and a helper process. Standard Obsidian Community Plugin installation downloads `manifest.json`, `main.js`, and `styles.css`; this plugin also needs `pty-host.js` and the `node-pty` runtime folder. For public use, package it as a GitHub release/BRAT beta first, or replace the native runtime with a distribution model accepted by the Obsidian review process.
+Obsidian Community Plugin 표준 설치는 보통 `manifest.json`, `main.js`, `styles.css`만 다룹니다. 이 플러그인은 실제 터미널을 위해 `pty-host.js`와 native `node-pty` 런타임도 필요합니다.
 
-## License
+따라서 현재 배포 방식은 GitHub Release ZIP 설치를 기준으로 합니다.
+
+## 라이선스
 
 MIT

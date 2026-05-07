@@ -1,0 +1,99 @@
+name: Release packages
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }} ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            platform: windows
+            arch: x64
+          - runner: macos-13
+            platform: macos
+            arch: x64
+          - runner: macos-14
+            platform: macos
+            arch: arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build plugin
+        run: npm run build
+
+      - name: Package plugin
+        shell: pwsh
+        run: ./scripts/package-release.ps1 -Platform "${{ matrix.platform }}" -Arch "${{ matrix.arch }}" -OutputDir dist
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VaultTerminal-${{ matrix.platform }}-${{ matrix.arch }}
+          path: dist/*.zip
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          version="${TAG_NAME#v}"
+          notes_file="$(mktemp)"
+          cat > "$notes_file" <<NOTES
+          ## Vault Terminal $version
+
+          자동 빌드된 릴리스입니다.
+
+          포함 패키지:
+          - Windows x64
+          - macOS Intel x64
+          - macOS Apple Silicon arm64
+
+          기존 볼트에 업데이트한 뒤에는 Obsidian을 재시작하거나 플러그인을 껐다 켜고 Vault Terminal 탭을 새로 여세요.
+          NOTES
+
+          if gh release view "$TAG_NAME" --repo "$REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" dist/*.zip configure-corporate-ca.ps1 configure-corporate-ca.cmd --repo "$REPOSITORY" --clobber
+          else
+            gh release create "$TAG_NAME" dist/*.zip configure-corporate-ca.ps1 configure-corporate-ca.cmd --repo "$REPOSITORY" --title "Vault Terminal $version" --notes-file "$notes_file" --latest
+          fi
