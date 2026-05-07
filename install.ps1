@@ -36,10 +36,10 @@ if (-not (Test-Path -LiteralPath $ptySource)) {
 
 New-Item -ItemType Directory -Force -Path $homebridgeTarget | Out-Null
 
-if (-not (Test-Path -LiteralPath $ptyTarget)) {
-  Copy-Item -LiteralPath $ptySource -Destination $homebridgeTarget -Recurse -Force
-} else {
-  Write-Host "Runtime dependency already exists, skipping node-pty copy: $ptyTarget"
+if (Test-Path -LiteralPath $ptyTarget) {
+  Remove-Item -LiteralPath $ptyTarget -Recurse -Force
 }
+
+Copy-Item -LiteralPath $ptySource -Destination $homebridgeTarget -Recurse -Force
 
 Write-Host "Installed $pluginId to $target"

@@ -39,10 +39,10 @@ fi
 
 mkdir -p "$runtime_root"
 
-if [[ ! -d "$runtime_target" ]]; then
-  cp -R "$runtime_source" "$runtime_root/"
-else
-  echo "Runtime dependency already exists, skipping node-pty copy: $runtime_target"
+if [[ -d "$runtime_target" ]]; then
+  rm -rf "$runtime_target"
 fi
+
+cp -R "$runtime_source" "$runtime_root/"
 
 echo "Installed $PLUGIN_ID to $TARGET"

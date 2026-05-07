@@ -98,8 +98,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 태그를 푸시하면 `.github/workflows/release.yml`이 실행됩니다.
 
 ```powershell
-git tag v0.1.14
-git push origin v0.1.14
+git tag v<version>
+git push origin v<version>
 ```
 
 워크플로는 다음 작업을 수행합니다.

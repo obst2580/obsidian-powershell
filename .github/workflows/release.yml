@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -30,6 +30,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -59,10 +61,37 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      actions: read
+      contents: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify release version
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG_NAME#v}"
+          manifest_version="$(node -p "require('./manifest.json').version")"
+          package_version="$(node -p "require('./package.json').version")"
+
+          if [ "$TAG_NAME" = "$version" ]; then
+            echo "Release tags must start with v, for example v0.1.15." >&2
+            exit 1
+          fi
+
+          if [ "$version" != "$manifest_version" ] || [ "$version" != "$package_version" ]; then
+            echo "Tag version ($version), manifest.json ($manifest_version), and package.json ($package_version) must match." >&2
+            exit 1
+          fi
 
       - name: Download packages
         uses: actions/download-artifact@v4

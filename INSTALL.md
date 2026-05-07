@@ -20,7 +20,7 @@ Vault Terminal은 Obsidian 우측 탭에 현재 볼트 경로를 작업 디렉�
 예시:
 
 ```text
-VaultTerminal-0.1.0-windows.zip
+VaultTerminal-<version>-windows-x64.zip
 ```
 
 설치할 Obsidian 볼트 경로를 확인합니다.
@@ -91,16 +91,15 @@ Windows에서는 기본 PTY backend가 **winpty**입니다. ConPTY는 Claude Cod
 
 Codex, Claude Code 같은 fullscreen TUI 도구는 alternate screen을 사용할 수 있습니다. 이 모드에서는 오래된 출력이 일반 터미널 scrollback이 아니라 CLI 내부 화면에 들어가기 때문에, 일반 PowerShell 출력처럼 전부 위로 스크롤되지 않을 수 있습니다.
 
-## macOS / Linux 설치
+## macOS 설치
 
-macOS 또는 Linux에서는 해당 OS에서 만들어진 패키지를 사용해야 합니다.
+macOS에서는 CPU 아키텍처에 맞는 패키지를 사용해야 합니다.
 
 예시:
 
 ```text
-VaultTerminal-0.1.0-macos-arm64.zip
-VaultTerminal-0.1.0-macos-x64.zip
-VaultTerminal-0.1.0-linux-x64.zip
+VaultTerminal-<version>-macos-arm64.zip
+VaultTerminal-<version>-macos-x64.zip
 ```
 
 ZIP 파일을 아래 위치에 압축 해제합니다.
@@ -116,6 +115,18 @@ Settings > Community plugins > Vault Terminal > Enable
 ```
 
 macOS에서 Node.js를 `nvm`으로만 설치한 경우 Obsidian이 Node 경로를 자동으로 찾지 못할 수 있습니다. 이 경우 플러그인 설정의 **Node executable**에 절대경로를 입력합니다.
+
+## Linux 설치
+
+현재 GitHub Release ZIP은 Windows x64, macOS Intel x64, macOS Apple Silicon arm64를 배포합니다.
+
+Linux에서는 소스에서 빌드한 뒤 설치합니다.
+
+```bash
+npm install
+npm run build
+./install.sh /path/to/vault
+```
 
 ## 여러 볼트에 설치
 
