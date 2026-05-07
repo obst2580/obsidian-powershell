@@ -11,7 +11,7 @@ An Obsidian desktop plugin that turns a right-sidebar tab into a real terminal r
 - Runs normal interactive shell commands directly in the tab.
 - Lets tools such as Claude Code, Codex, Git, Python, and npm run inside that shell.
 - Supports terminal text selection and copy.
-- Sends Shift+Enter as a bracketed newline paste for multiline prompts in compatible shells and CLI tools.
+- Sends Shift+Enter as Modified Enter by default for multiline prompts in compatible shells and CLI tools.
 - Follows the current Obsidian theme by default while keeping terminal ANSI colors readable.
 - Keeps a larger terminal scrollback and supports forced scrollback with Shift+Wheel or Ctrl+Shift+PageUp/PageDown.
 - Supports configurable Node TLS/CA settings for corporate SSL inspection.
@@ -76,7 +76,7 @@ The default terminal color scheme is **Follow Obsidian**. It uses the current Ob
 Scrolling notes:
 
 - The terminal keeps 50,000 lines of scrollback for normal shell output.
-- Use **Shift + Enter** for multiline prompts in compatible tools such as Claude Code and Codex. The plugin sends a bracketed newline paste so agent CLIs can treat it as inserted text instead of a submitted command.
+- Use **Shift + Enter** for multiline prompts in compatible tools such as Claude Code and Codex. The default sends a Modified Enter sequence; if a CLI expects another mode, change **Shift+Enter behavior** in plugin settings to CSI-u, bracketed newline paste, or line feed.
 - Use **Shift + mouse wheel** to force terminal scrollback when a CLI captures mouse input.
 - Use **Ctrl + Shift + PageUp/PageDown** to move by page.
 - Fullscreen TUI tools may use an alternate screen buffer; in that mode, older output belongs to the CLI's own UI rather than normal terminal scrollback.
