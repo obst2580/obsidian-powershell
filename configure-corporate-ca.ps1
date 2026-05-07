@@ -1,6 +1,5 @@
 param(
-  [Parameter(Mandatory = $true)]
-  [string]$VaultPath,
+  [string]$VaultPath = "",
 
   [string]$Thumbprint = "",
 
@@ -41,9 +40,9 @@ function Get-CertificateFromStore {
   $certificates = Get-ChildItem -Path $stores -ErrorAction SilentlyContinue
 
   if ($Thumbprint) {
-    $normalizedThumbprint = $Thumbprint -replace "\s", ""
+    $normalizedThumbprint = $Thumbprint -replace "[^0-9A-Fa-f]", ""
     return $certificates |
-      Where-Object { ($_.Thumbprint -replace "\s", "") -ieq $normalizedThumbprint } |
+      Where-Object { ($_.Thumbprint -replace "[^0-9A-Fa-f]", "") -ieq $normalizedThumbprint } |
       Select-Object -First 1
   }
 
@@ -70,6 +69,33 @@ function Read-PluginData {
     terminalColorScheme = "obsidian"
     useSystemCa = $false
     extraCaCertPath = ""
+  }
+}
+
+if (-not $VaultPath.Trim()) {
+  $VaultPath = Read-Host "Obsidian vault path"
+}
+
+$VaultPath = $VaultPath.Trim().Trim('"')
+$Thumbprint = $Thumbprint.Trim().Trim('"')
+$SubjectMatch = $SubjectMatch.Trim()
+$PemPath = $PemPath.Trim().Trim('"')
+
+if (-not $VaultPath) {
+  throw "Vault path is required."
+}
+
+if (-not ($Thumbprint -or $SubjectMatch -or $PemPath -or $UseSystemCaOnly)) {
+  $Thumbprint = Read-Host "CA thumbprint (blank if using PEM)"
+  $Thumbprint = $Thumbprint.Trim().Trim('"')
+
+  if (-not $Thumbprint) {
+    $PemPath = Read-Host "PEM path (blank for system CA only)"
+    $PemPath = $PemPath.Trim().Trim('"')
+
+    if (-not $PemPath) {
+      $UseSystemCaOnly = $true
+    }
   }
 }
 

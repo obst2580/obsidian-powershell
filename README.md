@@ -103,6 +103,8 @@ For internal company deployment, keep the public release certificate-free and ap
 .\configure-corporate-ca.ps1 -VaultPath "C:\path\to\vault" -Thumbprint "<company-root-ca-thumbprint>"
 ```
 
+`.ps1` files are PowerShell scripts. Browsers do not execute them automatically; run them from PowerShell, or download `configure-corporate-ca.cmd` next to the `.ps1` file and double-click the `.cmd` wrapper for an interactive prompt.
+
 If your security team provides a PEM file instead of relying on the Windows certificate store:
 
 ```powershell

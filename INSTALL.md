@@ -250,6 +250,10 @@ SSL 오류가 발생하면:
   -Thumbprint "<company-root-ca-thumbprint>"
 ```
 
+`ps1` 파일은 PowerShell 스크립트입니다. 브라우저에서 클릭해도 자동 실행되지 않으므로 PowerShell에서 실행해야 합니다.
+
+더 단순하게 안내하려면 `configure-corporate-ca.ps1`과 `configure-corporate-ca.cmd`를 같은 폴더에 받은 뒤 `configure-corporate-ca.cmd`를 더블클릭하게 합니다. 그러면 볼트 경로와 인증서 thumbprint 또는 PEM 경로를 입력하는 창이 열립니다.
+
 PEM 파일을 보안팀에서 따로 제공하는 경우:
 
 ```powershell
