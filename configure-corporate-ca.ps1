@@ -7,7 +7,7 @@ param(
 
   [string]$PemPath = "",
 
-  [string]$PluginId = "obsidian-powershell-agent",
+  [string]$PluginId = "vault-terminal",
 
   [string]$ExtraCaRelativePath = "certs/extra-ca.pem",
 

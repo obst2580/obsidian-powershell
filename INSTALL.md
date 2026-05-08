@@ -37,13 +37,13 @@ C:\obsidian\labide-validation
 ZIP 파일을 아래 위치에 압축 해제합니다.
 
 ```text
-<볼트경로>\.obsidian\plugins\obsidian-powershell-agent\
+<볼트경로>\.obsidian\plugins\vault-terminal\
 ```
 
 예시:
 
 ```text
-C:\obsidian\labide-validation\.obsidian\plugins\obsidian-powershell-agent\
+C:\obsidian\labide-validation\.obsidian\plugins\vault-terminal\
 ```
 
 압축 해제 후 폴더 안에 다음 파일과 폴더가 있어야 합니다.
@@ -108,7 +108,7 @@ VaultTerminal-<version>-macos-x64.zip
 ZIP 파일을 아래 위치에 압축 해제합니다.
 
 ```text
-<볼트경로>/.obsidian/plugins/obsidian-powershell-agent/
+<볼트경로>/.obsidian/plugins/vault-terminal/
 ```
 
 Obsidian을 재시작한 뒤 플러그인을 활성화합니다.
@@ -133,7 +133,7 @@ npm run build
 
 ## 여러 볼트에 설치
 
-플러그인은 볼트별로 설치됩니다. 다른 볼트에서도 쓰려면 각 볼트의 `.obsidian/plugins/obsidian-powershell-agent` 폴더에 동일하게 설치해야 합니다.
+플러그인은 볼트별로 설치됩니다. 다른 볼트에서도 쓰려면 각 볼트의 `.obsidian/plugins/vault-terminal` 폴더에 동일하게 설치해야 합니다.
 
 Windows에서 설치 스크립트를 사용하는 경우:
 
@@ -200,8 +200,10 @@ certs/extra-ca.pem
 새 ZIP 파일을 받으면 기존 폴더에 덮어씁니다.
 
 ```text
-<볼트경로>\.obsidian\plugins\obsidian-powershell-agent\
+<볼트경로>\.obsidian\plugins\vault-terminal\
 ```
+
+`0.1.x`에서 업데이트하는 경우 플러그인 ID가 `obsidian-powershell-agent`에서 `vault-terminal`로 바뀌었습니다. 설치 스크립트는 기존 `data.json`과 `certs` 폴더를 새 위치로 복사합니다. 수동 설치 시에는 기존 설정이 필요하면 직접 옮긴 뒤 이전 폴더를 제거하세요.
 
 덮어쓴 뒤 Obsidian을 재시작합니다.
 
@@ -222,7 +224,7 @@ Settings > Community plugins > Vault Terminal > Disable
 그 다음 아래 폴더를 삭제합니다.
 
 ```text
-<볼트경로>\.obsidian\plugins\obsidian-powershell-agent\
+<볼트경로>\.obsidian\plugins\vault-terminal\
 ```
 
 ## 문제 해결
@@ -233,7 +235,7 @@ Settings > Community plugins > Vault Terminal > Disable
 - `manifest.json`이 바로 아래 경로에 있는지 확인합니다.
 
 ```text
-<볼트경로>\.obsidian\plugins\obsidian-powershell-agent\manifest.json
+<볼트경로>\.obsidian\plugins\vault-terminal\manifest.json
 ```
 
 터미널이 열리지 않으면:
@@ -295,7 +297,9 @@ PEM 파일을 보안팀에서 따로 제공하는 경우:
 
 Vault Terminal은 Obsidian 볼트 경로에서 실제 터미널 명령을 실행할 수 있게 하는 플러그인입니다.
 
-- 신뢰된 내부 배포본만 설치합니다.
+- 신뢰할 수 있는 배포본만 설치합니다.
 - 출처를 알 수 없는 ZIP 파일은 설치하지 않습니다.
 - 터미널에서 실행하는 명령은 사용자 PC 권한으로 실행됩니다.
+- 터미널에서 실행한 CLI는 로컬 파일, 네트워크, 인증 정보에 접근할 수 있습니다.
+- Vault Terminal은 자체 telemetry, analytics, 광고 코드를 포함하지 않습니다.
 - 조직 보안 정책에 맞지 않는 외부 API 키나 인증 정보를 볼트에 저장하지 않습니다.

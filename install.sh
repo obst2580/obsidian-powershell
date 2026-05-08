@@ -6,9 +6,10 @@ if [[ $# -lt 1 ]]; then
   exit 1
 fi
 
-PLUGIN_ID="obsidian-powershell-agent"
 VAULT_PATH="$1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_ID="$(SCRIPT_DIR="$SCRIPT_DIR" node -e 'const path = require("path"); process.stdout.write(require(path.join(process.env.SCRIPT_DIR, "manifest.json")).id)')"
+LEGACY_PLUGIN_IDS=("obsidian-powershell-agent")
 TARGET="$VAULT_PATH/.obsidian/plugins/$PLUGIN_ID"
 
 if [[ ! -d "$VAULT_PATH/.obsidian" ]]; then
@@ -17,6 +18,24 @@ if [[ ! -d "$VAULT_PATH/.obsidian" ]]; then
 fi
 
 mkdir -p "$TARGET"
+
+for legacy_plugin_id in "${LEGACY_PLUGIN_IDS[@]}"; do
+  legacy_target="$VAULT_PATH/.obsidian/plugins/$legacy_plugin_id"
+  if [[ ! -d "$legacy_target" ]]; then
+    continue
+  fi
+
+  for name in data.json certs; do
+    legacy_item="$legacy_target/$name"
+    target_item="$TARGET/$name"
+    if [[ -e "$legacy_item" && ! -e "$target_item" ]]; then
+      cp -R "$legacy_item" "$target_item"
+    fi
+  done
+
+  echo "Migrated settings from legacy plugin folder: $legacy_target"
+  echo "You can remove the legacy plugin folder after confirming Vault Terminal works: $legacy_target"
+done
 
 for file in manifest.json main.js styles.css pty-host.js; do
   source="$SCRIPT_DIR/$file"

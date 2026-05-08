@@ -5,8 +5,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$pluginId = "obsidian-powershell-agent"
 $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$manifest = Get-Content -Raw -LiteralPath (Join-Path $repoRoot "manifest.json") | ConvertFrom-Json
+$pluginId = $manifest.id
+$legacyPluginIds = @("obsidian-powershell-agent")
 $resolvedVault = Resolve-Path -LiteralPath $VaultPath
 $target = Join-Path $resolvedVault ".obsidian\plugins\$pluginId"
 
@@ -15,6 +17,24 @@ if (-not (Test-Path -LiteralPath (Join-Path $resolvedVault ".obsidian"))) {
 }
 
 New-Item -ItemType Directory -Force -Path $target | Out-Null
+
+foreach ($legacyPluginId in $legacyPluginIds) {
+  $legacyTarget = Join-Path $resolvedVault ".obsidian\plugins\$legacyPluginId"
+  if (-not (Test-Path -LiteralPath $legacyTarget)) {
+    continue
+  }
+
+  foreach ($name in @("data.json", "certs")) {
+    $legacyItem = Join-Path $legacyTarget $name
+    $targetItem = Join-Path $target $name
+    if ((Test-Path -LiteralPath $legacyItem) -and -not (Test-Path -LiteralPath $targetItem)) {
+      Copy-Item -LiteralPath $legacyItem -Destination $targetItem -Recurse -Force
+    }
+  }
+
+  Write-Host "Migrated settings from legacy plugin folder: $legacyTarget"
+  Write-Host "You can remove the legacy plugin folder after confirming Vault Terminal works: $legacyTarget"
+}
 
 foreach ($file in @("manifest.json", "main.js", "styles.css", "pty-host.js")) {
   $source = Join-Path $repoRoot $file

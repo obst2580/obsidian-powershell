@@ -4,6 +4,14 @@ Obsidian 데스크톱 앱의 우측 사이드바에 현재 볼트 경로를 작�
 
 > 상태: 초기 데스크톱 베타입니다. Windows와 macOS 릴리스 패키지를 배포하며, Linux는 소스 설치 경로를 유지합니다.
 
+> Community Plugin Directory에는 아직 등록하지 않았습니다. native `node-pty` 런타임 때문에 현재는 GitHub Release ZIP 설치를 기준으로 배포합니다.
+
+## English Overview
+
+Vault Terminal opens a real terminal in Obsidian's right sidebar and starts it from the current vault path. It is designed for workflows where Obsidian holds project notes while Claude Code, Codex CLI, git, npm, and other local CLI tools run against the same vault.
+
+Current distribution is GitHub Release ZIP based, not Obsidian Community Plugin Directory based. The plugin is desktop-only and requires Node.js plus a native PTY runtime.
+
 ## 주요 기능
 
 - Vault Terminal 탭을 열면 터미널이 자동으로 시작됩니다.
@@ -62,7 +70,7 @@ configure-corporate-ca.cmd
 플러그인은 볼트마다 설치됩니다. ZIP을 아래 경로에 압축 해제합니다.
 
 ```text
-<볼트경로>/.obsidian/plugins/obsidian-powershell-agent/
+<볼트경로>/.obsidian/plugins/vault-terminal/
 ```
 
 압축 해제 후 플러그인 폴더에는 다음 파일과 폴더가 있어야 합니다.
@@ -229,6 +237,17 @@ PEM 파일을 직접 받은 경우:
 Obsidian Community Plugin 표준 설치는 보통 `manifest.json`, `main.js`, `styles.css`만 다룹니다. 이 플러그인은 실제 터미널을 위해 `pty-host.js`와 native `node-pty` 런타임도 필요합니다.
 
 따라서 현재 배포 방식은 GitHub Release ZIP 설치를 기준으로 합니다.
+
+## 보안과 권한
+
+Vault Terminal은 데스크톱 전용 플러그인이며, 실제 로컬 셸과 별도 Node.js PTY host 프로세스를 실행합니다.
+
+- 터미널에서 실행한 명령은 사용자 PC 권한으로 동작합니다.
+- 명령은 볼트 안팎의 로컬 파일, 네트워크, 인증 정보에 접근할 수 있습니다. 접근 범위는 실행한 CLI와 운영체제 권한을 따릅니다.
+- Claude Code, Codex CLI, git, npm 같은 외부 CLI는 별도로 설치해야 합니다.
+- native `node-pty` 런타임을 릴리스 ZIP에 포함합니다.
+- TLS/CA 환경변수는 사용자가 설정에서 명시적으로 켠 경우에만 주입합니다.
+- 이 플러그인은 자체 telemetry, analytics, 광고 코드를 포함하지 않습니다.
 
 ## 라이선스
 

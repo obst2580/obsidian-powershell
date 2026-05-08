@@ -621,6 +621,13 @@ class VaultPowerShellView extends ItemView {
     }
 
     try {
+      const runtimeIssue = this.getRuntimeIssue();
+      if (runtimeIssue) {
+        terminal.writeln(runtimeIssue);
+        new Notice("Vault Terminal runtime files are missing. Install the GitHub Release ZIP.");
+        return;
+      }
+
       const env = buildProcessEnv({
         useSystemCa: this.plugin.settings.useSystemCa,
         extraCaCertPath: this.plugin.getExtraCaCertPath()
@@ -666,6 +673,29 @@ class VaultPowerShellView extends ItemView {
       terminal.writeln(`Failed to start terminal: ${message}`);
       new Notice(`Failed to start terminal: ${message}`);
     }
+  }
+
+  private getRuntimeIssue(): string | null {
+    const pluginBasePath = this.plugin.getPluginBasePath();
+    const requiredFiles = [
+      join(pluginBasePath, "pty-host.js"),
+      join(pluginBasePath, "node_modules", "@homebridge", "node-pty-prebuilt-multiarch", "package.json"),
+      join(pluginBasePath, "node_modules", "@homebridge", "node-pty-prebuilt-multiarch", "lib", "index.js")
+    ];
+
+    const missing = requiredFiles.filter((file) => !existsSync(file));
+    if (missing.length === 0) {
+      return null;
+    }
+
+    return [
+      "Vault Terminal runtime files are missing.",
+      "This plugin currently requires the OS-specific GitHub Release ZIP because native node-pty runtime files are not installed by Obsidian's default Community Plugin flow.",
+      "Install the ZIP from the GitHub release page, or build from source and run the install script.",
+      "",
+      "Missing:",
+      ...missing.map((file) => `- ${file}`)
+    ].join("\r\n");
   }
 
   private fitTerminal() {
