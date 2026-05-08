@@ -3,7 +3,7 @@ name: Release packages
 on:
   push:
     tags:
-      - "v*"
+      - "*.*.*"
   workflow_dispatch:
 
 permissions:
@@ -92,12 +92,12 @@ jobs:
           TAG_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          version="${TAG_NAME#v}"
+          version="$TAG_NAME"
           manifest_version="$(node -p "require('./manifest.json').version")"
           package_version="$(node -p "require('./package.json').version")"
 
-          if [ "$TAG_NAME" = "$version" ]; then
-            echo "Release tags must start with v, for example v0.1.15." >&2
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tags must match manifest.json exactly, for example 0.3.1. Do not prefix with v." >&2
             exit 1
           fi
 
@@ -151,7 +151,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          version="${TAG_NAME#v}"
+          version="$TAG_NAME"
           notes_file="$(mktemp)"
           cat > "$notes_file" <<NOTES
           ## Vault Terminal $version

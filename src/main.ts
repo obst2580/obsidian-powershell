@@ -264,7 +264,7 @@ export default class VaultPowerShellPlugin extends Plugin {
   }
 
   getRuntimeManifestUrl(): string {
-    return `https://github.com/${GITHUB_REPOSITORY}/releases/download/v${this.manifest.version}/${RUNTIME_MANIFEST_FILE}`;
+    return `https://github.com/${GITHUB_REPOSITORY}/releases/download/${this.manifest.version}/${RUNTIME_MANIFEST_FILE}`;
   }
 
   getRuntimeMissingFiles(): string[] {
@@ -1267,7 +1267,7 @@ async function fetchBytes(url: string): Promise<Uint8Array> {
 }
 
 function getReleaseAssetUrl(version: string, asset: string): string {
-  return `https://github.com/${GITHUB_REPOSITORY}/releases/download/v${version}/${encodeURIComponent(asset)}`;
+  return `https://github.com/${GITHUB_REPOSITORY}/releases/download/${version}/${encodeURIComponent(asset)}`;
 }
 
 function sha256Hex(bytes: Uint8Array): string {
