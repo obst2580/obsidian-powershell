@@ -52,6 +52,13 @@ configure-corporate-ca.cmd
 
 ## 설치
 
+설치 전 요구사항:
+
+- Obsidian Desktop 앱이 필요합니다.
+- Node.js가 시스템에 설치되어 있어야 합니다. 릴리스 패키지는 Node.js 22 기준으로 빌드합니다.
+- VS Code extension이 내부적으로 사용하는 Node.js는 Obsidian에서 보이지 않습니다. `node --version`이 일반 PowerShell, Terminal, zsh, bash에서 실행되는지 확인하세요.
+- Claude Code, Codex CLI 같은 agent CLI는 사용자 PC에 별도로 설치되어 있어야 합니다. VS Code extension만 설치된 상태와 터미널 명령 `claude`, `codex`가 실행되는 상태는 다릅니다.
+
 플러그인은 볼트마다 설치됩니다. ZIP을 아래 경로에 압축 해제합니다.
 
 ```text
@@ -75,6 +82,8 @@ Settings > Community plugins > Vault Terminal > Enable
 ```
 
 업데이트할 때도 같은 위치에 새 ZIP을 덮어쓴 뒤 Obsidian을 재시작하거나 플러그인을 껐다 켭니다.
+
+터미널에 `Node.js was not found` 또는 `spawn node ENOENT`가 표시되면 Node.js를 시스템에 설치한 뒤 Obsidian을 재시작하세요. Node를 별도 위치에 설치했다면 `Settings > Vault Terminal > Node executable`에 절대경로를 입력할 수 있습니다.
 
 ## 개발
 

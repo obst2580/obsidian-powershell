@@ -651,7 +651,9 @@ class VaultPowerShellView extends ItemView {
       });
 
       host.on("error", (error: Error) => {
-        terminal.writeln(`Failed to start terminal host: ${error.message}`);
+        const message = formatTerminalHostError(error, this.plugin);
+        terminal.writeln(`Failed to start terminal host: ${message}`);
+        new Notice(`Failed to start terminal host: ${message}`);
       });
 
       host.on("close", (code: number | null) => {
@@ -807,7 +809,7 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Node executable")
-      .setDesc("Used only to run the PTY host process.")
+      .setDesc("Used to run the PTY host process. VS Code extension bundled Node is not visible to Obsidian; install Node.js system-wide or set an absolute node path here.")
       .addText((text) =>
         text
           .setPlaceholder("auto")
@@ -996,6 +998,20 @@ function addExtraCaCert(env: { [key: string]: string | undefined }, extraCaCertP
   env.NODE_EXTRA_CA_CERTS = extraCaCertPath;
   env.SSL_CERT_FILE = extraCaCertPath;
   env.REQUESTS_CA_BUNDLE = extraCaCertPath;
+}
+
+function formatTerminalHostError(error: Error, plugin: VaultPowerShellPlugin): string {
+  const errno = error as NodeJS.ErrnoException;
+  if (errno.code === "ENOENT") {
+    const configuredNode = plugin.settings.nodeExecutable.trim();
+    if (isAutoNodeSetting(configuredNode)) {
+      return "Node.js was not found in the system PATH. Install Node.js system-wide, restart Obsidian, or set Settings > Vault Terminal > Node executable to an absolute node path. VS Code extension bundled Node is not visible to Obsidian.";
+    }
+
+    return `Node executable was not found: ${configuredNode}. Check Settings > Vault Terminal > Node executable, or leave it empty to use auto-detection.`;
+  }
+
+  return error.message;
 }
 
 function getDefaultPathCandidates(): string[] {

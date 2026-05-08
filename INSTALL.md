@@ -9,7 +9,10 @@ Vault Terminal은 Obsidian 우측 탭에 현재 볼트 경로를 작업 디렉�
 - Obsidian Desktop 앱에서만 사용합니다.
 - 플러그인은 볼트마다 따로 설치합니다.
 - Windows용 패키지와 macOS용 패키지는 서로 다릅니다.
+- Node.js가 시스템에 설치되어 있어야 합니다. 릴리스 패키지는 Node.js 22 기준으로 빌드합니다.
+- VS Code extension이 내부적으로 사용하는 Node.js는 Obsidian에서 보이지 않습니다. 일반 PowerShell, Terminal, zsh, bash에서 `node --version`이 실행되는지 확인합니다.
 - Claude Code, Codex CLI, Git, Python 등은 필요한 사용자 PC에 별도로 설치되어 있어야 합니다.
+- Claude Code나 Codex를 VS Code extension으로만 설치한 경우 Vault Terminal 안의 `claude`, `codex` 명령과는 별개일 수 있습니다. 필요한 CLI는 시스템 npm 또는 공식 설치 방법으로 별도 설치합니다.
 - 일반 인터넷 환경에서는 SSL 설정을 바꿀 필요가 없습니다.
 - TLS inspection proxy 또는 사용자 지정 인증서가 필요한 환경에서만 아래의 SSL 설정 절차를 확인합니다.
 
@@ -236,14 +239,16 @@ Settings > Community plugins > Vault Terminal > Disable
 터미널이 열리지 않으면:
 
 - Obsidian을 재시작합니다.
-- Node.js가 설치되어 있는지 확인합니다.
-- 플러그인 설정의 **Node executable** 경로를 확인합니다.
+- 일반 PowerShell, Terminal, zsh, bash에서 `node --version`이 실행되는지 확인합니다.
+- `Node.js was not found` 또는 `spawn node ENOENT`가 표시되면 Node.js를 시스템에 설치한 뒤 Obsidian을 재시작합니다.
+- Node.js를 별도 위치에 설치했다면 플러그인 설정의 **Node executable**에 절대경로를 입력합니다.
 
 Claude Code 또는 Codex CLI 명령이 인식되지 않으면:
 
 - 해당 CLI가 PC에 설치되어 있는지 확인합니다.
 - 일반 PowerShell 또는 터미널에서 먼저 실행되는지 확인합니다.
 - PATH 설정이 필요한 경우 해당 CLI 설치 경로를 사용자 PATH에 추가합니다.
+- VS Code extension으로 설치된 Claude Code/Codex와 터미널에서 실행하는 `claude`, `codex` CLI는 다를 수 있습니다.
 
 SSL 오류가 발생하면:
 
