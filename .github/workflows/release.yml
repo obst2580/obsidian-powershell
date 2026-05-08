@@ -175,5 +175,5 @@ jobs:
           if gh release view "$TAG_NAME" --repo "$REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG_NAME" manifest.json main.js styles.css runtime-manifest.json dist/*.zip configure-corporate-ca.ps1 configure-corporate-ca.cmd --repo "$REPOSITORY" --clobber
           else
-            gh release create "$TAG_NAME" manifest.json main.js styles.css runtime-manifest.json dist/*.zip configure-corporate-ca.ps1 configure-corporate-ca.cmd --repo "$REPOSITORY" --title "Vault Terminal $version" --notes-file "$notes_file" --latest
+            gh release create "$TAG_NAME" manifest.json main.js styles.css runtime-manifest.json dist/*.zip configure-corporate-ca.ps1 configure-corporate-ca.cmd --repo "$REPOSITORY" --title "$version" --notes-file "$notes_file" --latest
           fi
