@@ -15,7 +15,17 @@ Obsidian 데스크톱 앱의 우측 사이드바에 현재 볼트 경로를 작�
 - 한글 IME 조합 중 마지막 글자가 다음 줄로 밀리지 않도록 짧은 지연 후 줄바꿈을 보냅니다.
 - Obsidian 테마를 기본으로 따르되 Codex/Claude Code ANSI 색상이 읽히도록 터미널 팔레트를 보정합니다.
 - 긴 scrollback과 `Shift + Wheel`, `Ctrl + Shift + PageUp/PageDown` 강제 스크롤을 지원합니다.
-- 회사 SSL 검사 환경을 위해 Node TLS/CA 설정을 선택적으로 주입할 수 있습니다.
+- TLS inspection proxy 또는 사용자 지정 인증서 환경을 위해 Node TLS/CA 설정을 선택적으로 주입할 수 있습니다.
+
+## 사용 예시
+
+![Obsidian 우측 사이드바에서 Claude Code를 실행한 Vault Terminal 화면](docs/images/vault-terminal-claude-code.png)
+
+Vault Terminal은 Obsidian 문서를 보면서 같은 볼트 경로에서 agent CLI를 실행하는 흐름에 맞춰 만들었습니다.
+
+예를 들어 중앙에는 프로젝트 인덱스나 작업 노트를 열어두고, 우측 사이드바에서는 Vault Terminal로 `claude`, `codex`, `git`, `npm` 같은 명령을 실행할 수 있습니다. 터미널의 작업 디렉터리는 현재 볼트이므로 Claude Code나 Codex CLI가 `AGENTS.md`, `CLAUDE.md`, 프로젝트 노트, 소스 파일을 같은 기준 경로에서 읽고 작업합니다.
+
+이 플러그인은 실제 로컬 셸을 띄웁니다. 따라서 터미널에서 실행한 CLI의 파일 접근, 네트워크 접근, 인증서 설정은 사용자의 PC와 해당 CLI 설정을 그대로 따릅니다.
 
 ## 릴리스 다운로드
 
@@ -33,7 +43,7 @@ GitHub Actions가 태그 릴리스마다 OS별 ZIP을 자동 생성합니다.
 https://github.com/obst2580/obsidian-powershell/releases
 ```
 
-Windows 회사 인증서 설정 스크립트도 릴리스 asset으로 함께 올라갑니다.
+Windows 인증서 설정 스크립트도 릴리스 asset으로 함께 올라갑니다.
 
 ```text
 configure-corporate-ca.ps1
@@ -175,11 +185,11 @@ Settings > Vault Terminal > Shift+Enter behavior
 - `Ctrl + Shift + PageUp/PageDown`으로 페이지 단위 이동을 할 수 있습니다.
 - fullscreen TUI 도구는 alternate screen buffer를 사용할 수 있습니다. 이 경우 오래된 출력은 일반 scrollback이 아니라 CLI 내부 화면에 있을 수 있습니다.
 
-## SSL / 회사 프록시
+## SSL / 인증서 설정
 
-기본 설치 상태에서는 Node TLS 또는 인증서 동작을 바꾸지 않고, 회사 인증서를 포함하지 않습니다.
+기본 설치 상태에서는 Node TLS 또는 인증서 동작을 바꾸지 않고, 인증서 파일을 포함하지 않습니다.
 
-회사 TLS inspection proxy 뒤에서 Claude Code 같은 Node 기반 CLI가 아래 오류를 내면 인증서 설정이 필요할 수 있습니다.
+TLS inspection proxy 또는 사용자 지정 CA가 필요한 네트워크에서 Claude Code 같은 Node 기반 CLI가 아래 오류를 내면 인증서 설정이 필요할 수 있습니다.
 
 ```text
 Self-signed certificate detected
@@ -191,16 +201,16 @@ Unable to connect to API
 - **Use system certificate store**: Node의 system CA store 사용
 - **Extra CA certificate**: PEM 인증서 파일 경로. 상대 경로는 플러그인 폴더 기준입니다.
 
-Windows에서 회사 루트 인증서를 내보내고 설정하려면 릴리스의 스크립트를 사용합니다.
+Windows에서 루트 인증서를 내보내고 설정하려면 릴리스의 스크립트를 사용합니다.
 
 ```powershell
-.\configure-corporate-ca.ps1 -VaultPath "C:\path\to\vault" -Thumbprint "<company-root-ca-thumbprint>"
+.\configure-corporate-ca.ps1 -VaultPath "C:\path\to\vault" -Thumbprint "<root-ca-thumbprint>"
 ```
 
 PEM 파일을 직접 받은 경우:
 
 ```powershell
-.\configure-corporate-ca.ps1 -VaultPath "C:\path\to\vault" -PemPath "C:\path\to\company-ca.pem"
+.\configure-corporate-ca.ps1 -VaultPath "C:\path\to\vault" -PemPath "C:\path\to\custom-ca.pem"
 ```
 
 브라우저는 `.ps1`을 자동 실행하지 않습니다. PowerShell에서 직접 실행하거나, 같은 폴더에 있는 `configure-corporate-ca.cmd`를 실행합니다.

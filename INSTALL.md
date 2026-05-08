@@ -1,6 +1,6 @@
 # Vault Terminal 설치 매뉴얼
 
-이 문서는 회사 내부 사용자가 Obsidian 볼트에 Vault Terminal 플러그인을 설치하고 활성화하는 절차를 설명합니다.
+이 문서는 사용자가 Obsidian 볼트에 Vault Terminal 플러그인을 설치하고 활성화하는 절차를 설명합니다.
 
 Vault Terminal은 Obsidian 우측 탭에 현재 볼트 경로를 작업 디렉터리로 사용하는 터미널을 띄웁니다. 이 터미널 안에서 PowerShell, Git, npm, Python, Claude Code, Codex CLI 같은 명령을 실행할 수 있습니다.
 
@@ -11,7 +11,7 @@ Vault Terminal은 Obsidian 우측 탭에 현재 볼트 경로를 작업 디렉�
 - Windows용 패키지와 macOS용 패키지는 서로 다릅니다.
 - Claude Code, Codex CLI, Git, Python 등은 필요한 사용자 PC에 별도로 설치되어 있어야 합니다.
 - 일반 인터넷 환경에서는 SSL 설정을 바꿀 필요가 없습니다.
-- 회사 SSL 인증서 검사를 사용하는 환경에서만 아래의 SSL 설정 절차를 확인합니다.
+- TLS inspection proxy 또는 사용자 지정 인증서가 필요한 환경에서만 아래의 SSL 설정 절차를 확인합니다.
 
 ## Windows 설치
 
@@ -158,11 +158,11 @@ Get-ChildItem "C:\obsidian" -Directory |
   }
 ```
 
-## SSL / 회사 인증서 설정
+## SSL / 인증서 설정
 
-기본 설치 상태에서는 Vault Terminal이 Node TLS 또는 인증서 동작을 바꾸지 않습니다. 회사 인증서도 패키지에 포함하지 않습니다.
+기본 설치 상태에서는 Vault Terminal이 Node TLS 또는 인증서 동작을 바꾸지 않습니다. 인증서 파일도 패키지에 포함하지 않습니다.
 
-Claude Code 같은 Node 기반 CLI에서 다음 오류가 나오면 회사 SSL 인증서 설정이 필요할 수 있습니다.
+Claude Code 같은 Node 기반 CLI에서 다음 오류가 나오면 인증서 설정이 필요할 수 있습니다.
 
 ```text
 Self-signed certificate detected
@@ -178,12 +178,12 @@ Settings > Vault Terminal
 권장 설정:
 
 - **Use system certificate store**: 켬
-- **Extra CA certificate**: 회사에서 제공한 PEM 인증서 경로
+- **Extra CA certificate**: PEM 인증서 경로
 
 예시:
 
 ```text
-C:\certs\company-ca.pem
+C:\certs\custom-ca.pem
 ```
 
 볼트 안에 인증서를 넣는 경우에는 플러그인 폴더 기준 상대경로도 사용할 수 있습니다.
@@ -248,21 +248,21 @@ Claude Code 또는 Codex CLI 명령이 인식되지 않으면:
 SSL 오류가 발생하면:
 
 - **Use system certificate store**를 켭니다.
-- 회사 PEM 인증서를 **Extra CA certificate**에 지정합니다.
+- PEM 인증서를 **Extra CA certificate**에 지정합니다.
 - `NODE_TLS_REJECT_UNAUTHORIZED=0`처럼 TLS 검증을 끄는 설정은 사용하지 않습니다.
 
-## 회사 내부 배포 권장 방식
+## 조직/팀 배포 권장 방식
 
-공개 오픈소스 릴리즈에는 회사 인증서를 포함하지 않습니다. 같은 회사 네트워크를 쓰는 사용자에게는 플러그인 ZIP과 함께 회사 CA 설정 스크립트를 제공합니다.
+공개 오픈소스 릴리즈에는 인증서 파일을 포함하지 않습니다. 같은 네트워크 정책을 쓰는 사용자에게는 플러그인 ZIP과 함께 인증서 설정 스크립트를 제공합니다.
 
-관리자는 사내 루트 인증서의 thumbprint 또는 보안팀이 제공한 PEM 파일을 확인합니다. Windows 인증서 저장소에 회사 루트 인증서가 이미 배포되어 있다면 thumbprint 방식이 가장 간단합니다.
+관리자는 루트 인증서의 thumbprint 또는 PEM 파일을 확인합니다. Windows 인증서 저장소에 필요한 루트 인증서가 이미 배포되어 있다면 thumbprint 방식이 가장 간단합니다.
 
 설치 후 각 사용자 PC에서 실행할 명령 예시:
 
 ```powershell
 .\configure-corporate-ca.ps1 `
   -VaultPath "C:\Users\<user>\Documents\ObsidianVault" `
-  -Thumbprint "<company-root-ca-thumbprint>"
+  -Thumbprint "<root-ca-thumbprint>"
 ```
 
 `ps1` 파일은 PowerShell 스크립트입니다. 브라우저에서 클릭해도 자동 실행되지 않으므로 PowerShell에서 실행해야 합니다.
@@ -274,12 +274,12 @@ PEM 파일을 보안팀에서 따로 제공하는 경우:
 ```powershell
 .\configure-corporate-ca.ps1 `
   -VaultPath "C:\Users\<user>\Documents\ObsidianVault" `
-  -PemPath "C:\certs\company-ca.pem"
+  -PemPath "C:\certs\custom-ca.pem"
 ```
 
 이 스크립트가 하는 일:
 
-- Windows 인증서 저장소 또는 PEM 파일에서 회사 루트 인증서를 가져옵니다.
+- Windows 인증서 저장소 또는 PEM 파일에서 루트 인증서를 가져옵니다.
 - 플러그인 폴더에 `certs/extra-ca.pem`을 만듭니다.
 - 플러그인 설정 파일 `data.json`에 `useSystemCa: true`와 `extraCaCertPath: "certs/extra-ca.pem"`을 기록합니다.
 - 새 Vault Terminal 세션에서 `NODE_OPTIONS`, `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`이 자동으로 적용되게 합니다.
@@ -293,4 +293,4 @@ Vault Terminal은 Obsidian 볼트 경로에서 실제 터미널 명령을 실행
 - 신뢰된 내부 배포본만 설치합니다.
 - 출처를 알 수 없는 ZIP 파일은 설치하지 않습니다.
 - 터미널에서 실행하는 명령은 사용자 PC 권한으로 실행됩니다.
-- 회사 보안 정책에 맞지 않는 외부 API 키나 인증 정보를 볼트에 저장하지 않습니다.
+- 조직 보안 정책에 맞지 않는 외부 API 키나 인증 정보를 볼트에 저장하지 않습니다.
