@@ -12,6 +12,27 @@ $legacyPluginIds = @("obsidian-powershell-agent")
 $resolvedVault = Resolve-Path -LiteralPath $VaultPath
 $target = Join-Path $resolvedVault ".obsidian\plugins\$pluginId"
 
+function Resolve-InstallPlatform {
+  if ($IsMacOS) {
+    return "macos"
+  }
+
+  if ($IsLinux) {
+    return "linux"
+  }
+
+  return "windows"
+}
+
+function Resolve-InstallArch {
+  switch ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant()) {
+    "x64" { return "x64" }
+    "arm64" { return "arm64" }
+    "arm" { return "arm" }
+    default { return [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant() }
+  }
+}
+
 if (-not (Test-Path -LiteralPath (Join-Path $resolvedVault ".obsidian"))) {
   throw "The target path does not look like an Obsidian vault: $resolvedVault"
 }
@@ -61,5 +82,14 @@ if (Test-Path -LiteralPath $ptyTarget) {
 }
 
 Copy-Item -LiteralPath $ptySource -Destination $homebridgeTarget -Recurse -Force
+
+[ordered]@{
+  version = $manifest.version
+  platform = Resolve-InstallPlatform
+  arch = Resolve-InstallArch
+  installedBy = "install.ps1"
+} |
+  ConvertTo-Json -Depth 4 |
+  Set-Content -LiteralPath (Join-Path $target "runtime.json") -Encoding utf8
 
 Write-Host "Installed $pluginId to $target"

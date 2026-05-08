@@ -5,16 +5,27 @@ import {
   Notice,
   Plugin,
   PluginSettingTab,
+  requestUrl,
   Setting,
   WorkspaceLeaf
 } from "obsidian";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { unzipSync } from "fflate";
 import { ChildProcessWithoutNullStreams, spawn } from "child_process";
-import { existsSync } from "fs";
-import { isAbsolute, join } from "path";
+import { createHash } from "crypto";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { dirname, isAbsolute, join, resolve, sep } from "path";
 
 const VIEW_TYPE_POWERSHELL = "vault-powershell";
+const GITHUB_REPOSITORY = "obst2580/obsidian-powershell";
+const RUNTIME_INFO_FILE = "runtime.json";
+const RUNTIME_MANIFEST_FILE = "runtime-manifest.json";
+const RUNTIME_REQUIRED_RELATIVE_FILES = [
+  "pty-host.js",
+  "node_modules/@homebridge/node-pty-prebuilt-multiarch/package.json",
+  "node_modules/@homebridge/node-pty-prebuilt-multiarch/lib/index.js"
+];
 const DEFAULT_PWSH_PATH = "C:\\Program Files\\PowerShell\\7\\pwsh.exe";
 const WINDOWS_POWERSHELL_PATH = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
 const DEFAULT_NODE_PATH = "C:\\Program Files\\nodejs\\node.exe";
@@ -65,6 +76,28 @@ type HostOutputMessage =
   | { type: "data"; data: string }
   | { type: "exit"; exitCode?: number | null; signal?: number }
   | { type: "error"; message: string };
+
+interface RuntimeManifest {
+  version: string;
+  runtimes: RuntimeAsset[];
+}
+
+interface RuntimeAsset {
+  platform: RuntimePlatform;
+  arch: RuntimeArch;
+  asset: string;
+  sha256: string;
+  size: number;
+}
+
+type RuntimePlatform = "windows" | "macos" | "linux";
+type RuntimeArch = "x64" | "arm64" | "arm" | "ia32";
+
+interface RuntimeInfo {
+  version?: string;
+  platform?: string;
+  arch?: string;
+}
 
 const DEFAULT_SETTINGS: PowerShellSettings = {
   executable: "",
@@ -230,6 +263,89 @@ export default class VaultPowerShellPlugin extends Plugin {
     return join(this.getPluginBasePath(), "pty-host.js");
   }
 
+  getRuntimeManifestUrl(): string {
+    return `https://github.com/${GITHUB_REPOSITORY}/releases/download/v${this.manifest.version}/${RUNTIME_MANIFEST_FILE}`;
+  }
+
+  getRuntimeMissingFiles(): string[] {
+    const pluginBasePath = this.getPluginBasePath();
+    const missingFiles = RUNTIME_REQUIRED_RELATIVE_FILES
+      .map((relativePath) => join(pluginBasePath, ...relativePath.split("/")))
+      .filter((file) => !existsSync(file));
+
+    const runtimeInfoPath = join(pluginBasePath, RUNTIME_INFO_FILE);
+    if (!existsSync(runtimeInfoPath)) {
+      missingFiles.push(runtimeInfoPath);
+      return missingFiles;
+    }
+
+    try {
+      const runtimeInfo = JSON.parse(readFileSync(runtimeInfoPath, "utf8")) as RuntimeInfo;
+      if (runtimeInfo.version !== this.manifest.version) {
+        missingFiles.push(`${runtimeInfoPath} (version ${runtimeInfo.version ?? "unknown"} does not match plugin ${this.manifest.version})`);
+      }
+    } catch {
+      missingFiles.push(`${runtimeInfoPath} (invalid runtime metadata)`);
+    }
+
+    return missingFiles;
+  }
+
+  hasRuntime(): boolean {
+    return this.getRuntimeMissingFiles().length === 0;
+  }
+
+  async installRuntime(onProgress: (message: string) => void = () => undefined): Promise<void> {
+    const platform = getRuntimePlatform();
+    const arch = getRuntimeArch();
+    if (!platform || !arch) {
+      throw new Error(`Unsupported runtime platform: ${process.platform} ${process.arch}`);
+    }
+
+    onProgress("Fetching runtime manifest...");
+    const runtimeManifest = await fetchJson<RuntimeManifest>(this.getRuntimeManifestUrl());
+    if (runtimeManifest.version !== this.manifest.version) {
+      throw new Error(`Runtime manifest version ${runtimeManifest.version} does not match plugin version ${this.manifest.version}.`);
+    }
+
+    const runtimeAsset = runtimeManifest.runtimes.find((candidate) => candidate.platform === platform && candidate.arch === arch);
+    if (!runtimeAsset) {
+      throw new Error(`No runtime package is available for ${platform}-${arch}.`);
+    }
+
+    const assetUrl = getReleaseAssetUrl(runtimeManifest.version, runtimeAsset.asset);
+    onProgress(`Downloading ${runtimeAsset.asset}...`);
+    const archiveBytes = await fetchBytes(assetUrl);
+    if (archiveBytes.byteLength !== runtimeAsset.size) {
+      throw new Error(`Runtime size mismatch. Expected ${runtimeAsset.size} bytes, received ${archiveBytes.byteLength} bytes.`);
+    }
+
+    const actualHash = sha256Hex(archiveBytes);
+    if (actualHash !== runtimeAsset.sha256.toLowerCase()) {
+      throw new Error(`Runtime SHA-256 mismatch. Expected ${runtimeAsset.sha256}, received ${actualHash}.`);
+    }
+
+    onProgress("Installing runtime files...");
+    const pluginBasePath = this.getPluginBasePath();
+    removeRuntimeFiles(pluginBasePath);
+    extractRuntimeArchive(archiveBytes, pluginBasePath);
+    writeFileSync(join(pluginBasePath, RUNTIME_INFO_FILE), JSON.stringify({
+      version: runtimeManifest.version,
+      platform,
+      arch,
+      asset: runtimeAsset.asset,
+      sha256: runtimeAsset.sha256,
+      installedAt: new Date().toISOString()
+    }, null, 2));
+
+    const missing = this.getRuntimeMissingFiles();
+    if (missing.length > 0) {
+      throw new Error(`Runtime installation finished but required files are still missing: ${missing.join(", ")}`);
+    }
+
+    onProgress("Runtime installed.");
+  }
+
   getNodeExecutable(): string {
     const configured = this.settings.nodeExecutable.trim();
     if (!isAutoNodeSetting(configured)) {
@@ -291,6 +407,7 @@ class VaultPowerShellView extends ItemView {
   private pendingShiftEnterTimers = new Set<number>();
   private lastShiftEnterAt = 0;
   private wheelLineAccumulator = 0;
+  private runtimePromptEl: HTMLElement | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: VaultPowerShellPlugin) {
     super(leaf);
@@ -325,6 +442,7 @@ class VaultPowerShellView extends ItemView {
     this.resizeObserver = null;
     this.themeObserver?.disconnect();
     this.themeObserver = null;
+    this.clearRuntimePrompt();
     if (this.windowKeydownHandler) {
       window.removeEventListener("keydown", this.windowKeydownHandler, { capture: true });
       this.windowKeydownHandler = null;
@@ -621,12 +739,14 @@ class VaultPowerShellView extends ItemView {
     }
 
     try {
-      const runtimeIssue = this.getRuntimeIssue();
-      if (runtimeIssue) {
-        terminal.writeln(runtimeIssue);
-        new Notice("Vault Terminal runtime files are missing. Install the GitHub Release ZIP.");
+      const missingRuntimeFiles = this.plugin.getRuntimeMissingFiles();
+      if (missingRuntimeFiles.length > 0) {
+        this.showRuntimePrompt(missingRuntimeFiles);
+        terminal.writeln("Vault Terminal runtime files are missing.");
+        terminal.writeln("Install the verified runtime package from this pane or from Settings > Vault Terminal.");
         return;
       }
+      this.clearRuntimePrompt();
 
       const env = buildProcessEnv({
         useSystemCa: this.plugin.settings.useSystemCa,
@@ -675,27 +795,60 @@ class VaultPowerShellView extends ItemView {
     }
   }
 
-  private getRuntimeIssue(): string | null {
-    const pluginBasePath = this.plugin.getPluginBasePath();
-    const requiredFiles = [
-      join(pluginBasePath, "pty-host.js"),
-      join(pluginBasePath, "node_modules", "@homebridge", "node-pty-prebuilt-multiarch", "package.json"),
-      join(pluginBasePath, "node_modules", "@homebridge", "node-pty-prebuilt-multiarch", "lib", "index.js")
-    ];
-
-    const missing = requiredFiles.filter((file) => !existsSync(file));
-    if (missing.length === 0) {
-      return null;
+  private showRuntimePrompt(missingFiles: string[]) {
+    if (!this.terminalContainer || this.runtimePromptEl) {
+      return;
     }
 
-    return [
-      "Vault Terminal runtime files are missing.",
-      "This plugin currently requires the OS-specific GitHub Release ZIP because native node-pty runtime files are not installed by Obsidian's default Community Plugin flow.",
-      "Install the ZIP from the GitHub release page, or build from source and run the install script.",
-      "",
-      "Missing:",
-      ...missing.map((file) => `- ${file}`)
-    ].join("\r\n");
+    const parent = this.terminalContainer.parentElement;
+    if (!parent) {
+      return;
+    }
+
+    const promptEl = parent.createDiv("vault-terminal-runtime-prompt");
+    parent.insertBefore(promptEl, this.terminalContainer);
+
+    promptEl.createEl("strong", { text: "Runtime installation required" });
+    promptEl.createEl("p", {
+      text: "Vault Terminal needs a native node-pty runtime package to start a local shell. The package is downloaded from this plugin's GitHub Release and verified with SHA-256 before installation."
+    });
+
+    const detailsEl = promptEl.createEl("details");
+    detailsEl.createEl("summary", { text: "Missing files" });
+    const listEl = detailsEl.createEl("ul");
+    missingFiles.forEach((file) => {
+      listEl.createEl("li", { text: file });
+    });
+
+    const actionsEl = promptEl.createDiv("vault-terminal-runtime-actions");
+    const installButton = actionsEl.createEl("button", { text: "Install runtime" });
+    const statusEl = actionsEl.createSpan("vault-terminal-runtime-status");
+
+    installButton.addEventListener("click", async () => {
+      installButton.disabled = true;
+      try {
+        await this.plugin.installRuntime((message) => {
+          statusEl.setText(message);
+        });
+        statusEl.setText("Runtime installed. Starting terminal...");
+        this.clearRuntimePrompt();
+        this.terminal?.clear();
+        this.startShell();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        statusEl.setText(`Runtime installation failed: ${message}`);
+        new Notice(`Runtime installation failed: ${message}`);
+      } finally {
+        installButton.disabled = false;
+      }
+    });
+
+    this.runtimePromptEl = promptEl;
+  }
+
+  private clearRuntimePrompt() {
+    this.runtimePromptEl?.remove();
+    this.runtimePromptEl = null;
   }
 
   private fitTerminal() {
@@ -847,6 +1000,31 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
           .onChange(async (value) => {
             this.plugin.settings.nodeExecutable = value.trim();
             await this.plugin.saveSettings();
+          })
+      );
+
+    const runtimeMissingFiles = this.plugin.getRuntimeMissingFiles();
+    new Setting(containerEl)
+      .setName("Runtime files")
+      .setDesc(runtimeMissingFiles.length === 0
+        ? "Runtime files are installed."
+        : "Runtime files are missing. Install the verified OS-specific runtime package from GitHub Releases.")
+      .addButton((button) =>
+        button
+          .setButtonText(runtimeMissingFiles.length === 0 ? "Reinstall runtime" : "Install runtime")
+          .onClick(async () => {
+            button.setDisabled(true);
+            button.setButtonText("Installing...");
+            try {
+              await this.plugin.installRuntime();
+              new Notice("Vault Terminal runtime installed. Reopen Vault Terminal to start a shell.");
+              this.display();
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              new Notice(`Runtime installation failed: ${message}`);
+              button.setButtonText("Install runtime");
+              button.setDisabled(false);
+            }
           })
       );
 
@@ -1042,6 +1220,121 @@ function formatTerminalHostError(error: Error, plugin: VaultPowerShellPlugin): s
   }
 
   return error.message;
+}
+
+function getRuntimePlatform(): RuntimePlatform | null {
+  if (process.platform === "win32") {
+    return "windows";
+  }
+
+  if (process.platform === "darwin") {
+    return "macos";
+  }
+
+  if (process.platform === "linux") {
+    return "linux";
+  }
+
+  return null;
+}
+
+function getRuntimeArch(): RuntimeArch | null {
+  if (process.arch === "x64" ||
+    process.arch === "arm64" ||
+    process.arch === "arm" ||
+    process.arch === "ia32") {
+    return process.arch;
+  }
+
+  return null;
+}
+
+async function fetchJson<T>(url: string): Promise<T> {
+  return await requestUrl({
+    url,
+    method: "GET",
+    throw: true
+  }).json as T;
+}
+
+async function fetchBytes(url: string): Promise<Uint8Array> {
+  const arrayBuffer = await requestUrl({
+    url,
+    method: "GET",
+    throw: true
+  }).arrayBuffer;
+  return new Uint8Array(arrayBuffer);
+}
+
+function getReleaseAssetUrl(version: string, asset: string): string {
+  return `https://github.com/${GITHUB_REPOSITORY}/releases/download/v${version}/${encodeURIComponent(asset)}`;
+}
+
+function sha256Hex(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+function removeRuntimeFiles(pluginBasePath: string) {
+  for (const relativePath of [
+    "pty-host.js",
+    RUNTIME_INFO_FILE,
+    "node_modules/@homebridge/node-pty-prebuilt-multiarch"
+  ]) {
+    rmSync(join(pluginBasePath, ...relativePath.split("/")), { recursive: true, force: true });
+  }
+}
+
+function extractRuntimeArchive(archiveBytes: Uint8Array, pluginBasePath: string) {
+  const entries = unzipSync(archiveBytes);
+  const basePath = resolve(pluginBasePath);
+
+  for (const [entryName, data] of Object.entries(entries)) {
+    const normalizedName = normalizeArchiveEntryName(entryName);
+    if (!normalizedName) {
+      continue;
+    }
+
+    const targetPath = resolve(basePath, normalizedName);
+    if (!isPathInside(basePath, targetPath)) {
+      throw new Error(`Unsafe runtime archive path: ${entryName}`);
+    }
+
+    if (entryName.endsWith("/") || data.byteLength === 0 && normalizedName.endsWith("/")) {
+      mkdirSync(targetPath, { recursive: true });
+      continue;
+    }
+
+    mkdirSync(dirname(targetPath), { recursive: true });
+    writeFileSync(targetPath, Buffer.from(data));
+  }
+}
+
+function normalizeArchiveEntryName(entryName: string): string | null {
+  const normalized = entryName.replace(/\\/g, "/");
+  if (!normalized || normalized === "/") {
+    return null;
+  }
+
+  if (normalized.startsWith("/") || /^[a-z]:/i.test(normalized)) {
+    throw new Error(`Unsafe runtime archive path: ${entryName}`);
+  }
+
+  const trimmed = normalized.endsWith("/") ? normalized.slice(0, -1) : normalized;
+  if (!trimmed) {
+    return null;
+  }
+
+  const parts = trimmed.split("/");
+  if (parts.some((part) => part === "" || part === "." || part === "..")) {
+    throw new Error(`Unsafe runtime archive path: ${entryName}`);
+  }
+
+  return parts.join("/");
+}
+
+function isPathInside(basePath: string, targetPath: string): boolean {
+  const normalizedBase = basePath.endsWith(sep) ? basePath : `${basePath}${sep}`;
+  return targetPath === basePath || targetPath.startsWith(normalizedBase);
 }
 
 function getDefaultPathCandidates(): string[] {

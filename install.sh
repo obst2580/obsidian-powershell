@@ -9,6 +9,7 @@ fi
 VAULT_PATH="$1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ID="$(SCRIPT_DIR="$SCRIPT_DIR" node -e 'const path = require("path"); process.stdout.write(require(path.join(process.env.SCRIPT_DIR, "manifest.json")).id)')"
+PLUGIN_VERSION="$(SCRIPT_DIR="$SCRIPT_DIR" node -e 'const path = require("path"); process.stdout.write(require(path.join(process.env.SCRIPT_DIR, "manifest.json")).version)')"
 LEGACY_PLUGIN_IDS=("obsidian-powershell-agent")
 TARGET="$VAULT_PATH/.obsidian/plugins/$PLUGIN_ID"
 
@@ -63,5 +64,28 @@ if [[ -d "$runtime_target" ]]; then
 fi
 
 cp -R "$runtime_source" "$runtime_root/"
+
+case "$(uname -s)" in
+  Darwin) runtime_platform="macos" ;;
+  Linux) runtime_platform="linux" ;;
+  *) runtime_platform="unknown" ;;
+esac
+
+case "$(uname -m)" in
+  x86_64|amd64) runtime_arch="x64" ;;
+  arm64|aarch64) runtime_arch="arm64" ;;
+  armv7l|armv6l) runtime_arch="arm" ;;
+  i386|i686) runtime_arch="ia32" ;;
+  *) runtime_arch="$(uname -m)" ;;
+esac
+
+cat > "$TARGET/runtime.json" <<EOF
+{
+  "version": "$PLUGIN_VERSION",
+  "platform": "$runtime_platform",
+  "arch": "$runtime_arch",
+  "installedBy": "install.sh"
+}
+EOF
 
 echo "Installed $PLUGIN_ID to $TARGET"

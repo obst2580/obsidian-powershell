@@ -49,9 +49,88 @@ if ([System.IO.Path]::IsPathRooted($OutputDir)) {
   $resolvedOutputDir = Join-Path $repoRoot $OutputDir
 }
 
+New-Item -ItemType Directory -Force -Path $resolvedOutputDir | Out-Null
+
+function Copy-RequiredFile {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Name,
+
+    [Parameter(Mandatory = $true)]
+    [string]$TargetDir
+  )
+
+  $source = Join-Path $repoRoot $Name
+  if (-not (Test-Path -LiteralPath $source)) {
+    throw "Missing build artifact: $source"
+  }
+
+  Copy-Item -LiteralPath $source -Destination (Join-Path $TargetDir $Name) -Force
+}
+
+function Copy-RuntimeFiles {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$TargetDir
+  )
+
+  Copy-RequiredFile -Name "pty-host.js" -TargetDir $TargetDir
+
+  $runtimeSource = Join-Path (Join-Path (Join-Path $repoRoot "node_modules") "@homebridge") "node-pty-prebuilt-multiarch"
+  if (-not (Test-Path -LiteralPath $runtimeSource)) {
+    throw "Missing runtime dependency. Run npm ci first: $runtimeSource"
+  }
+
+  $runtimeTargetParent = Join-Path (Join-Path $TargetDir "node_modules") "@homebridge"
+  $runtimeTarget = Join-Path $runtimeTargetParent "node-pty-prebuilt-multiarch"
+
+  if (Test-Path -LiteralPath $runtimeTarget) {
+    Remove-Item -LiteralPath $runtimeTarget -Recurse -Force
+  }
+
+  New-Item -ItemType Directory -Force -Path $runtimeTargetParent | Out-Null
+  Copy-Item -LiteralPath $runtimeSource -Destination $runtimeTargetParent -Recurse -Force
+}
+
+function Write-RuntimeInfo {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$TargetDir
+  )
+
+  [ordered]@{
+    version = $version
+    platform = $resolvedPlatform
+    arch = $resolvedArch
+    installedBy = "release-package"
+  } |
+    ConvertTo-Json -Depth 4 |
+    Set-Content -LiteralPath (Join-Path $TargetDir "runtime.json") -Encoding utf8
+}
+
+function New-ZipFromDirectory {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$SourceDir,
+
+    [Parameter(Mandatory = $true)]
+    [string]$ZipPath
+  )
+
+  if (Test-Path -LiteralPath $ZipPath) {
+    Remove-Item -LiteralPath $ZipPath -Force
+  }
+
+  Compress-Archive -Path (Join-Path $SourceDir "*") -DestinationPath $ZipPath -Force
+}
+
 $packageName = "VaultTerminal-$version-$resolvedPlatform-$resolvedArch"
 $packageDir = Join-Path $resolvedOutputDir $packageName
 $zipPath = Join-Path $resolvedOutputDir "$packageName.zip"
+$runtimePackageName = "VaultTerminal-runtime-$version-$resolvedPlatform-$resolvedArch"
+$runtimePackageDir = Join-Path $resolvedOutputDir $runtimePackageName
+$runtimeZipPath = Join-Path $resolvedOutputDir "$runtimePackageName.zip"
+$runtimeManifestFragmentPath = Join-Path $resolvedOutputDir "runtime-manifest-$resolvedPlatform-$resolvedArch.json"
 
 if (Test-Path -LiteralPath $packageDir) {
   Remove-Item -LiteralPath $packageDir -Recurse -Force
@@ -59,28 +138,37 @@ if (Test-Path -LiteralPath $packageDir) {
 
 New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
 
-foreach ($file in @("manifest.json", "main.js", "styles.css", "pty-host.js")) {
-  $source = Join-Path $repoRoot $file
-  if (-not (Test-Path -LiteralPath $source)) {
-    throw "Missing build artifact: $source"
-  }
-
-  Copy-Item -LiteralPath $source -Destination (Join-Path $packageDir $file) -Force
+foreach ($file in @("manifest.json", "main.js", "styles.css")) {
+  Copy-RequiredFile -Name $file -TargetDir $packageDir
 }
 
-$runtimeSource = Join-Path (Join-Path (Join-Path $repoRoot "node_modules") "@homebridge") "node-pty-prebuilt-multiarch"
-if (-not (Test-Path -LiteralPath $runtimeSource)) {
-  throw "Missing runtime dependency. Run npm ci first: $runtimeSource"
+Copy-RuntimeFiles -TargetDir $packageDir
+Write-RuntimeInfo -TargetDir $packageDir
+New-ZipFromDirectory -SourceDir $packageDir -ZipPath $zipPath
+
+if (Test-Path -LiteralPath $runtimePackageDir) {
+  Remove-Item -LiteralPath $runtimePackageDir -Recurse -Force
 }
 
-$runtimeTargetParent = Join-Path (Join-Path $packageDir "node_modules") "@homebridge"
-New-Item -ItemType Directory -Force -Path $runtimeTargetParent | Out-Null
-Copy-Item -LiteralPath $runtimeSource -Destination $runtimeTargetParent -Recurse -Force
+New-Item -ItemType Directory -Force -Path $runtimePackageDir | Out-Null
+Copy-RuntimeFiles -TargetDir $runtimePackageDir
+Write-RuntimeInfo -TargetDir $runtimePackageDir
+New-ZipFromDirectory -SourceDir $runtimePackageDir -ZipPath $runtimeZipPath
 
-if (Test-Path -LiteralPath $zipPath) {
-  Remove-Item -LiteralPath $zipPath -Force
+$runtimeHash = (Get-FileHash -LiteralPath $runtimeZipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$runtimeSize = (Get-Item -LiteralPath $runtimeZipPath).Length
+$runtimeManifestFragment = [ordered]@{
+  platform = $resolvedPlatform
+  arch = $resolvedArch
+  asset = Split-Path -Leaf $runtimeZipPath
+  sha256 = $runtimeHash
+  size = $runtimeSize
 }
 
-Compress-Archive -Path (Join-Path $packageDir "*") -DestinationPath $zipPath -Force
+$runtimeManifestFragment |
+  ConvertTo-Json -Depth 4 |
+  Set-Content -LiteralPath $runtimeManifestFragmentPath -Encoding utf8
 
 Write-Host "Created package: $zipPath"
+Write-Host "Created runtime package: $runtimeZipPath"
+Write-Host "Created runtime manifest fragment: $runtimeManifestFragmentPath"

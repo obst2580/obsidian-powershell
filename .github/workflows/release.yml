@@ -53,7 +53,20 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: VaultTerminal-${{ matrix.platform }}-${{ matrix.arch }}
-          path: dist/*.zip
+          path: |
+            dist/*.zip
+            dist/runtime-manifest-*.json
+          if-no-files-found: error
+
+      - name: Upload core plugin artifact
+        if: matrix.platform == 'windows' && matrix.arch == 'x64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: VaultTerminal-core
+          path: |
+            manifest.json
+            main.js
+            styles.css
           if-no-files-found: error
 
   release:
@@ -96,8 +109,40 @@ jobs:
       - name: Download packages
         uses: actions/download-artifact@v4
         with:
+          pattern: VaultTerminal-*-*
           path: dist
           merge-multiple: true
+
+      - name: Download core plugin files
+        uses: actions/download-artifact@v4
+        with:
+          name: VaultTerminal-core
+          path: .
+
+      - name: Build runtime manifest
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("fs");
+          const path = require("path");
+          const version = require("./manifest.json").version;
+          const dir = "dist";
+          const fragments = fs.readdirSync(dir)
+            .filter((name) => /^runtime-manifest-.+\.json$/.test(name))
+            .map((name) => JSON.parse(fs.readFileSync(path.join(dir, name), "utf8")));
+
+          if (fragments.length === 0) {
+            throw new Error("No runtime manifest fragments found.");
+          }
+
+          fragments.sort((left, right) => {
+            const leftKey = `${left.platform}-${left.arch}`;
+            const rightKey = `${right.platform}-${right.arch}`;
+            return leftKey.localeCompare(rightKey);
+          });
+
+          fs.writeFileSync("runtime-manifest.json", `${JSON.stringify({ version, runtimes: fragments }, null, 2)}\n`);
+          NODE
 
       - name: Publish release assets
         env:
@@ -113,16 +158,22 @@ jobs:
 
           자동 빌드된 릴리스입니다.
 
+          Community Plugin Directory용 파일:
+          - manifest.json
+          - main.js
+          - styles.css
+          - runtime-manifest.json
+
           포함 패키지:
-          - Windows x64
-          - macOS Intel x64
-          - macOS Apple Silicon arm64
+          - Windows x64 전체 ZIP + 런타임 ZIP
+          - macOS Intel x64 전체 ZIP + 런타임 ZIP
+          - macOS Apple Silicon arm64 전체 ZIP + 런타임 ZIP
 
           기존 볼트에 업데이트한 뒤에는 Obsidian을 재시작하거나 플러그인을 껐다 켜고 Vault Terminal 탭을 새로 여세요.
           NOTES
 
           if gh release view "$TAG_NAME" --repo "$REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG_NAME" dist/*.zip configure-corporate-ca.ps1 configure-corporate-ca.cmd --repo "$REPOSITORY" --clobber
+            gh release upload "$TAG_NAME" manifest.json main.js styles.css runtime-manifest.json dist/*.zip configure-corporate-ca.ps1 configure-corporate-ca.cmd --repo "$REPOSITORY" --clobber
           else
-            gh release create "$TAG_NAME" dist/*.zip configure-corporate-ca.ps1 configure-corporate-ca.cmd --repo "$REPOSITORY" --title "Vault Terminal $version" --notes-file "$notes_file" --latest
+            gh release create "$TAG_NAME" manifest.json main.js styles.css runtime-manifest.json dist/*.zip configure-corporate-ca.ps1 configure-corporate-ca.cmd --repo "$REPOSITORY" --title "Vault Terminal $version" --notes-file "$notes_file" --latest
           fi

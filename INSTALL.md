@@ -9,6 +9,7 @@ Vault Terminal은 Obsidian 우측 탭에 현재 볼트 경로를 작업 디렉�
 - Obsidian Desktop 앱에서만 사용합니다.
 - 플러그인은 볼트마다 따로 설치합니다.
 - Windows용 패키지와 macOS용 패키지는 서로 다릅니다.
+- Community Plugin Directory 또는 BRAT처럼 표준 플러그인 파일만 설치하는 방식에서는 첫 실행 때 OS/아키텍처에 맞는 런타임을 추가 설치해야 합니다.
 - Node.js가 시스템에 설치되어 있어야 합니다. 릴리스 패키지는 Node.js 22 기준으로 빌드합니다.
 - VS Code extension이 내부적으로 사용하는 Node.js는 Obsidian에서 보이지 않습니다. 일반 PowerShell, Terminal, zsh, bash에서 `node --version`이 실행되는지 확인합니다.
 - Claude Code, Codex CLI, Git, Python 등은 필요한 사용자 PC에 별도로 설치되어 있어야 합니다.
@@ -17,6 +18,8 @@ Vault Terminal은 Obsidian 우측 탭에 현재 볼트 경로를 작업 디렉�
 - TLS inspection proxy 또는 사용자 지정 인증서가 필요한 환경에서만 아래의 SSL 설정 절차를 확인합니다.
 
 ## Windows 설치
+
+### GitHub Release 전체 ZIP 설치
 
 관리자가 배포한 Windows용 ZIP 파일을 받습니다.
 
@@ -63,6 +66,26 @@ Settings > Community plugins > Vault Terminal > Enable
 ```
 
 좌측 리본 메뉴의 터미널 아이콘을 누르면 우측 탭에 Vault Terminal이 열립니다.
+
+### Community Plugin / BRAT 설치 후 런타임 설치
+
+Community Plugin Directory 또는 BRAT으로 설치하면 처음에는 아래 표준 플러그인 파일만 설치될 수 있습니다.
+
+```text
+manifest.json
+main.js
+styles.css
+```
+
+이 상태에서 Vault Terminal 탭을 열면 **Runtime installation required** 안내가 표시됩니다. **Install runtime**을 누르면 현재 플러그인 버전과 같은 GitHub Release에서 Windows x64 런타임 ZIP을 내려받고 SHA-256 검증 후 설치합니다.
+
+설정에서도 같은 작업을 할 수 있습니다.
+
+```text
+Settings > Vault Terminal > Runtime files > Install runtime
+```
+
+런타임 설치 후 Vault Terminal 탭을 새로 열면 터미널이 시작됩니다.
 
 ## 화면 색상 설정
 
@@ -118,6 +141,8 @@ Settings > Community plugins > Vault Terminal > Enable
 ```
 
 macOS에서 Node.js를 `nvm`으로만 설치한 경우 Obsidian이 Node 경로를 자동으로 찾지 못할 수 있습니다. 이 경우 플러그인 설정의 **Node executable**에 절대경로를 입력합니다.
+
+Community Plugin Directory 또는 BRAT으로 설치한 경우 Windows와 동일하게 첫 실행 때 **Install runtime**을 눌러 macOS Intel 또는 Apple Silicon 런타임을 설치합니다. 플러그인이 현재 Mac의 CPU 아키텍처를 감지해 맞는 런타임 ZIP을 선택합니다.
 
 ## Linux 설치
 
@@ -197,7 +222,7 @@ certs/extra-ca.pem
 
 ## 업데이트
 
-새 ZIP 파일을 받으면 기존 폴더에 덮어씁니다.
+GitHub Release 전체 ZIP을 쓰는 경우 새 ZIP 파일을 받으면 기존 폴더에 덮어씁니다.
 
 ```text
 <볼트경로>\.obsidian\plugins\vault-terminal\
@@ -212,6 +237,8 @@ certs/extra-ca.pem
 ```text
 Settings > Community plugins > Vault Terminal
 ```
+
+Community Plugin Directory 또는 BRAT으로 업데이트한 경우 표준 플러그인 파일만 갱신될 수 있습니다. Vault Terminal 탭이나 설정 화면에서 런타임이 누락되었다고 나오면 **Install runtime**을 다시 실행합니다. 런타임 설치는 기존 native runtime 폴더를 지우고 새 버전으로 교체합니다.
 
 ## 삭제
 
@@ -244,6 +271,8 @@ Settings > Community plugins > Vault Terminal > Disable
 - 일반 PowerShell, Terminal, zsh, bash에서 `node --version`이 실행되는지 확인합니다.
 - `Node.js was not found` 또는 `spawn node ENOENT`가 표시되면 Node.js를 시스템에 설치한 뒤 Obsidian을 재시작합니다.
 - Node.js를 별도 위치에 설치했다면 플러그인 설정의 **Node executable**에 절대경로를 입력합니다.
+- `Runtime installation required`가 표시되면 **Install runtime**을 눌러 런타임 파일을 설치합니다.
+- 런타임 다운로드가 실패하면 GitHub Release asset에 접근 가능한 네트워크인지 확인합니다.
 
 Claude Code 또는 Codex CLI 명령이 인식되지 않으면:
 

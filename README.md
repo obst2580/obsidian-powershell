@@ -2,15 +2,15 @@
 
 Obsidian 데스크톱 앱의 우측 사이드바에 현재 볼트 경로를 작업 디렉터리로 사용하는 실제 터미널을 여는 플러그인입니다.
 
-> 상태: 초기 데스크톱 베타입니다. Windows와 macOS 릴리스 패키지를 배포하며, Linux는 소스 설치 경로를 유지합니다.
+> 상태: 초기 데스크톱 베타입니다. Windows와 macOS 릴리스 패키지를 배포하며, Community Plugin Directory 등록을 준비 중입니다. Linux는 소스 설치 경로를 유지합니다.
 
-> Community Plugin Directory에는 아직 등록하지 않았습니다. native `node-pty` 런타임 때문에 현재는 GitHub Release ZIP 설치를 기준으로 배포합니다.
+> Community Plugin Directory에는 아직 등록하지 않았습니다. 표준 플러그인 파일은 `manifest.json`, `main.js`, `styles.css`만 사용하고, native `node-pty` 런타임은 첫 실행 또는 설정 화면에서 GitHub Release의 OS/아키텍처별 런타임 ZIP을 내려받아 설치하는 구조로 준비했습니다.
 
 ## English Overview
 
 Vault Terminal opens a real terminal in Obsidian's right sidebar and starts it from the current vault path. It is designed for workflows where Obsidian holds project notes while Claude Code, Codex CLI, git, npm, and other local CLI tools run against the same vault.
 
-Current distribution is GitHub Release ZIP based, not Obsidian Community Plugin Directory based. The plugin is desktop-only and requires Node.js plus a native PTY runtime.
+Current distribution is GitHub Release ZIP based while Community Plugin Directory registration is being prepared. The plugin is desktop-only and requires Node.js plus a native PTY runtime. Standard Community Plugin installs can download the verified OS-specific runtime from the matching GitHub Release.
 
 ## 주요 기능
 
@@ -24,6 +24,7 @@ Current distribution is GitHub Release ZIP based, not Obsidian Community Plugin 
 - Obsidian 테마를 기본으로 따르되 Codex/Claude Code ANSI 색상이 읽히도록 터미널 팔레트를 보정합니다.
 - 긴 scrollback과 `Shift + Wheel`, `Ctrl + Shift + PageUp/PageDown` 강제 스크롤을 지원합니다.
 - TLS inspection proxy 또는 사용자 지정 인증서 환경을 위해 Node TLS/CA 설정을 선택적으로 주입할 수 있습니다.
+- Community Plugin 표준 설치처럼 `manifest.json`, `main.js`, `styles.css`만 설치된 경우에도 런타임 파일을 자동 설치할 수 있습니다.
 
 ## 사용 예시
 
@@ -41,9 +42,14 @@ GitHub Actions가 태그 릴리스마다 OS별 ZIP을 자동 생성합니다.
 
 | 파일 | 대상 |
 | --- | --- |
+| `manifest.json`, `main.js`, `styles.css` | Community Plugin Directory / BRAT용 표준 플러그인 파일 |
+| `runtime-manifest.json` | 플러그인이 런타임 ZIP을 검증하기 위한 SHA-256 매니페스트 |
 | `VaultTerminal-<version>-windows-x64.zip` | Windows x64 |
 | `VaultTerminal-<version>-macos-x64.zip` | macOS Intel |
 | `VaultTerminal-<version>-macos-arm64.zip` | macOS Apple Silicon |
+| `VaultTerminal-runtime-<version>-windows-x64.zip` | Windows x64 런타임 전용 |
+| `VaultTerminal-runtime-<version>-macos-x64.zip` | macOS Intel 런타임 전용 |
+| `VaultTerminal-runtime-<version>-macos-arm64.zip` | macOS Apple Silicon 런타임 전용 |
 
 릴리스 페이지:
 
@@ -67,7 +73,9 @@ configure-corporate-ca.cmd
 - VS Code extension이 내부적으로 사용하는 Node.js는 Obsidian에서 보이지 않습니다. `node --version`이 일반 PowerShell, Terminal, zsh, bash에서 실행되는지 확인하세요.
 - Claude Code, Codex CLI 같은 agent CLI는 사용자 PC에 별도로 설치되어 있어야 합니다. VS Code extension만 설치된 상태와 터미널 명령 `claude`, `codex`가 실행되는 상태는 다릅니다.
 
-플러그인은 볼트마다 설치됩니다. ZIP을 아래 경로에 압축 해제합니다.
+### GitHub Release 전체 ZIP 설치
+
+플러그인은 볼트마다 설치됩니다. OS/아키텍처에 맞는 전체 ZIP을 아래 경로에 압축 해제합니다.
 
 ```text
 <볼트경로>/.obsidian/plugins/vault-terminal/
@@ -90,6 +98,26 @@ Settings > Community plugins > Vault Terminal > Enable
 ```
 
 업데이트할 때도 같은 위치에 새 ZIP을 덮어쓴 뒤 Obsidian을 재시작하거나 플러그인을 껐다 켭니다.
+
+### Community Plugin / BRAT 설치
+
+Community Plugin Directory 등록 후에는 Obsidian에서 일반 플러그인처럼 설치할 수 있습니다. BRAT으로 테스트 설치하는 경우에도 표준 플러그인 파일만 먼저 설치됩니다.
+
+표준 설치 직후 플러그인 폴더에는 보통 아래 세 파일만 있습니다.
+
+```text
+manifest.json
+main.js
+styles.css
+```
+
+Vault Terminal 탭을 열면 런타임 파일이 없다는 안내가 표시됩니다. **Install runtime**을 누르면 플러그인이 현재 버전의 GitHub Release에서 `runtime-manifest.json`을 읽고, OS/아키텍처에 맞는 런타임 ZIP을 내려받아 SHA-256 검증 후 플러그인 폴더에 압축 해제합니다.
+
+설정에서도 같은 작업을 실행할 수 있습니다.
+
+```text
+Settings > Vault Terminal > Runtime files > Install runtime
+```
 
 터미널에 `Node.js was not found` 또는 `spawn node ENOENT`가 표시되면 Node.js를 시스템에 설치한 뒤 Obsidian을 재시작하세요. Node를 별도 위치에 설치했다면 `Settings > Vault Terminal > Node executable`에 절대경로를 입력할 수 있습니다.
 
@@ -134,6 +162,8 @@ git push origin v<version>
 - `npm ci`
 - `npm run build`
 - OS별 ZIP 패키징
+- 런타임 전용 ZIP 패키징
+- `runtime-manifest.json` 생성
 - GitHub Release 생성 또는 기존 Release asset 갱신
 
 사용하는 GitHub-hosted runner:
@@ -156,7 +186,7 @@ macOS runner 라벨은 GitHub 공식 hosted runner 문서를 기준으로 선택
 - macOS: Homebrew `pwsh`가 있으면 `pwsh`, 없으면 사용자 `$SHELL`, 그 다음 `zsh`/`bash`
 - Linux: `pwsh`가 있으면 `pwsh`, 없으면 사용자 `$SHELL`, 그 다음 `bash`/`sh`
 
-native PTY 런타임이 포함되므로 릴리스 ZIP은 OS/아키텍처별로 분리됩니다.
+native PTY 런타임이 필요하므로 전체 릴리스 ZIP과 런타임 전용 ZIP은 OS/아키텍처별로 분리됩니다. Community Plugin 표준 설치에서는 런타임 전용 ZIP을 현재 플러그인 버전과 같은 GitHub Release에서 내려받고 SHA-256으로 검증합니다.
 
 ## Windows PTY
 
@@ -236,7 +266,12 @@ PEM 파일을 직접 받은 경우:
 
 Obsidian Community Plugin 표준 설치는 보통 `manifest.json`, `main.js`, `styles.css`만 다룹니다. 이 플러그인은 실제 터미널을 위해 `pty-host.js`와 native `node-pty` 런타임도 필요합니다.
 
-따라서 현재 배포 방식은 GitHub Release ZIP 설치를 기준으로 합니다.
+따라서 릴리스에는 두 종류의 asset을 함께 올립니다.
+
+- 수동 설치용 전체 ZIP: 표준 플러그인 파일 + `pty-host.js` + native 런타임 포함
+- Community Plugin용 런타임 ZIP: 표준 플러그인 설치 후 플러그인이 직접 내려받아 설치
+
+런타임 자동 설치는 같은 버전의 GitHub Release에서만 받도록 제한하고, `runtime-manifest.json`의 크기와 SHA-256 값이 맞지 않으면 설치하지 않습니다.
 
 ## 보안과 권한
 
@@ -245,7 +280,7 @@ Vault Terminal은 데스크톱 전용 플러그인이며, 실제 로컬 셸과 �
 - 터미널에서 실행한 명령은 사용자 PC 권한으로 동작합니다.
 - 명령은 볼트 안팎의 로컬 파일, 네트워크, 인증 정보에 접근할 수 있습니다. 접근 범위는 실행한 CLI와 운영체제 권한을 따릅니다.
 - Claude Code, Codex CLI, git, npm 같은 외부 CLI는 별도로 설치해야 합니다.
-- native `node-pty` 런타임을 릴리스 ZIP에 포함합니다.
+- native `node-pty` 런타임은 전체 ZIP에 포함되거나, Community Plugin 표준 설치 후 GitHub Release에서 내려받아 SHA-256 검증 후 설치됩니다.
 - TLS/CA 환경변수는 사용자가 설정에서 명시적으로 켠 경우에만 주입합니다.
 - 이 플러그인은 자체 telemetry, analytics, 광고 코드를 포함하지 않습니다.
 

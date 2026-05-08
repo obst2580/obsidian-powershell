@@ -14,6 +14,7 @@ const context = await esbuild.context({
     "electron",
     "@homebridge/node-pty-prebuilt-multiarch",
     "child_process",
+    "crypto",
     "fs",
     "os",
     "path"
