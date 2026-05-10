@@ -159,7 +159,7 @@ git tag <version>
 git push origin <version>
 ```
 
-Obsidian Community Plugin Directory 검증을 통과하려면 GitHub release tag가 `manifest.json`의 `version`과 정확히 같아야 합니다. 예를 들어 `manifest.json`이 `0.3.2`이면 tag도 `0.3.2`이어야 하며, `v0.3.2`처럼 `v`를 붙이지 않습니다.
+Obsidian Community Plugin Directory 검증을 통과하려면 GitHub release tag가 `manifest.json`의 `version`과 정확히 같아야 합니다. 예를 들어 `manifest.json`이 `0.3.3`이면 tag도 `0.3.3`이어야 하며, `v0.3.3`처럼 `v`를 붙이지 않습니다.
 
 워크플로는 다음 작업을 수행합니다.
 
@@ -198,7 +198,7 @@ native PTY 런타임이 필요하므로 전체 릴리스 ZIP과 런타임 전용
 - 현재 볼트 안의 파일은 `@relative/path` 형식으로 입력됩니다.
 - 볼트 밖의 파일은 quoted absolute path로 입력됩니다.
 - 이미지나 스크린샷을 클립보드에 복사한 뒤 터미널에서 `Ctrl+V`를 누르면, 이미지를 볼트에 저장하고 `@path`를 입력합니다.
-- 명령 팔레트의 **Insert current note reference in Vault Terminal** 명령으로 현재 노트를 `@note.md` 형식으로 입력할 수 있습니다.
+- 명령 팔레트의 **Insert current note reference** 명령으로 현재 노트를 `@note.md` 형식으로 입력할 수 있습니다.
 
 클립보드 이미지는 기본적으로 아래 폴더에 저장됩니다.
 

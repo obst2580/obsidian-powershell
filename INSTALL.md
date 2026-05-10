@@ -118,7 +118,7 @@ Ctrl + Shift + Home / End
 - 파일을 Vault Terminal에 드롭하면 현재 볼트 안의 파일은 `@relative/path`로 입력됩니다.
 - 볼트 밖의 파일은 quoted absolute path로 입력됩니다.
 - 클립보드에 이미지나 스크린샷이 있을 때 `Ctrl+V`를 누르면, 이미지를 볼트의 `Vault Terminal Attachments/` 폴더에 저장하고 `@path`를 입력합니다.
-- 현재 열린 노트는 명령 팔레트의 **Insert current note reference in Vault Terminal**로 입력할 수 있습니다.
+- 현재 열린 노트는 명령 팔레트의 **Insert current note reference**로 입력할 수 있습니다.
 
 Windows에서는 기본 PTY backend가 **winpty**입니다. ConPTY는 Claude Code/Codex가 쓰는 일부 수정 키 입력 시퀀스를 프로그램에 전달하기 전에 필터링할 수 있어서, 멀티라인 입력이 필요한 agent CLI에는 winpty가 기본값입니다. 필요하면 플러그인 설정의 **Windows PTY backend**에서 ConPTY로 바꾸고 Vault Terminal 탭을 새로 엽니다.
 
@@ -234,8 +234,6 @@ GitHub Release 전체 ZIP을 쓰는 경우 새 ZIP 파일을 받으면 기존 �
 ```text
 <볼트경로>\.obsidian\plugins\vault-terminal\
 ```
-
-`0.1.x`에서 업데이트하는 경우 플러그인 ID가 `obsidian-powershell-agent`에서 `vault-terminal`로 바뀌었습니다. 설치 스크립트는 기존 `data.json`과 `certs` 폴더를 새 위치로 복사합니다. 수동 설치 시에는 기존 설정이 필요하면 직접 옮긴 뒤 이전 폴더를 제거하세요.
 
 덮어쓴 뒤 Obsidian을 재시작합니다.
 

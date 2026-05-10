@@ -138,7 +138,7 @@ If Node.js is installed in a non-standard location, set:
 Settings > Vault Terminal > Node executable
 ```
 
-## File And Image References
+## File and image references
 
 Vault Terminal can bridge Obsidian and agent CLI attachment workflows:
 
@@ -146,7 +146,7 @@ Vault Terminal can bridge Obsidian and agent CLI attachment workflows:
 - Files inside the current vault are inserted as `@relative/path`.
 - Files outside the vault are inserted as quoted absolute paths.
 - Copy an image or screenshot, then press `Ctrl+V` in the terminal. Vault Terminal saves it into the vault and inserts an `@path` reference.
-- Use the command palette action **Insert current note reference in Vault Terminal** to insert the active note as `@note.md`.
+- Use the command palette action **Insert current note reference** to insert the active note as `@note.md`.
 
 Clipboard images are saved to:
 
@@ -160,7 +160,7 @@ You can change that folder here:
 Settings > Vault Terminal > Attachment folder
 ```
 
-## Windows PTY Backend
+## Windows PTY backend
 
 The default Windows PTY backend is `winpty`.
 
@@ -195,7 +195,7 @@ Setting:
 Settings > Vault Terminal > Shift+Enter behavior
 ```
 
-## Colors And Scrolling
+## Colors and scrolling
 
 The default color mode is **Follow Obsidian**. It follows the current Obsidian light/dark theme while using a readable ANSI palette for terminal tools.
 
@@ -206,7 +206,7 @@ Scrolling behavior:
 - Use `Ctrl + Shift + PageUp/PageDown` for forced page scrolling.
 - Fullscreen TUI tools may use the alternate screen buffer. In that mode, older output belongs to the CLI's own screen state rather than normal terminal scrollback.
 
-## TLS / Custom Certificates
+## TLS / custom certificates
 
 By default, Vault Terminal does not change Node TLS behavior and does not include certificate files.
 
@@ -263,15 +263,15 @@ Create a local Windows release package:
 pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 -OutputDir dist
 ```
 
-## Release Process
+## Release process
 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
-For example, if `manifest.json` says `0.3.2`, use:
+For example, if `manifest.json` says `0.3.3`, use:
 
 ```powershell
-git tag 0.3.2
-git push origin 0.3.2
+git tag 0.3.3
+git push origin 0.3.3
 ```
 
 The release workflow:

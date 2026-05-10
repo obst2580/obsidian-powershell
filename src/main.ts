@@ -11,6 +11,7 @@ import {
   TFolder,
   WorkspaceLeaf
 } from "obsidian";
+import { clipboard } from "electron";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { unzipSync } from "fflate";
@@ -184,28 +185,22 @@ export default class VaultPowerShellPlugin extends Plugin {
       (leaf) => new VaultPowerShellView(leaf, this)
     );
 
-    this.addRibbonIcon("terminal", "Open vault terminal", async () => {
-      await this.activateView();
+    this.addRibbonIcon("terminal", "Open terminal", () => {
+      void this.activateView();
     });
 
     this.addCommand({
       id: "open-vault-powershell-view",
-      name: "Open vault terminal",
-      callback: async () => {
-        await this.activateView();
+      name: "Open terminal",
+      callback: () => {
+        void this.activateView();
       }
     });
     this.addCommand({
       id: "insert-current-note-reference",
-      name: "Insert current note reference in Vault Terminal",
-      callback: async () => {
-        const file = this.app.workspace.getActiveFile();
-        if (!file) {
-          new Notice("No active note to reference.");
-          return;
-        }
-
-        await this.insertVaultReferences([file.path]);
+      name: "Insert current note reference",
+      callback: () => {
+        void this.insertCurrentNoteReference();
       }
     });
 
@@ -442,6 +437,16 @@ export default class VaultPowerShellPlugin extends Plugin {
     view.insertTerminalText(`${text} `);
   }
 
+  private async insertCurrentNoteReference() {
+    const file = this.app.workspace.getActiveFile();
+    if (!file) {
+      new Notice("No active note to reference.");
+      return;
+    }
+
+    await this.insertVaultReferences([file.path]);
+  }
+
   async getOrCreateTerminalView(): Promise<VaultPowerShellView> {
     await this.activateView();
     const view = this.app.workspace.getLeavesOfType(VIEW_TYPE_POWERSHELL)[0]?.view;
@@ -455,7 +460,7 @@ export default class VaultPowerShellPlugin extends Plugin {
   async activateView() {
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_POWERSHELL)[0];
     if (existing) {
-      this.app.workspace.revealLeaf(existing);
+      await this.app.workspace.revealLeaf(existing);
       return;
     }
 
@@ -464,7 +469,7 @@ export default class VaultPowerShellPlugin extends Plugin {
       type: VIEW_TYPE_POWERSHELL,
       active: true
     });
-    this.app.workspace.revealLeaf(leaf);
+    await this.app.workspace.revealLeaf(leaf);
   }
 }
 
@@ -503,7 +508,7 @@ class VaultPowerShellView extends ItemView {
     return "terminal";
   }
 
-  async onOpen() {
+  onOpen(): Promise<void> {
     const container = this.containerEl.children[1];
     container.empty();
     container.addClass("vault-powershell-view");
@@ -511,9 +516,10 @@ class VaultPowerShellView extends ItemView {
     const terminalEl = container.createDiv("vault-powershell-terminal");
     this.createTerminal(terminalEl);
     this.startShell();
+    return Promise.resolve();
   }
 
-  async onClose() {
+  onClose(): Promise<void> {
     this.disposeShell();
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
@@ -535,6 +541,7 @@ class VaultPowerShellView extends ItemView {
     this.terminal = null;
     this.terminalContainer = null;
     this.fitAddon = null;
+    return Promise.resolve();
   }
 
   private createTerminal(container: HTMLElement) {
@@ -577,13 +584,13 @@ class VaultPowerShellView extends ItemView {
       const key = event.key.toLowerCase();
       const copyShortcut = key === "c" && event.ctrlKey && (event.shiftKey || terminal.hasSelection());
       if (copyShortcut) {
-        this.copySelection();
+        void this.copySelection();
         return false;
       }
 
       const pasteShortcut = key === "v" && event.ctrlKey;
       if (pasteShortcut) {
-        this.pasteClipboard();
+        void this.pasteClipboard();
         return false;
       }
 
@@ -625,7 +632,7 @@ class VaultPowerShellView extends ItemView {
       }
 
       event.preventDefault();
-      this.copySelection();
+      void this.copySelection();
     });
 
     this.terminal = terminal;
@@ -725,7 +732,7 @@ class VaultPowerShellView extends ItemView {
       return true;
     }
 
-    return this.app.workspace.activeLeaf === this.leaf;
+    return this.app.workspace.getActiveViewOfType(VaultPowerShellView) === this;
   }
 
   private handleScrollKey(event: KeyboardEvent, terminal: Terminal): boolean {
@@ -913,26 +920,30 @@ class VaultPowerShellView extends ItemView {
     const installButton = actionsEl.createEl("button", { text: "Install runtime" });
     const statusEl = actionsEl.createSpan("vault-terminal-runtime-status");
 
-    installButton.addEventListener("click", async () => {
-      installButton.disabled = true;
-      try {
-        await this.plugin.installRuntime((message) => {
-          statusEl.setText(message);
-        });
-        statusEl.setText("Runtime installed. Starting terminal...");
-        this.clearRuntimePrompt();
-        this.terminal?.clear();
-        this.startShell();
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        statusEl.setText(`Runtime installation failed: ${message}`);
-        new Notice(`Runtime installation failed: ${message}`);
-      } finally {
-        installButton.disabled = false;
-      }
+    installButton.addEventListener("click", () => {
+      void this.installRuntimeFromPrompt(installButton, statusEl);
     });
 
     this.runtimePromptEl = promptEl;
+  }
+
+  private async installRuntimeFromPrompt(installButton: HTMLButtonElement, statusEl: HTMLElement) {
+    installButton.disabled = true;
+    try {
+      await this.plugin.installRuntime((message) => {
+        statusEl.setText(message);
+      });
+      statusEl.setText("Runtime installed. Starting terminal...");
+      this.clearRuntimePrompt();
+      this.terminal?.clear();
+      this.startShell();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      statusEl.setText(`Runtime installation failed: ${message}`);
+      new Notice(`Runtime installation failed: ${message}`);
+    } finally {
+      installButton.disabled = false;
+    }
   }
 
   private clearRuntimePrompt() {
@@ -1165,7 +1176,9 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "Vault Terminal" });
+    new Setting(containerEl)
+      .setName("Vault Terminal")
+      .setHeading();
 
     new Setting(containerEl)
       .setName("Shell executable")
@@ -1174,9 +1187,9 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
         text
           .setPlaceholder("auto")
           .setValue(this.plugin.settings.executable)
-          .onChange(async (value) => {
+          .onChange((value) => {
             this.plugin.settings.executable = value.trim();
-            await this.plugin.saveSettings();
+            void this.plugin.saveSettings();
           })
       );
 
@@ -1187,9 +1200,9 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
         text
           .setPlaceholder("auto")
           .setValue(this.plugin.settings.args)
-          .onChange(async (value) => {
+          .onChange((value) => {
             this.plugin.settings.args = value.trim();
-            await this.plugin.saveSettings();
+            void this.plugin.saveSettings();
           })
       );
 
@@ -1200,9 +1213,9 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
         text
           .setPlaceholder("auto")
           .setValue(this.plugin.settings.nodeExecutable)
-          .onChange(async (value) => {
+          .onChange((value) => {
             this.plugin.settings.nodeExecutable = value.trim();
-            await this.plugin.saveSettings();
+            void this.plugin.saveSettings();
           })
       );
 
@@ -1215,19 +1228,20 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
       .addButton((button) =>
         button
           .setButtonText(runtimeMissingFiles.length === 0 ? "Reinstall runtime" : "Install runtime")
-          .onClick(async () => {
+          .onClick(() => {
             button.setDisabled(true);
             button.setButtonText("Installing...");
-            try {
-              await this.plugin.installRuntime();
-              new Notice("Vault Terminal runtime installed. Reopen Vault Terminal to start a shell.");
-              this.display();
-            } catch (error) {
-              const message = error instanceof Error ? error.message : String(error);
-              new Notice(`Runtime installation failed: ${message}`);
-              button.setButtonText("Install runtime");
-              button.setDisabled(false);
-            }
+            void this.plugin.installRuntime()
+              .then(() => {
+                new Notice("Vault Terminal runtime installed. Reopen the terminal to start a shell.");
+                this.display();
+              })
+              .catch((error) => {
+                const message = error instanceof Error ? error.message : String(error);
+                new Notice(`Runtime installation failed: ${message}`);
+                button.setButtonText("Install runtime");
+                button.setDisabled(false);
+              });
           })
       );
 
@@ -1238,9 +1252,9 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
         text
           .setPlaceholder(DEFAULT_ATTACHMENT_FOLDER)
           .setValue(this.plugin.settings.attachmentFolder)
-          .onChange(async (value) => {
+          .onChange((value) => {
             this.plugin.settings.attachmentFolder = normalizeAttachmentFolder(value);
-            await this.plugin.saveSettings();
+            void this.plugin.saveSettings();
           })
       );
 
@@ -1253,16 +1267,16 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
           .addOption("light", "Light terminal")
           .addOption("dark", "Dark terminal")
           .setValue(this.plugin.settings.terminalColorScheme)
-          .onChange(async (value) => {
+          .onChange((value) => {
             this.plugin.settings.terminalColorScheme = normalizeTerminalColorScheme(value);
-            await this.plugin.saveSettings();
-            new Notice("Reopen Vault Terminal to apply the color scheme.");
+            void this.plugin.saveSettings();
+            new Notice("Reopen the terminal to apply the color scheme.");
           })
       );
 
     new Setting(containerEl)
       .setName("Shift+Enter behavior")
-      .setDesc("Claude backslash newline is the default because it uses Claude Code's built-in multiline path. Reopen Vault Terminal after changing this.")
+      .setDesc("Claude backslash newline is the default because it uses Claude Code's built-in multiline path. Reopen the terminal after changing this.")
       .addDropdown((dropdown) =>
         dropdown
           .addOption("claude-backslash", "Claude backslash newline")
@@ -1272,10 +1286,10 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
           .addOption("csi-u", "CSI-u Shift Enter")
           .addOption("line-feed", "Line feed")
           .setValue(this.plugin.settings.shiftEnterMode)
-          .onChange(async (value) => {
+          .onChange((value) => {
             this.plugin.settings.shiftEnterMode = normalizeShiftEnterMode(value);
-            await this.plugin.saveSettings();
-            new Notice("Reopen Vault Terminal to apply Shift+Enter behavior.");
+            void this.plugin.saveSettings();
+            new Notice("Reopen the terminal to apply Shift+Enter behavior.");
           })
       );
 
@@ -1288,10 +1302,10 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
             .addOption("winpty", "winpty")
             .addOption("conpty", "ConPTY")
             .setValue(this.plugin.settings.windowsPtyBackend)
-            .onChange(async (value) => {
+            .onChange((value) => {
               this.plugin.settings.windowsPtyBackend = normalizeWindowsPtyBackend(value);
-              await this.plugin.saveSettings();
-              new Notice("Reopen Vault Terminal to apply the PTY backend.");
+              void this.plugin.saveSettings();
+              new Notice("Reopen the terminal to apply the PTY backend.");
             })
         );
     }
@@ -1302,9 +1316,9 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.useSystemCa)
-          .onChange(async (value) => {
+          .onChange((value) => {
             this.plugin.settings.useSystemCa = value;
-            await this.plugin.saveSettings();
+            void this.plugin.saveSettings();
           })
       );
 
@@ -1315,9 +1329,9 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
         text
           .setPlaceholder("certs/extra-ca.pem")
           .setValue(this.plugin.settings.extraCaCertPath)
-          .onChange(async (value) => {
+          .onChange((value) => {
             this.plugin.settings.extraCaCertPath = value.trim();
-            await this.plugin.saveSettings();
+            void this.plugin.saveSettings();
           })
       );
   }
@@ -1763,9 +1777,7 @@ function isEnterKey(event: KeyboardEvent): boolean {
   return event.key === "Enter" ||
     event.key === "Return" ||
     event.code === "Enter" ||
-    event.code === "NumpadEnter" ||
-    event.keyCode === 13 ||
-    event.which === 13;
+    event.code === "NumpadEnter";
 }
 
 function buildTerminalTheme(colorScheme: TerminalColorScheme): ITheme {
@@ -1866,8 +1878,7 @@ async function writeClipboardText(text: string) {
     await navigator.clipboard.writeText(text);
     return;
   } catch {
-    const electron = require("electron");
-    electron.clipboard.writeText(text);
+    clipboard.writeText(text);
   }
 }
 
@@ -1901,8 +1912,7 @@ async function readClipboardImagePng(): Promise<Uint8Array | null> {
 
 function readElectronClipboardImagePng(): Uint8Array | null {
   try {
-    const electron = require("electron");
-    const image = electron.clipboard.readImage();
+    const image = clipboard.readImage();
     if (!image || image.isEmpty()) {
       return null;
     }
@@ -1918,7 +1928,6 @@ async function readClipboardText(): Promise<string> {
   try {
     return await navigator.clipboard.readText();
   } catch {
-    const electron = require("electron");
-    return electron.clipboard.readText();
+    return clipboard.readText();
   }
 }
