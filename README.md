@@ -23,6 +23,8 @@ You can keep project notes open in the main Obsidian workspace and run tools suc
 - Runs a real local shell: PowerShell, zsh, bash, or your configured executable.
 - Works with local CLI tools such as Claude Code, Codex CLI, Git, Python, and npm.
 - Supports terminal text selection and copy.
+- Inserts file references when files are dropped onto the terminal.
+- Saves clipboard images into the vault and inserts an `@path` reference for agent CLIs.
 - Uses Obsidian-aware light/dark terminal colors while keeping ANSI output readable.
 - Keeps a long scrollback buffer and supports forced scrolling with `Shift + mouse wheel`.
 - Supports `Shift + Enter` multiline input modes, including Claude Code's backslash newline flow.
@@ -136,6 +138,28 @@ If Node.js is installed in a non-standard location, set:
 Settings > Vault Terminal > Node executable
 ```
 
+## File And Image References
+
+Vault Terminal can bridge Obsidian and agent CLI attachment workflows:
+
+- Drop files onto the terminal to insert references.
+- Files inside the current vault are inserted as `@relative/path`.
+- Files outside the vault are inserted as quoted absolute paths.
+- Copy an image or screenshot, then press `Ctrl+V` in the terminal. Vault Terminal saves it into the vault and inserts an `@path` reference.
+- Use the command palette action **Insert current note reference in Vault Terminal** to insert the active note as `@note.md`.
+
+Clipboard images are saved to:
+
+```text
+Vault Terminal Attachments/
+```
+
+You can change that folder here:
+
+```text
+Settings > Vault Terminal > Attachment folder
+```
+
 ## Windows PTY Backend
 
 The default Windows PTY backend is `winpty`.
@@ -243,11 +267,11 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
-For example, if `manifest.json` says `0.3.1`, use:
+For example, if `manifest.json` says `0.3.2`, use:
 
 ```powershell
-git tag 0.3.1
-git push origin 0.3.1
+git tag 0.3.2
+git push origin 0.3.2
 ```
 
 The release workflow:

@@ -3,10 +3,12 @@ import {
   FileSystemAdapter,
   ItemView,
   Notice,
+  normalizePath,
   Plugin,
   PluginSettingTab,
   requestUrl,
   Setting,
+  TFolder,
   WorkspaceLeaf
 } from "obsidian";
 import { Terminal, type ITheme } from "@xterm/xterm";
@@ -15,12 +17,13 @@ import { unzipSync } from "fflate";
 import { ChildProcessWithoutNullStreams, spawn } from "child_process";
 import { createHash } from "crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
-import { dirname, isAbsolute, join, resolve, sep } from "path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
 
 const VIEW_TYPE_POWERSHELL = "vault-powershell";
 const GITHUB_REPOSITORY = "obst2580/obsidian-powershell";
 const RUNTIME_INFO_FILE = "runtime.json";
 const RUNTIME_MANIFEST_FILE = "runtime-manifest.json";
+const DEFAULT_ATTACHMENT_FOLDER = "Vault Terminal Attachments";
 const RUNTIME_REQUIRED_RELATIVE_FILES = [
   "pty-host.js",
   "node_modules/@homebridge/node-pty-prebuilt-multiarch/package.json",
@@ -51,6 +54,7 @@ interface PowerShellSettings {
   windowsPtyBackend: WindowsPtyBackend;
   useSystemCa: boolean;
   extraCaCertPath: string;
+  attachmentFolder: string;
 }
 
 type TerminalColorScheme = "dark" | "light" | "obsidian";
@@ -107,7 +111,8 @@ const DEFAULT_SETTINGS: PowerShellSettings = {
   shiftEnterMode: "claude-backslash",
   windowsPtyBackend: "winpty",
   useSystemCa: false,
-  extraCaCertPath: ""
+  extraCaCertPath: "",
+  attachmentFolder: DEFAULT_ATTACHMENT_FOLDER
 };
 
 const DARK_TERMINAL_THEME: ITheme = {
@@ -188,6 +193,19 @@ export default class VaultPowerShellPlugin extends Plugin {
       name: "Open vault terminal",
       callback: async () => {
         await this.activateView();
+      }
+    });
+    this.addCommand({
+      id: "insert-current-note-reference",
+      name: "Insert current note reference in Vault Terminal",
+      callback: async () => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file) {
+          new Notice("No active note to reference.");
+          return;
+        }
+
+        await this.insertVaultReferences([file.path]);
       }
     });
 
@@ -376,6 +394,64 @@ export default class VaultPowerShellPlugin extends Plugin {
     return candidates.find((candidate) => existsSync(candidate)) ?? null;
   }
 
+  getAttachmentFolder(): string {
+    return normalizeAttachmentFolder(this.settings.attachmentFolder);
+  }
+
+  getVaultRelativePath(localPath: string): string | null {
+    const vaultPath = this.getVaultPath();
+    if (!vaultPath) {
+      return null;
+    }
+
+    const resolvedVault = resolve(vaultPath);
+    const resolvedLocal = resolve(localPath);
+    if (!isPathInside(resolvedVault, resolvedLocal)) {
+      return null;
+    }
+
+    return normalizePath(relative(resolvedVault, resolvedLocal).replace(/\\/g, "/"));
+  }
+
+  async saveAttachmentBytes(bytes: Uint8Array, extension = "png", label = "attachment"): Promise<string> {
+    const folder = this.getAttachmentFolder();
+    await ensureVaultFolder(this.app, folder);
+
+    const safeExtension = sanitizeExtension(extension);
+    const safeLabel = sanitizeFileStem(label);
+    const timestamp = formatAttachmentTimestamp(new Date());
+    let candidate = normalizePath(`${folder}/${timestamp}-${safeLabel}.${safeExtension}`);
+    let suffix = 2;
+
+    while (this.app.vault.getAbstractFileByPath(candidate)) {
+      candidate = normalizePath(`${folder}/${timestamp}-${safeLabel}-${suffix}.${safeExtension}`);
+      suffix += 1;
+    }
+
+    const file = await this.app.vault.createBinary(candidate, toArrayBuffer(bytes));
+    return file.path;
+  }
+
+  async insertVaultReferences(paths: string[]) {
+    const text = paths.map((path) => formatVaultFileReference(path)).join(" ");
+    if (!text) {
+      return;
+    }
+
+    const view = await this.getOrCreateTerminalView();
+    view.insertTerminalText(`${text} `);
+  }
+
+  async getOrCreateTerminalView(): Promise<VaultPowerShellView> {
+    await this.activateView();
+    const view = this.app.workspace.getLeavesOfType(VIEW_TYPE_POWERSHELL)[0]?.view;
+    if (!(view instanceof VaultPowerShellView)) {
+      throw new Error("Vault Terminal view is not available.");
+    }
+
+    return view;
+  }
+
   async activateView() {
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_POWERSHELL)[0];
     if (existing) {
@@ -408,6 +484,7 @@ class VaultPowerShellView extends ItemView {
   private lastShiftEnterAt = 0;
   private wheelLineAccumulator = 0;
   private runtimePromptEl: HTMLElement | null = null;
+  private pendingInsertTexts: string[] = [];
 
   constructor(leaf: WorkspaceLeaf, plugin: VaultPowerShellPlugin) {
     super(leaf);
@@ -453,6 +530,7 @@ class VaultPowerShellView extends ItemView {
     }
     this.pendingShiftEnterTimers.forEach((timer) => window.clearTimeout(timer));
     this.pendingShiftEnterTimers.clear();
+    this.pendingInsertTexts = [];
     this.terminal?.dispose();
     this.terminal = null;
     this.terminalContainer = null;
@@ -527,6 +605,16 @@ class VaultPowerShellView extends ItemView {
     container.addEventListener("keydown", (event) => {
       this.handleShiftEnter(event);
     }, { passive: false, capture: true });
+
+    container.addEventListener("dragover", (event) => {
+      this.handleTerminalDragOver(event);
+    });
+    container.addEventListener("dragleave", () => {
+      container.removeClass("vault-terminal-drop-target");
+    });
+    container.addEventListener("drop", (event) => {
+      void this.handleTerminalDrop(event);
+    });
 
     this.windowKeydownHandler = (event) => this.handleGlobalShiftEnter(event);
     window.addEventListener("keydown", this.windowKeydownHandler, { capture: true });
@@ -768,6 +856,7 @@ class VaultPowerShellView extends ItemView {
       });
 
       this.host = host;
+      this.flushPendingInsertTexts();
 
       host.stdout.on("data", (chunk: Buffer) => {
         this.handleHostStdout(chunk.toString());
@@ -890,10 +979,124 @@ class VaultPowerShellView extends ItemView {
   }
 
   private async pasteClipboard() {
-    const text = await readClipboardText();
-    if (text) {
-      this.sendHostMessage({ type: "data", data: text });
+    try {
+      const imageBytes = await readClipboardImagePng();
+      if (imageBytes) {
+        const path = await this.plugin.saveAttachmentBytes(imageBytes, "png", "clipboard");
+        this.insertTerminalText(`${formatVaultFileReference(path)} `);
+        new Notice(`Inserted clipboard image: ${path}`);
+        return;
+      }
+
+      const text = await readClipboardText();
+      if (text) {
+        this.insertTerminalText(text);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      new Notice(`Failed to paste into Vault Terminal: ${message}`);
     }
+  }
+
+  private handleTerminalDragOver(event: DragEvent) {
+    if (!event.dataTransfer) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    this.terminalContainer?.addClass("vault-terminal-drop-target");
+  }
+
+  private async handleTerminalDrop(event: DragEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    this.terminalContainer?.removeClass("vault-terminal-drop-target");
+
+    try {
+      const references = await this.getDropReferences(event.dataTransfer);
+      if (references.length === 0) {
+        new Notice("No file paths were found in the dropped item.");
+        return;
+      }
+
+      this.insertTerminalText(`${references.join(" ")} `);
+      new Notice(`Inserted ${references.length} file reference${references.length === 1 ? "" : "s"}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      new Notice(`Failed to insert dropped file: ${message}`);
+    }
+  }
+
+  private async getDropReferences(dataTransfer: DataTransfer | null): Promise<string[]> {
+    if (!dataTransfer) {
+      return [];
+    }
+
+    const references: string[] = [];
+    const seen = new Set<string>();
+
+    for (const file of Array.from(dataTransfer.files)) {
+      const localPath = getDataTransferFilePath(file);
+      if (localPath) {
+        const reference = this.formatLocalPathReference(localPath);
+        if (!seen.has(reference)) {
+          references.push(reference);
+          seen.add(reference);
+        }
+        continue;
+      }
+
+      if (file.type.startsWith("image/")) {
+        const extension = getExtensionFromFile(file);
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const vaultPath = await this.plugin.saveAttachmentBytes(bytes, extension, sanitizeFileStem(file.name || "dropped-image"));
+        const reference = formatVaultFileReference(vaultPath);
+        if (!seen.has(reference)) {
+          references.push(reference);
+          seen.add(reference);
+        }
+      }
+    }
+
+    for (const textPath of getDroppedTextPaths(dataTransfer)) {
+      const reference = this.formatLocalPathReference(textPath);
+      if (!seen.has(reference)) {
+        references.push(reference);
+        seen.add(reference);
+      }
+    }
+
+    return references;
+  }
+
+  private formatLocalPathReference(localPath: string): string {
+    const vaultRelativePath = this.plugin.getVaultRelativePath(localPath);
+    return vaultRelativePath
+      ? formatVaultFileReference(vaultRelativePath)
+      : quoteTerminalPath(localPath);
+  }
+
+  insertTerminalText(text: string) {
+    if (!this.host || !this.host.stdin.writable) {
+      this.pendingInsertTexts.push(text);
+      new Notice("Vault Terminal is not running yet. The reference will be inserted when the terminal starts.");
+      return;
+    }
+
+    this.sendHostMessage({ type: "data", data: text });
+    this.terminal?.focus();
+  }
+
+  private flushPendingInsertTexts() {
+    if (!this.host || !this.host.stdin.writable || this.pendingInsertTexts.length === 0) {
+      return;
+    }
+
+    const text = this.pendingInsertTexts.join("");
+    this.pendingInsertTexts = [];
+    this.sendHostMessage({ type: "data", data: text });
+    this.terminal?.focus();
   }
 
   private disposeShell(kill = true) {
@@ -1025,6 +1228,19 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
               button.setButtonText("Install runtime");
               button.setDisabled(false);
             }
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Attachment folder")
+      .setDesc("Clipboard images and dropped image data without a local path are saved here before their @path is inserted into the terminal.")
+      .addText((text) =>
+        text
+          .setPlaceholder(DEFAULT_ATTACHMENT_FOLDER)
+          .setValue(this.plugin.settings.attachmentFolder)
+          .onChange(async (value) => {
+            this.plugin.settings.attachmentFolder = normalizeAttachmentFolder(value);
+            await this.plugin.saveSettings();
           })
       );
 
@@ -1333,8 +1549,146 @@ function normalizeArchiveEntryName(entryName: string): string | null {
 }
 
 function isPathInside(basePath: string, targetPath: string): boolean {
-  const normalizedBase = basePath.endsWith(sep) ? basePath : `${basePath}${sep}`;
-  return targetPath === basePath || targetPath.startsWith(normalizedBase);
+  const comparableBasePath = getComparableFsPath(basePath);
+  const comparableTargetPath = getComparableFsPath(targetPath);
+  const normalizedBase = comparableBasePath.endsWith(sep) ? comparableBasePath : `${comparableBasePath}${sep}`;
+  return comparableTargetPath === comparableBasePath || comparableTargetPath.startsWith(normalizedBase);
+}
+
+function getComparableFsPath(path: string): string {
+  return process.platform === "win32" ? path.toLowerCase() : path;
+}
+
+async function ensureVaultFolder(app: App, folderPath: string) {
+  const normalized = normalizeAttachmentFolder(folderPath);
+  const parts = normalized.split("/").filter(Boolean);
+  let current = "";
+
+  for (const part of parts) {
+    current = current ? `${current}/${part}` : part;
+    const existing = app.vault.getAbstractFileByPath(current);
+    if (existing instanceof TFolder) {
+      continue;
+    }
+
+    if (existing) {
+      throw new Error(`Attachment folder path conflicts with an existing file: ${current}`);
+    }
+
+    await app.vault.createFolder(current);
+  }
+}
+
+function normalizeAttachmentFolder(value: string | undefined): string {
+  const normalized = normalizePath((value ?? "").trim() || DEFAULT_ATTACHMENT_FOLDER).replace(/^\/+/, "");
+  if (!normalized || normalized === "." || normalized === ".." || normalized.startsWith("../")) {
+    return DEFAULT_ATTACHMENT_FOLDER;
+  }
+
+  return normalized;
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
+function formatAttachmentTimestamp(date: Date): string {
+  const pad = (value: number, width = 2) => value.toString().padStart(width, "0");
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+    "-",
+    pad(date.getHours()),
+    pad(date.getMinutes()),
+    pad(date.getSeconds()),
+    "-",
+    pad(date.getMilliseconds(), 3)
+  ].join("");
+}
+
+function sanitizeFileStem(value: string): string {
+  const stem = value
+    .replace(/\.[^.\\/]+$/, "")
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+  return stem || "attachment";
+}
+
+function sanitizeExtension(value: string): string {
+  const extension = value.replace(/^\./, "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return extension || "png";
+}
+
+function getExtensionFromFile(file: File): string {
+  const nameExtension = file.name.match(/\.([a-zA-Z0-9]+)$/)?.[1];
+  if (nameExtension) {
+    return sanitizeExtension(nameExtension);
+  }
+
+  if (file.type === "image/jpeg") {
+    return "jpg";
+  }
+
+  if (file.type === "image/webp") {
+    return "webp";
+  }
+
+  if (file.type === "image/gif") {
+    return "gif";
+  }
+
+  return "png";
+}
+
+function formatVaultFileReference(path: string): string {
+  return `@${normalizePath(path).replace(/\\/g, "/")}`;
+}
+
+function quoteTerminalPath(path: string): string {
+  const normalized = path.replace(/"/g, '\\"');
+  return `"${normalized}"`;
+}
+
+function getDataTransferFilePath(file: File): string | null {
+  const path = (file as File & { path?: string }).path;
+  return path && path.trim() ? path : null;
+}
+
+function getDroppedTextPaths(dataTransfer: DataTransfer): string[] {
+  const text = dataTransfer.getData("text/plain");
+  if (!text) {
+    return [];
+  }
+
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => isLikelyDroppedPath(line))
+    .map((line) => normalizeDroppedTextPath(line));
+}
+
+function isLikelyDroppedPath(value: string): boolean {
+  return /^[a-z]:[\\/]/i.test(value) ||
+    value.startsWith("/") ||
+    value.startsWith("\\\\") ||
+    value.startsWith("file://");
+}
+
+function normalizeDroppedTextPath(value: string): string {
+  if (!value.toLowerCase().startsWith("file://")) {
+    return value;
+  }
+
+  try {
+    const url = new URL(value);
+    return decodeURIComponent(url.pathname).replace(/^\/([a-z]:)/i, "$1");
+  } catch {
+    return value.replace(/^file:\/\//i, "");
+  }
 }
 
 function getDefaultPathCandidates(): string[] {
@@ -1514,6 +1868,49 @@ async function writeClipboardText(text: string) {
   } catch {
     const electron = require("electron");
     electron.clipboard.writeText(text);
+  }
+}
+
+async function readClipboardImagePng(): Promise<Uint8Array | null> {
+  const electronImage = readElectronClipboardImagePng();
+  if (electronImage) {
+    return electronImage;
+  }
+
+  try {
+    if (!navigator.clipboard?.read) {
+      return null;
+    }
+
+    const items = await navigator.clipboard.read();
+    for (const item of items) {
+      const imageType = item.types.find((type) => type.startsWith("image/"));
+      if (!imageType) {
+        continue;
+      }
+
+      const blob = await item.getType(imageType);
+      return new Uint8Array(await blob.arrayBuffer());
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function readElectronClipboardImagePng(): Uint8Array | null {
+  try {
+    const electron = require("electron");
+    const image = electron.clipboard.readImage();
+    if (!image || image.isEmpty()) {
+      return null;
+    }
+
+    const png = image.toPNG() as Buffer;
+    return png.byteLength > 0 ? new Uint8Array(png) : null;
+  } catch {
+    return null;
   }
 }
 

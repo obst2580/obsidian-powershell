@@ -68,6 +68,11 @@
   overscroll-behavior: contain;
 }
 
+.vault-powershell-terminal.vault-terminal-drop-target {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -2px;
+}
+
 .vault-powershell-terminal .xterm {
   height: 100%;
   cursor: text;
