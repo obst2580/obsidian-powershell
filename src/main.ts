@@ -588,12 +588,6 @@ class VaultPowerShellView extends ItemView {
         return false;
       }
 
-      const pasteShortcut = key === "v" && event.ctrlKey;
-      if (pasteShortcut) {
-        void this.pasteClipboard();
-        return false;
-      }
-
       if (this.handleShiftEnter(event)) {
         return false;
       }
@@ -612,6 +606,10 @@ class VaultPowerShellView extends ItemView {
     container.addEventListener("keydown", (event) => {
       this.handleShiftEnter(event);
     }, { passive: false, capture: true });
+
+    container.addEventListener("paste", (event) => {
+      this.handleTerminalPaste(event);
+    }, { capture: true });
 
     container.addEventListener("dragover", (event) => {
       this.handleTerminalDragOver(event);
@@ -989,20 +987,26 @@ class VaultPowerShellView extends ItemView {
     this.terminal?.clearSelection();
   }
 
-  private async pasteClipboard() {
-    try {
-      const imageBytes = await readClipboardImagePng();
-      if (imageBytes) {
-        const path = await this.plugin.saveAttachmentBytes(imageBytes, "png", "clipboard");
-        this.insertTerminalText(`${formatVaultFileReference(path)} `);
-        new Notice(`Inserted clipboard image: ${path}`);
-        return;
-      }
+  private handleTerminalPaste(event: ClipboardEvent) {
+    const imageFile = getClipboardImageFile(event.clipboardData);
+    if (!imageFile) {
+      return;
+    }
 
-      const text = await readClipboardText();
-      if (text) {
-        this.insertTerminalText(text);
-      }
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    void this.insertClipboardImage(imageFile);
+  }
+
+  private async insertClipboardImage(imageFile: File) {
+    try {
+      const imageBytes = new Uint8Array(await imageFile.arrayBuffer());
+      const extension = getExtensionFromFile(imageFile);
+      const label = sanitizeFileStem(imageFile.name || "clipboard");
+      const path = await this.plugin.saveAttachmentBytes(imageBytes, extension, label);
+      this.insertTerminalText(`${formatVaultFileReference(path)} `);
+      new Notice(`Inserted clipboard image: ${path}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       new Notice(`Failed to paste into Vault Terminal: ${message}`);
@@ -1672,6 +1676,25 @@ function getDataTransferFilePath(file: File): string | null {
   return path && path.trim() ? path : null;
 }
 
+function getClipboardImageFile(clipboardData: DataTransfer | null): File | null {
+  if (!clipboardData) {
+    return null;
+  }
+
+  for (const item of Array.from(clipboardData.items)) {
+    if (item.kind !== "file" || !item.type.startsWith("image/")) {
+      continue;
+    }
+
+    const file = item.getAsFile();
+    if (file) {
+      return file;
+    }
+  }
+
+  return Array.from(clipboardData.files).find((file) => file.type.startsWith("image/")) ?? null;
+}
+
 function getDroppedTextPaths(dataTransfer: DataTransfer): string[] {
   const text = dataTransfer.getData("text/plain");
   if (!text) {
@@ -1879,55 +1902,5 @@ async function writeClipboardText(text: string) {
     return;
   } catch {
     clipboard.writeText(text);
-  }
-}
-
-async function readClipboardImagePng(): Promise<Uint8Array | null> {
-  const electronImage = readElectronClipboardImagePng();
-  if (electronImage) {
-    return electronImage;
-  }
-
-  try {
-    if (!navigator.clipboard?.read) {
-      return null;
-    }
-
-    const items = await navigator.clipboard.read();
-    for (const item of items) {
-      const imageType = item.types.find((type) => type.startsWith("image/"));
-      if (!imageType) {
-        continue;
-      }
-
-      const blob = await item.getType(imageType);
-      return new Uint8Array(await blob.arrayBuffer());
-    }
-  } catch {
-    return null;
-  }
-
-  return null;
-}
-
-function readElectronClipboardImagePng(): Uint8Array | null {
-  try {
-    const image = clipboard.readImage();
-    if (!image || image.isEmpty()) {
-      return null;
-    }
-
-    const png = image.toPNG() as Buffer;
-    return png.byteLength > 0 ? new Uint8Array(png) : null;
-  } catch {
-    return null;
-  }
-}
-
-async function readClipboardText(): Promise<string> {
-  try {
-    return await navigator.clipboard.readText();
-  } catch {
-    return clipboard.readText();
   }
 }

@@ -159,7 +159,7 @@ git tag <version>
 git push origin <version>
 ```
 
-Obsidian Community Plugin Directory 검증을 통과하려면 GitHub release tag가 `manifest.json`의 `version`과 정확히 같아야 합니다. 예를 들어 `manifest.json`이 `0.3.3`이면 tag도 `0.3.3`이어야 하며, `v0.3.3`처럼 `v`를 붙이지 않습니다.
+Obsidian Community Plugin Directory 검증을 통과하려면 GitHub release tag가 `manifest.json`의 `version`과 정확히 같아야 합니다. 예를 들어 `manifest.json`이 `0.3.4`이면 tag도 `0.3.4`이어야 하며, `v0.3.4`처럼 `v`를 붙이지 않습니다.
 
 워크플로는 다음 작업을 수행합니다.
 

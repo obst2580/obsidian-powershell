@@ -267,11 +267,11 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
-For example, if `manifest.json` says `0.3.3`, use:
+For example, if `manifest.json` says `0.3.4`, use:
 
 ```powershell
-git tag 0.3.3
-git push origin 0.3.3
+git tag 0.3.4
+git push origin 0.3.4
 ```
 
 The release workflow:
