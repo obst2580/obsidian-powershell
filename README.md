@@ -22,7 +22,6 @@ You can keep project notes open in the main Obsidian workspace and run tools suc
 - Uses the current vault path as the terminal working directory.
 - Runs a real local shell: PowerShell, zsh, bash, or your configured executable.
 - Works with local CLI tools such as Claude Code, Codex CLI, Git, Python, and npm.
-- Adds an Agent console mode that runs shell-backed agent commands and renders stdout/stderr in a selectable Obsidian UI.
 - Supports terminal text selection and copy.
 - Inserts file references when files are dropped onto the terminal.
 - Saves clipboard images into the vault and inserts an `@path` reference for agent CLIs.
@@ -139,23 +138,6 @@ If Node.js is installed in a non-standard location, set:
 Settings > Vault Terminal > Node executable
 ```
 
-## Terminal and Agent console modes
-
-Vault Terminal has two right-sidebar modes:
-
-- **Terminal**: the original xterm/node-pty terminal for fully interactive shells and TUI tools.
-- **Agent console**: a shell-backed command runner that uses the configured shell as the backend and renders stdout/stderr directly in Obsidian.
-
-Agent console mode is useful when interactive terminal rendering feels too heavy for an agent workflow. It provides presets for:
-
-- `claude -p {prompt}`
-- `claude --dangerously-skip-permissions -p {prompt}`
-- `codex exec {prompt}`
-- `gh copilot suggest {prompt}`
-- Custom command templates
-
-`{prompt}` is shell-quoted before execution. `{promptRaw}` inserts the prompt without quoting, and `{vault}` inserts the vault path. Commands still run locally with your OS permissions and use the current vault as the working directory.
-
 ## File and image references
 
 Vault Terminal can bridge Obsidian and agent CLI attachment workflows:
@@ -164,7 +146,7 @@ Vault Terminal can bridge Obsidian and agent CLI attachment workflows:
 - Files inside the current vault are inserted as `@relative/path`.
 - Files outside the vault are inserted as quoted absolute paths.
 - Copy an image or screenshot, then press `Ctrl+V` in the terminal. Vault Terminal saves it into the vault and inserts an `@path` reference.
-- Use the command palette action **Insert current note reference** to insert the active note as `@note.md`. In Agent console mode, the reference is inserted into the prompt box.
+- Use the command palette action **Insert current note reference** to insert the active note as `@note.md`.
 
 Clipboard images are saved to:
 
@@ -300,11 +282,11 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
-For example, if `manifest.json` says `0.4.0`, use:
+For example, if `manifest.json` says `0.3.7`, use:
 
 ```powershell
-git tag 0.4.0
-git push origin 0.4.0
+git tag 0.3.7
+git push origin 0.3.7
 ```
 
 The release workflow:
