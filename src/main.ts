@@ -2,6 +2,7 @@ import {
   App,
   FileSystemAdapter,
   ItemView,
+  Menu,
   Notice,
   normalizePath,
   Plugin,
@@ -562,7 +563,7 @@ class VaultPowerShellView extends ItemView {
       fontSize: 13,
       lineHeight: 1.22,
       minimumContrastRatio: 4.5,
-      rightClickSelectsWord: true,
+      rightClickSelectsWord: false,
       scrollback: 50000,
       scrollOnEraseInDisplay: true,
       scrollSensitivity: 3,
@@ -584,10 +585,7 @@ class VaultPowerShellView extends ItemView {
         return true;
       }
 
-      const key = event.key.toLowerCase();
-      const copyShortcut = key === "c" && event.ctrlKey && (event.shiftKey || terminal.hasSelection());
-      if (copyShortcut) {
-        void this.copySelection();
+      if (this.handleCopyPasteShortcut(event, terminal)) {
         return false;
       }
 
@@ -607,6 +605,10 @@ class VaultPowerShellView extends ItemView {
     }, { passive: false, capture: true });
 
     container.addEventListener("keydown", (event) => {
+      if (this.handleCopyPasteShortcut(event, terminal)) {
+        return;
+      }
+
       this.handleShiftEnter(event);
     }, { passive: false, capture: true });
 
@@ -628,12 +630,7 @@ class VaultPowerShellView extends ItemView {
     window.addEventListener("keydown", this.windowKeydownHandler, { capture: true });
 
     container.addEventListener("contextmenu", (event) => {
-      if (!terminal.hasSelection()) {
-        return;
-      }
-
-      event.preventDefault();
-      void this.copySelection();
+      this.showTerminalContextMenu(event, terminal);
     });
 
     this.terminal = terminal;
@@ -980,14 +977,72 @@ class VaultPowerShellView extends ItemView {
     });
   }
 
-  private async copySelection() {
-    const selection = this.terminal?.getSelection();
-    if (!selection) {
-      return;
+  private handleCopyPasteShortcut(event: KeyboardEvent, terminal: Terminal): boolean {
+    if (isTerminalCopyShortcut(event, terminal)) {
+      this.consumeKeyboardEvent(event);
+      this.copySelection();
+      return true;
     }
 
-    await writeClipboardText(selection);
+    if (isTerminalPasteShortcut(event)) {
+      const text = clipboard.readText();
+      if (!text) {
+        return false;
+      }
+
+      this.consumeKeyboardEvent(event);
+      this.pasteTerminalText(text);
+      return true;
+    }
+
+    return false;
+  }
+
+  private copySelection(): boolean {
+    const selection = this.terminal?.getSelection();
+    if (!selection) {
+      return false;
+    }
+
+    void writeClipboardText(selection);
     this.terminal?.clearSelection();
+    return true;
+  }
+
+  private pasteFromSystemClipboard(): boolean {
+    const text = clipboard.readText();
+    if (!text) {
+      return false;
+    }
+
+    this.pasteTerminalText(text);
+    return true;
+  }
+
+  private showTerminalContextMenu(event: MouseEvent, terminal: Terminal) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const menu = new Menu();
+    menu.addItem((item) => {
+      item
+        .setTitle("Copy")
+        .setIcon("copy")
+        .setDisabled(!terminal.hasSelection())
+        .onClick(() => {
+          this.copySelection();
+        });
+    });
+    menu.addItem((item) => {
+      item
+        .setTitle("Paste")
+        .setIcon("clipboard-paste")
+        .setDisabled(!clipboard.readText())
+        .onClick(() => {
+          this.pasteFromSystemClipboard();
+        });
+    });
+    menu.showAtMouseEvent(event);
   }
 
   private handleTerminalPaste(event: ClipboardEvent) {
@@ -1724,6 +1779,40 @@ function formatTerminalPasteData(text: string): string {
 
 function hasLineBreak(text: string): boolean {
   return /\r|\n/.test(text);
+}
+
+function isTerminalCopyShortcut(event: KeyboardEvent, terminal: Terminal): boolean {
+  const key = event.key.toLowerCase();
+  if (key !== "c" || event.altKey) {
+    return false;
+  }
+
+  if (process.platform === "darwin") {
+    return event.metaKey && !event.ctrlKey && (event.shiftKey || terminal.hasSelection());
+  }
+
+  return event.ctrlKey && !event.metaKey && (event.shiftKey || terminal.hasSelection());
+}
+
+function isTerminalPasteShortcut(event: KeyboardEvent): boolean {
+  const key = event.key.toLowerCase();
+  if (event.altKey) {
+    return false;
+  }
+
+  if (key === "insert") {
+    return event.shiftKey && !event.ctrlKey && !event.metaKey;
+  }
+
+  if (key !== "v") {
+    return false;
+  }
+
+  if (process.platform === "darwin") {
+    return event.metaKey && !event.ctrlKey;
+  }
+
+  return event.ctrlKey && !event.metaKey;
 }
 
 function quoteTerminalPath(path: string): string {
