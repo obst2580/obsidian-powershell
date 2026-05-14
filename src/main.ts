@@ -45,6 +45,8 @@ const SHIFT_ENTER_SEQUENCES: Record<Exclude<ShiftEnterMode, "xterm-paste">, stri
   "bracketed-paste": "\x1b[200~\n\x1b[201~",
   "line-feed": "\n"
 };
+const BRACKETED_PASTE_START = "\x1b[200~";
+const BRACKETED_PASTE_END = "\x1b[201~";
 const CLAUDE_BACKSLASH_NEWLINE_DELAY_MS = 60;
 
 interface PowerShellSettings {
@@ -990,14 +992,30 @@ class VaultPowerShellView extends ItemView {
 
   private handleTerminalPaste(event: ClipboardEvent) {
     const imageFile = getClipboardImageFile(event.clipboardData);
-    if (!imageFile) {
+    if (imageFile) {
+      this.consumeClipboardEvent(event);
+      void this.insertClipboardImage(imageFile);
       return;
     }
 
+    const text = event.clipboardData?.getData("text/plain") ?? "";
+    if (!text) {
+      return;
+    }
+
+    this.consumeClipboardEvent(event);
+    this.pasteTerminalText(text);
+  }
+
+  private consumeClipboardEvent(event: ClipboardEvent) {
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
-    void this.insertClipboardImage(imageFile);
+  }
+
+  private pasteTerminalText(text: string) {
+    const data = formatTerminalPasteData(text);
+    this.sendTerminalInput(data);
   }
 
   private async insertClipboardImage(imageFile: File) {
@@ -1094,6 +1112,10 @@ class VaultPowerShellView extends ItemView {
   }
 
   insertTerminalText(text: string) {
+    this.sendTerminalInput(text);
+  }
+
+  private sendTerminalInput(text: string) {
     if (!this.host || !this.host.stdin.writable) {
       this.pendingInsertTexts.push(text);
       new Notice("Vault Terminal is not running yet. The reference will be inserted when the terminal starts.");
@@ -1691,6 +1713,17 @@ function getExtensionFromFile(file: File): string {
 
 function formatVaultFileReference(path: string): string {
   return `@${normalizePath(path).replace(/\\/g, "/")}`;
+}
+
+function formatTerminalPasteData(text: string): string {
+  const normalized = text.replace(/\r\n|\r|\n/g, "\r");
+  return hasLineBreak(text)
+    ? `${BRACKETED_PASTE_START}${normalized}${BRACKETED_PASTE_END}`
+    : normalized;
+}
+
+function hasLineBreak(text: string): boolean {
+  return /\r|\n/.test(text);
 }
 
 function quoteTerminalPath(path: string): string {
