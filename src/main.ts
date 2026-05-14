@@ -49,6 +49,34 @@ const SHIFT_ENTER_SEQUENCES: Record<Exclude<ShiftEnterMode, "xterm-paste">, stri
 const BRACKETED_PASTE_START = "\x1b[200~";
 const BRACKETED_PASTE_END = "\x1b[201~";
 const CLAUDE_BACKSLASH_NEWLINE_DELAY_MS = 60;
+const AGENT_OUTPUT_MAX_CHARS = 500000;
+const AGENT_PRESETS: AgentPreset[] = [
+  {
+    id: "claude",
+    label: "Claude Code",
+    template: "claude -p {prompt}"
+  },
+  {
+    id: "claude-bypass",
+    label: "Claude bypass",
+    template: "claude --dangerously-skip-permissions -p {prompt}"
+  },
+  {
+    id: "codex",
+    label: "Codex CLI",
+    template: "codex exec {prompt}"
+  },
+  {
+    id: "copilot",
+    label: "GitHub Copilot",
+    template: "gh copilot suggest {prompt}"
+  },
+  {
+    id: "custom",
+    label: "Custom command",
+    template: ""
+  }
+];
 
 interface PowerShellSettings {
   executable: string;
@@ -65,6 +93,13 @@ interface PowerShellSettings {
 type TerminalColorScheme = "dark" | "light" | "obsidian";
 type ShiftEnterMode = "bracketed-paste" | "claude-backslash" | "xterm-paste" | "modified-enter" | "csi-u" | "line-feed";
 type WindowsPtyBackend = "winpty" | "conpty";
+type VaultTerminalMode = "terminal" | "agent";
+
+interface AgentPreset {
+  id: string;
+  label: string;
+  template: string;
+}
 
 interface PtyHostConfig {
   shell: string;
@@ -432,13 +467,12 @@ export default class VaultPowerShellPlugin extends Plugin {
   }
 
   async insertVaultReferences(paths: string[]) {
-    const text = paths.map((path) => formatVaultFileReference(path)).join(" ");
-    if (!text) {
+    if (paths.length === 0) {
       return;
     }
 
     const view = await this.getOrCreateTerminalView();
-    view.insertTerminalText(`${text} `);
+    view.insertVaultReferences(paths);
   }
 
   private async insertCurrentNoteReference() {
@@ -482,8 +516,21 @@ class VaultPowerShellView extends ItemView {
   private terminal: Terminal | null = null;
   private fitAddon: FitAddon | null = null;
   private host: ChildProcessWithoutNullStreams | null = null;
+  private agentProcess: ChildProcessWithoutNullStreams | null = null;
   private hostStdoutBuffer = "";
+  private activeMode: VaultTerminalMode = "terminal";
+  private modeButtons = new Map<VaultTerminalMode, HTMLButtonElement>();
+  private terminalPanelEl: HTMLElement | null = null;
   private terminalContainer: HTMLElement | null = null;
+  private agentPanelEl: HTMLElement | null = null;
+  private agentPresetEl: HTMLSelectElement | null = null;
+  private agentPromptEl: HTMLTextAreaElement | null = null;
+  private agentCommandEl: HTMLInputElement | null = null;
+  private agentOutputEl: HTMLElement | null = null;
+  private agentStreamEl: HTMLElement | null = null;
+  private agentStatusEl: HTMLElement | null = null;
+  private agentRunButtonEl: HTMLButtonElement | null = null;
+  private agentStopButtonEl: HTMLButtonElement | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private themeObserver: MutationObserver | null = null;
   private pendingFitFrame: number | null = null;
@@ -517,13 +564,22 @@ class VaultPowerShellView extends ItemView {
     container.empty();
     container.addClass("vault-powershell-view");
 
-    const terminalEl = container.createDiv("vault-powershell-terminal");
+    this.createModeTabs(container);
+
+    const contentEl = container.createDiv("vault-terminal-content");
+    this.terminalPanelEl = contentEl.createDiv("vault-terminal-panel vault-terminal-panel-active");
+    this.agentPanelEl = contentEl.createDiv("vault-terminal-panel vault-agent-console-panel");
+
+    const terminalEl = this.terminalPanelEl.createDiv("vault-powershell-terminal");
     this.createTerminal(terminalEl);
+    this.createAgentConsole(this.agentPanelEl);
+    this.setMode("terminal");
     this.startShell();
     return Promise.resolve();
   }
 
   onClose(): Promise<void> {
+    this.stopAgentProcess();
     this.disposeShell();
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
@@ -543,9 +599,54 @@ class VaultPowerShellView extends ItemView {
     this.pendingInsertTexts = [];
     this.terminal?.dispose();
     this.terminal = null;
+    this.terminalPanelEl = null;
     this.terminalContainer = null;
+    this.agentPanelEl = null;
+    this.agentPresetEl = null;
+    this.agentPromptEl = null;
+    this.agentCommandEl = null;
+    this.agentOutputEl = null;
+    this.agentStreamEl = null;
+    this.agentStatusEl = null;
+    this.agentRunButtonEl = null;
+    this.agentStopButtonEl = null;
     this.fitAddon = null;
     return Promise.resolve();
+  }
+
+  private createModeTabs(container: Element) {
+    const tabsEl = container.createDiv("vault-terminal-mode-tabs");
+    this.createModeButton(tabsEl, "terminal", "Terminal");
+    this.createModeButton(tabsEl, "agent", "Agent console");
+  }
+
+  private createModeButton(container: HTMLElement, mode: VaultTerminalMode, label: string) {
+    const button = container.createEl("button", {
+      cls: "vault-terminal-mode-tab",
+      text: label
+    });
+    button.type = "button";
+    button.addEventListener("click", () => {
+      this.setMode(mode);
+    });
+    this.modeButtons.set(mode, button);
+  }
+
+  private setMode(mode: VaultTerminalMode) {
+    this.activeMode = mode;
+    this.terminalPanelEl?.toggleClass("vault-terminal-panel-active", mode === "terminal");
+    this.agentPanelEl?.toggleClass("vault-terminal-panel-active", mode === "agent");
+
+    for (const [candidate, button] of this.modeButtons) {
+      button.toggleClass("is-active", candidate === mode);
+    }
+
+    if (mode === "terminal") {
+      this.scheduleFitTerminal();
+      this.terminal?.focus();
+    } else {
+      this.agentPromptEl?.focus();
+    }
   }
 
   private createTerminal(container: HTMLElement) {
@@ -651,6 +752,310 @@ class VaultPowerShellView extends ItemView {
     requestAnimationFrame(() => {
       this.fitTerminal();
     });
+  }
+
+  private createAgentConsole(container: HTMLElement) {
+    const headerEl = container.createDiv("vault-agent-header");
+    headerEl.createDiv({
+      cls: "vault-agent-title",
+      text: "Agent console"
+    });
+    headerEl.createDiv({
+      cls: "vault-agent-subtitle",
+      text: "Run vault-rooted agent commands through the configured shell backend."
+    });
+
+    const controlsEl = container.createDiv("vault-agent-controls");
+
+    const presetFieldEl = controlsEl.createDiv("vault-agent-field");
+    presetFieldEl.createEl("label", { text: "Agent preset" });
+    const presetEl = presetFieldEl.createEl("select");
+    for (const preset of AGENT_PRESETS) {
+      presetEl.createEl("option", {
+        attr: { value: preset.id },
+        text: preset.label
+      });
+    }
+    presetEl.value = "claude";
+    this.agentPresetEl = presetEl;
+
+    const commandFieldEl = controlsEl.createDiv("vault-agent-field vault-agent-field-command");
+    commandFieldEl.createEl("label", { text: "Command template" });
+    const commandEl = commandFieldEl.createEl("input", {
+      attr: {
+        spellcheck: "false",
+        type: "text"
+      }
+    });
+    this.agentCommandEl = commandEl;
+
+    const promptFieldEl = container.createDiv("vault-agent-field vault-agent-prompt-field");
+    promptFieldEl.createEl("label", { text: "Prompt" });
+    const promptEl = promptFieldEl.createEl("textarea", {
+      attr: {
+        placeholder: "Ask the agent to work in this vault. Ctrl+Enter runs the command.",
+        spellcheck: "true"
+      }
+    });
+    this.agentPromptEl = promptEl;
+
+    const actionsEl = container.createDiv("vault-agent-actions");
+    this.agentRunButtonEl = actionsEl.createEl("button", {
+      cls: "mod-cta",
+      text: "Run"
+    });
+    this.agentRunButtonEl.type = "button";
+    this.agentStopButtonEl = actionsEl.createEl("button", { text: "Stop" });
+    this.agentStopButtonEl.type = "button";
+    this.agentStopButtonEl.disabled = true;
+    const clearButtonEl = actionsEl.createEl("button", { text: "Clear" });
+    clearButtonEl.type = "button";
+    const addNoteButtonEl = actionsEl.createEl("button", { text: "Add current note" });
+    addNoteButtonEl.type = "button";
+    const copyOutputButtonEl = actionsEl.createEl("button", { text: "Copy output" });
+    copyOutputButtonEl.type = "button";
+    this.agentStatusEl = actionsEl.createDiv({
+      cls: "vault-agent-status",
+      text: "Idle"
+    });
+
+    this.agentOutputEl = container.createDiv("vault-agent-output");
+    this.agentOutputEl.createDiv({
+      cls: "vault-agent-empty",
+      text: "Agent output will appear here."
+    });
+
+    presetEl.addEventListener("change", () => {
+      this.applySelectedAgentPreset();
+    });
+    promptEl.addEventListener("keydown", (event) => {
+      if (isEnterKey(event) && event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey) {
+        this.consumeKeyboardEvent(event);
+        void this.runAgentCommand();
+      }
+    });
+    this.agentRunButtonEl.addEventListener("click", () => {
+      void this.runAgentCommand();
+    });
+    this.agentStopButtonEl.addEventListener("click", () => {
+      this.stopAgentProcess();
+    });
+    clearButtonEl.addEventListener("click", () => {
+      this.clearAgentOutput();
+    });
+    addNoteButtonEl.addEventListener("click", () => {
+      this.addCurrentNoteToAgentPrompt();
+    });
+    copyOutputButtonEl.addEventListener("click", () => {
+      void this.copyAgentOutput();
+    });
+
+    this.applySelectedAgentPreset();
+  }
+
+  private applySelectedAgentPreset() {
+    const preset = AGENT_PRESETS.find((candidate) => candidate.id === this.agentPresetEl?.value) ?? AGENT_PRESETS[0];
+    if (this.agentCommandEl && preset.id !== "custom") {
+      this.agentCommandEl.value = preset.template;
+    }
+  }
+
+  private async runAgentCommand() {
+    if (this.agentProcess) {
+      new Notice("Agent command is already running.");
+      return;
+    }
+
+    const vaultPath = this.plugin.getVaultPath();
+    if (!vaultPath) {
+      new Notice("This vault does not expose a local file-system path.");
+      return;
+    }
+
+    const prompt = this.agentPromptEl?.value ?? "";
+    const template = this.agentCommandEl?.value.trim() ?? "";
+    if (!template) {
+      new Notice("Enter an agent command template first.");
+      this.agentCommandEl?.focus();
+      return;
+    }
+
+    if (template.includes("{prompt}") && !prompt.trim()) {
+      new Notice("Enter a prompt first.");
+      this.agentPromptEl?.focus();
+      return;
+    }
+
+    const shell = this.plugin.getShellExecutable();
+    const command = buildAgentCommand(template, {
+      prompt,
+      shell,
+      vaultPath
+    });
+    const args = getShellCommandArgs(shell, command);
+    const env = buildProcessEnv({
+      useSystemCa: this.plugin.settings.useSystemCa,
+      extraCaCertPath: this.plugin.getExtraCaCertPath()
+    });
+
+    this.beginAgentRun(command, vaultPath);
+    this.setAgentRunning(true);
+
+    const startedAt = Date.now();
+    const child = spawn(shell, args, {
+      cwd: vaultPath,
+      env
+    });
+    this.agentProcess = child;
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      this.appendAgentOutput(stripAnsi(chunk.toString()), "stdout");
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      this.appendAgentOutput(stripAnsi(chunk.toString()), "stderr");
+    });
+    child.on("error", (error: Error) => {
+      if (this.agentProcess === child) {
+        this.agentProcess = null;
+      }
+      this.setAgentRunning(false);
+      this.appendAgentStatus(`Failed to start agent command: ${error.message}`, "error");
+    });
+    child.on("close", (exitCode: number | null, signal: NodeJS.Signals | null) => {
+      if (this.agentProcess === child) {
+        this.agentProcess = null;
+      }
+      this.setAgentRunning(false);
+      const elapsedSeconds = ((Date.now() - startedAt) / 1000).toFixed(1);
+      const result = signal ? `signal ${signal}` : `code ${exitCode ?? "unknown"}`;
+      this.appendAgentStatus(`Process exited with ${result} in ${elapsedSeconds}s.`, exitCode === 0 ? "success" : "error");
+    });
+  }
+
+  private beginAgentRun(command: string, vaultPath: string) {
+    const outputEl = this.agentOutputEl;
+    if (!outputEl) {
+      return;
+    }
+
+    outputEl.find(".vault-agent-empty")?.remove();
+
+    const blockEl = outputEl.createDiv("vault-agent-output-block");
+    const metaEl = blockEl.createDiv("vault-agent-output-meta");
+    metaEl.createSpan({ text: new Date().toLocaleTimeString() });
+    metaEl.createSpan({ text: vaultPath });
+    blockEl.createEl("pre", {
+      cls: "vault-agent-command",
+      text: command
+    });
+    this.agentStreamEl = blockEl.createEl("pre", {
+      cls: "vault-agent-stream"
+    });
+    this.scrollAgentOutputToBottom();
+  }
+
+  private appendAgentOutput(text: string, stream: "stdout" | "stderr") {
+    if (!this.agentStreamEl) {
+      return;
+    }
+
+    if (stream === "stderr") {
+      this.agentStreamEl.addClass("has-stderr");
+    }
+
+    this.agentStreamEl.textContent = limitOutputText(`${this.agentStreamEl.textContent ?? ""}${text}`);
+    this.scrollAgentOutputToBottom();
+  }
+
+  private appendAgentStatus(message: string, kind: "success" | "error" | "info") {
+    const outputEl = this.agentOutputEl;
+    if (!outputEl) {
+      return;
+    }
+
+    outputEl.createDiv({
+      cls: `vault-agent-run-status is-${kind}`,
+      text: message
+    });
+    this.scrollAgentOutputToBottom();
+  }
+
+  private setAgentRunning(running: boolean) {
+    if (this.agentRunButtonEl) {
+      this.agentRunButtonEl.disabled = running;
+    }
+    if (this.agentStopButtonEl) {
+      this.agentStopButtonEl.disabled = !running;
+    }
+    if (this.agentStatusEl) {
+      this.agentStatusEl.setText(running ? "Running" : "Idle");
+      this.agentStatusEl.toggleClass("is-running", running);
+    }
+  }
+
+  private stopAgentProcess() {
+    if (!this.agentProcess) {
+      this.setAgentRunning(false);
+      return;
+    }
+
+    this.agentProcess.kill();
+    this.agentProcess = null;
+    this.setAgentRunning(false);
+    this.appendAgentStatus("Stop requested.", "info");
+  }
+
+  private clearAgentOutput() {
+    if (!this.agentOutputEl) {
+      return;
+    }
+
+    this.agentOutputEl.empty();
+    this.agentOutputEl.createDiv({
+      cls: "vault-agent-empty",
+      text: "Agent output will appear here."
+    });
+    this.agentStreamEl = null;
+  }
+
+  private addCurrentNoteToAgentPrompt() {
+    const file = this.plugin.app.workspace.getActiveFile();
+    if (!file) {
+      new Notice("No active note to reference.");
+      return;
+    }
+
+    this.appendToAgentPrompt(`${formatVaultFileReference(file.path)} `);
+  }
+
+  private appendToAgentPrompt(text: string) {
+    if (!this.agentPromptEl) {
+      return;
+    }
+
+    const current = this.agentPromptEl.value;
+    const separator = current && !/\s$/.test(current) ? " " : "";
+    this.agentPromptEl.value = `${current}${separator}${text}`;
+    this.agentPromptEl.focus();
+  }
+
+  private async copyAgentOutput() {
+    const text = this.agentOutputEl?.innerText.trim();
+    if (!text) {
+      new Notice("No agent output to copy.");
+      return;
+    }
+
+    await writeClipboardText(text);
+    new Notice("Agent output copied.");
+  }
+
+  private scrollAgentOutputToBottom() {
+    if (!this.agentOutputEl) {
+      return;
+    }
+
+    this.agentOutputEl.scrollTop = this.agentOutputEl.scrollHeight;
   }
 
   private handleShiftEnter(event: KeyboardEvent): boolean {
@@ -1079,7 +1484,7 @@ class VaultPowerShellView extends ItemView {
       const extension = getExtensionFromFile(imageFile);
       const label = sanitizeFileStem(imageFile.name || "clipboard");
       const path = await this.plugin.saveAttachmentBytes(imageBytes, extension, label);
-      this.insertTerminalText(`${formatVaultFileReference(path)} `);
+      this.insertVaultReferences([path]);
       new Notice(`Inserted clipboard image: ${path}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1109,7 +1514,7 @@ class VaultPowerShellView extends ItemView {
         return;
       }
 
-      this.insertTerminalText(`${references.join(" ")} `);
+      this.insertReferenceText(`${references.join(" ")} `);
       new Notice(`Inserted ${references.length} file reference${references.length === 1 ? "" : "s"}.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1168,6 +1573,24 @@ class VaultPowerShellView extends ItemView {
 
   insertTerminalText(text: string) {
     this.sendTerminalInput(text);
+  }
+
+  insertVaultReferences(paths: string[]) {
+    const text = paths.map((path) => formatVaultFileReference(path)).join(" ");
+    if (!text) {
+      return;
+    }
+
+    this.insertReferenceText(`${text} `);
+  }
+
+  private insertReferenceText(text: string) {
+    if (this.activeMode === "agent") {
+      this.appendToAgentPrompt(text);
+      return;
+    }
+
+    this.insertTerminalText(text);
   }
 
   private sendTerminalInput(text: string) {
@@ -1779,6 +2202,49 @@ function formatTerminalPasteData(text: string): string {
 
 function hasLineBreak(text: string): boolean {
   return /\r|\n/.test(text);
+}
+
+function buildAgentCommand(template: string, context: { prompt: string; shell: string; vaultPath: string }): string {
+  return template
+    .replace(/\{prompt\}/g, quoteShellArgument(context.prompt, context.shell))
+    .replace(/\{promptRaw\}/g, context.prompt)
+    .replace(/\{vault\}/g, quoteShellArgument(context.vaultPath, context.shell));
+}
+
+function getShellCommandArgs(shell: string, command: string): string[] {
+  if (isPowerShellExecutable(shell)) {
+    return ["-NoLogo", "-NoProfile", "-Command", command];
+  }
+
+  const executableName = shell.replace(/\\/g, "/").split("/").pop()?.toLowerCase();
+  if (executableName === "cmd.exe" || executableName === "cmd") {
+    return ["/d", "/s", "/c", command];
+  }
+
+  return ["-lc", command];
+}
+
+function quoteShellArgument(value: string, shell: string): string {
+  if (isPowerShellExecutable(shell)) {
+    return `'${value.replace(/'/g, "''")}'`;
+  }
+
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function stripAnsi(value: string): string {
+  return value
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\x1b[@-Z\\-_]/g, "");
+}
+
+function limitOutputText(value: string): string {
+  if (value.length <= AGENT_OUTPUT_MAX_CHARS) {
+    return value;
+  }
+
+  return `[output truncated to ${AGENT_OUTPUT_MAX_CHARS} characters]\n${value.slice(-AGENT_OUTPUT_MAX_CHARS)}`;
 }
 
 function isTerminalCopyShortcut(event: KeyboardEvent, terminal: Terminal): boolean {

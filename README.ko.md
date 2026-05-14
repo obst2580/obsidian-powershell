@@ -18,6 +18,7 @@ Current distribution is GitHub Release ZIP based while Community Plugin Director
 - 현재 Obsidian 볼트가 셸의 작업 디렉터리가 됩니다.
 - PowerShell, zsh, bash 같은 일반 셸 명령을 탭 안에서 실행합니다.
 - Claude Code, Codex CLI, Git, Python, npm 같은 CLI 도구를 볼트 기준으로 실행합니다.
+- Agent console 모드에서는 PowerShell/zsh/bash를 백엔드로 사용하고 stdout/stderr를 Obsidian UI에 직접 렌더링합니다.
 - 터미널 텍스트 선택과 복사를 지원합니다.
 - 파일을 터미널에 드롭하면 agent CLI용 파일 참조를 입력합니다.
 - 클립보드 이미지를 볼트에 저장하고 `@path` 참조를 입력합니다.
@@ -159,7 +160,7 @@ git tag <version>
 git push origin <version>
 ```
 
-Obsidian Community Plugin Directory 검증을 통과하려면 GitHub release tag가 `manifest.json`의 `version`과 정확히 같아야 합니다. 예를 들어 `manifest.json`이 `0.3.7`이면 tag도 `0.3.7`이어야 하며, `v0.3.7`처럼 `v`를 붙이지 않습니다.
+Obsidian Community Plugin Directory 검증을 통과하려면 GitHub release tag가 `manifest.json`의 `version`과 정확히 같아야 합니다. 예를 들어 `manifest.json`이 `0.4.0`이면 tag도 `0.4.0`이어야 하며, `v0.4.0`처럼 `v`를 붙이지 않습니다.
 
 워크플로는 다음 작업을 수행합니다.
 
@@ -192,13 +193,30 @@ macOS runner 라벨은 GitHub 공식 hosted runner 문서를 기준으로 선택
 
 native PTY 런타임이 필요하므로 전체 릴리스 ZIP과 런타임 전용 ZIP은 OS/아키텍처별로 분리됩니다. Community Plugin 표준 설치에서는 런타임 전용 ZIP을 현재 플러그인 버전과 같은 GitHub Release에서 내려받고 SHA-256으로 검증합니다.
 
+## Terminal / Agent console 모드
+
+Vault Terminal에는 우측 사이드바 안에서 전환하는 두 가지 모드가 있습니다.
+
+- **Terminal**: 기존 xterm/node-pty 기반 실제 터미널입니다. 완전한 interactive shell과 TUI 도구에 사용합니다.
+- **Agent console**: 설정된 셸을 백엔드로 명령을 실행하고 stdout/stderr를 Obsidian UI에 직접 렌더링합니다.
+
+Agent console은 interactive terminal 렌더링이 부담스러운 agent 작업에 맞춘 모드입니다. 기본 preset은 아래 명령을 제공합니다.
+
+- `claude -p {prompt}`
+- `claude --dangerously-skip-permissions -p {prompt}`
+- `codex exec {prompt}`
+- `gh copilot suggest {prompt}`
+- Custom command template
+
+`{prompt}`는 실행 전에 셸에 맞게 quote 처리됩니다. `{promptRaw}`는 prompt를 quote 없이 넣고, `{vault}`는 현재 볼트 경로를 넣습니다. 명령은 여전히 사용자 PC 권한으로 실행되며 현재 볼트를 작업 디렉터리로 사용합니다.
+
 ## 파일과 이미지 참조
 
 - 파일을 터미널에 드롭하면 파일 참조가 입력됩니다.
 - 현재 볼트 안의 파일은 `@relative/path` 형식으로 입력됩니다.
 - 볼트 밖의 파일은 quoted absolute path로 입력됩니다.
 - 이미지나 스크린샷을 클립보드에 복사한 뒤 터미널에서 `Ctrl+V`를 누르면, 이미지를 볼트에 저장하고 `@path`를 입력합니다.
-- 명령 팔레트의 **Insert current note reference** 명령으로 현재 노트를 `@note.md` 형식으로 입력할 수 있습니다.
+- 명령 팔레트의 **Insert current note reference** 명령으로 현재 노트를 `@note.md` 형식으로 입력할 수 있습니다. Agent console 모드에서는 prompt 입력창에 들어갑니다.
 
 클립보드 이미지는 기본적으로 아래 폴더에 저장됩니다.
 
