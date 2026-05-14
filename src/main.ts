@@ -25,6 +25,7 @@ const GITHUB_REPOSITORY = "obst2580/obsidian-powershell";
 const RUNTIME_INFO_FILE = "runtime.json";
 const RUNTIME_MANIFEST_FILE = "runtime-manifest.json";
 const DEFAULT_ATTACHMENT_FOLDER = "Vault Terminal Attachments";
+const EXTRA_CA_ENV_VAR = "VAULT_TERMINAL_EXTRA_CA_CERT";
 const RUNTIME_REQUIRED_RELATIVE_FILES = [
   "pty-host.js",
   "node_modules/@homebridge/node-pty-prebuilt-multiarch/package.json",
@@ -384,7 +385,7 @@ export default class VaultPowerShellPlugin extends Plugin {
     const configured = this.settings.extraCaCertPath.trim();
     const candidates = configured
       ? [isAbsolute(configured) ? configured : join(this.getPluginBasePath(), configured)]
-      : [join(this.getPluginBasePath(), "certs", "extra-ca.pem")];
+      : getDefaultExtraCaCertCandidates(this.getPluginBasePath());
 
     return candidates.find((candidate) => existsSync(candidate)) ?? null;
   }
@@ -1328,10 +1329,10 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Extra CA certificate")
-      .setDesc("Optional PEM file path for corporate TLS inspection. Relative paths are resolved from this plugin folder, for example certs/extra-ca.pem.")
+      .setDesc("Optional PEM file path for TLS inspection. Leave empty to auto-detect a shared PEM file, or use a relative path such as certs/extra-ca.pem.")
       .addText((text) =>
         text
-          .setPlaceholder("certs/extra-ca.pem")
+          .setPlaceholder("auto")
           .setValue(this.plugin.settings.extraCaCertPath)
           .onChange((value) => {
             this.plugin.settings.extraCaCertPath = value.trim();
@@ -1440,6 +1441,32 @@ function addExtraCaCert(env: { [key: string]: string | undefined }, extraCaCertP
   env.NODE_EXTRA_CA_CERTS = extraCaCertPath;
   env.SSL_CERT_FILE = extraCaCertPath;
   env.REQUESTS_CA_BUNDLE = extraCaCertPath;
+}
+
+function getDefaultExtraCaCertCandidates(pluginBasePath: string): string[] {
+  return [
+    process.env[EXTRA_CA_ENV_VAR],
+    ...getSharedExtraCaCertCandidates(),
+    join(pluginBasePath, "certs", "extra-ca.pem")
+  ].filter((candidate): candidate is string => Boolean(candidate?.trim()));
+}
+
+function getSharedExtraCaCertCandidates(): string[] {
+  const home = process.env.USERPROFILE || process.env.HOME;
+  if (process.platform === "win32") {
+    return [
+      "C:\\certs\\extra-ca.pem",
+      process.env.ProgramData ? join(process.env.ProgramData, "Vault Terminal", "extra-ca.pem") : undefined,
+      home ? join(home, ".vault-terminal", "extra-ca.pem") : undefined,
+      home ? join(home, ".config", "vault-terminal", "extra-ca.pem") : undefined
+    ].filter((candidate): candidate is string => Boolean(candidate));
+  }
+
+  return [
+    home ? join(home, ".config", "vault-terminal", "extra-ca.pem") : undefined,
+    home ? join(home, ".vault-terminal", "extra-ca.pem") : undefined,
+    "/etc/vault-terminal/extra-ca.pem"
+  ].filter((candidate): candidate is string => Boolean(candidate));
 }
 
 function formatTerminalHostError(error: Error, plugin: VaultPowerShellPlugin): string {

@@ -213,7 +213,17 @@ Settings > Vault Terminal
 권장 설정:
 
 - **Use system certificate store**: 켬
-- **Extra CA certificate**: PEM 인증서 경로
+- **Extra CA certificate**: 비워두기 또는 PEM 인증서 경로
+
+여러 볼트에서 공통으로 쓰려면 아래 위치 중 하나에 PEM 파일을 둡니다.
+
+```text
+C:\certs\extra-ca.pem
+C:\ProgramData\Vault Terminal\extra-ca.pem
+%USERPROFILE%\.vault-terminal\extra-ca.pem
+```
+
+이 경우 각 볼트마다 경로를 따로 입력하지 않아도 됩니다.
 
 예시:
 
@@ -321,8 +331,8 @@ PEM 파일을 보안팀에서 따로 제공하는 경우:
 이 스크립트가 하는 일:
 
 - Windows 인증서 저장소 또는 PEM 파일에서 루트 인증서를 가져옵니다.
-- 플러그인 폴더에 `certs/extra-ca.pem`을 만듭니다.
-- 플러그인 설정 파일 `data.json`에 `useSystemCa: true`와 `extraCaCertPath: "certs/extra-ca.pem"`을 기록합니다.
+- 공통 경로 `C:\certs\extra-ca.pem` 또는 `C:\ProgramData\Vault Terminal\extra-ca.pem`에 PEM 파일을 둡니다.
+- 플러그인 설정 파일 `data.json`에는 `useSystemCa: true`만 기록하고 `extraCaCertPath`는 비워둘 수 있습니다.
 - 새 Vault Terminal 세션에서 `NODE_OPTIONS`, `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`이 자동으로 적용되게 합니다.
 
 이미 열려 있던 터미널이나 Claude Code 세션에는 새 환경변수가 적용되지 않습니다. 설정 후 Obsidian을 재시작하거나 Vault Terminal 탭을 새로 열어야 합니다.

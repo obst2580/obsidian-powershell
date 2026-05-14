@@ -220,7 +220,22 @@ Unable to connect to API
 try the settings below:
 
 - **Use system certificate store**: enables Node's system CA store.
-- **Extra CA certificate**: path to a PEM certificate file. Relative paths are resolved from the plugin folder.
+- **Extra CA certificate**: path to a PEM certificate file. Leave empty to auto-detect a shared PEM file.
+
+When the setting is empty, Vault Terminal checks these shared locations first:
+
+```text
+VAULT_TERMINAL_EXTRA_CA_CERT
+C:\certs\extra-ca.pem
+C:\ProgramData\Vault Terminal\extra-ca.pem
+%USERPROFILE%\.vault-terminal\extra-ca.pem
+```
+
+If no shared file exists, it checks the current plugin folder:
+
+```text
+certs/extra-ca.pem
+```
 
 Windows helper scripts are included in each release:
 
@@ -267,11 +282,11 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
-For example, if `manifest.json` says `0.3.4`, use:
+For example, if `manifest.json` says `0.3.5`, use:
 
 ```powershell
-git tag 0.3.4
-git push origin 0.3.4
+git tag 0.3.5
+git push origin 0.3.5
 ```
 
 The release workflow:

@@ -159,7 +159,7 @@ git tag <version>
 git push origin <version>
 ```
 
-Obsidian Community Plugin Directory 검증을 통과하려면 GitHub release tag가 `manifest.json`의 `version`과 정확히 같아야 합니다. 예를 들어 `manifest.json`이 `0.3.4`이면 tag도 `0.3.4`이어야 하며, `v0.3.4`처럼 `v`를 붙이지 않습니다.
+Obsidian Community Plugin Directory 검증을 통과하려면 GitHub release tag가 `manifest.json`의 `version`과 정확히 같아야 합니다. 예를 들어 `manifest.json`이 `0.3.5`이면 tag도 `0.3.5`이어야 하며, `v0.3.5`처럼 `v`를 붙이지 않습니다.
 
 워크플로는 다음 작업을 수행합니다.
 
@@ -270,7 +270,22 @@ Unable to connect to API
 플러그인 설정:
 
 - **Use system certificate store**: Node의 system CA store 사용
-- **Extra CA certificate**: PEM 인증서 파일 경로. 상대 경로는 플러그인 폴더 기준입니다.
+- **Extra CA certificate**: PEM 인증서 파일 경로. 비워두면 공통 PEM 파일을 자동으로 찾습니다.
+
+설정값이 비어 있으면 먼저 아래 공통 위치를 확인합니다.
+
+```text
+VAULT_TERMINAL_EXTRA_CA_CERT
+C:\certs\extra-ca.pem
+C:\ProgramData\Vault Terminal\extra-ca.pem
+%USERPROFILE%\.vault-terminal\extra-ca.pem
+```
+
+공통 파일이 없으면 현재 플러그인 폴더 안의 파일을 확인합니다.
+
+```text
+certs/extra-ca.pem
+```
 
 Windows에서 루트 인증서를 내보내고 설정하려면 릴리스의 스크립트를 사용합니다.
 
