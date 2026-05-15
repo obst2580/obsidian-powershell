@@ -554,7 +554,7 @@ class VaultPowerShellView extends ItemView {
 
     const terminal = new Terminal({
       allowProposedApi: false,
-      convertEol: false,
+      convertEol: true,
       cursorBlink: true,
       cursorStyle: "block",
       drawBoldTextInBrightColors: true,
