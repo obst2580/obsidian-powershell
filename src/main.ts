@@ -15,7 +15,6 @@ import {
 import { clipboard } from "electron";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { unzipSync } from "fflate";
 import { ChildProcessWithoutNullStreams, spawn } from "child_process";
 import { createHash } from "crypto";
@@ -573,10 +572,7 @@ class VaultPowerShellView extends ItemView {
     });
 
     const fitAddon = new FitAddon();
-    const unicode11Addon = new Unicode11Addon();
     terminal.loadAddon(fitAddon);
-    terminal.loadAddon(unicode11Addon);
-    terminal.unicode.activeVersion = "11";
     terminal.open(container);
     terminal.focus();
 
@@ -965,7 +961,9 @@ class VaultPowerShellView extends ItemView {
         cols: this.terminal.cols,
         rows: this.terminal.rows
       });
-      this.terminal.refresh(0, this.terminal.rows - 1);
+      if (this.terminal.rows > 0) {
+        this.terminal.refresh(0, this.terminal.rows - 1);
+      }
     } catch {
       // xterm can throw while the Obsidian leaf is still measuring.
     }
