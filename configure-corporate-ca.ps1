@@ -110,7 +110,7 @@ if (-not (Test-Path -LiteralPath $obsidianDir)) {
 }
 
 if (-not (Test-Path -LiteralPath $pluginDir)) {
-  throw "Vault Terminal is not installed in this vault: $pluginDir"
+  throw "Obst Terminal is not installed in this vault: $pluginDir"
 }
 
 $data = Read-PluginData -DataPath $dataPath
@@ -137,7 +137,7 @@ if ($UseSystemCaOnly) {
 
 $data | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $dataPath -Encoding UTF8
 
-Write-Host "Configured Vault Terminal corporate CA settings:"
+Write-Host "Configured Obst Terminal corporate CA settings:"
 Write-Host "  Vault: $resolvedVault"
 Write-Host "  Plugin: $pluginDir"
 Write-Host "  Use system CA: true"

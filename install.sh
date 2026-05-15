@@ -35,7 +35,7 @@ for legacy_plugin_id in "${LEGACY_PLUGIN_IDS[@]}"; do
   done
 
   echo "Migrated settings from legacy plugin folder: $legacy_target"
-  echo "You can remove the legacy plugin folder after confirming Vault Terminal works: $legacy_target"
+  echo "You can remove the legacy plugin folder after confirming Obst Terminal works: $legacy_target"
 done
 
 for file in manifest.json main.js styles.css pty-host.js; do
@@ -59,11 +59,19 @@ fi
 
 mkdir -p "$runtime_root"
 
+runtime_merged=false
 if [[ -d "$runtime_target" ]]; then
-  rm -rf "$runtime_target"
+  if ! rm -rf "$runtime_target"; then
+    echo "Could not replace the existing runtime folder, probably because a terminal is still open. Merging runtime files instead." >&2
+    mkdir -p "$runtime_target"
+    cp -R "$runtime_source"/. "$runtime_target"/
+    runtime_merged=true
+  fi
 fi
 
-cp -R "$runtime_source" "$runtime_root/"
+if [[ "$runtime_merged" != true ]]; then
+  cp -R "$runtime_source" "$runtime_root/"
+fi
 
 case "$(uname -s)" in
   Darwin) runtime_platform="macos" ;;

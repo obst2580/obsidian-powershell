@@ -33,6 +33,35 @@ function Resolve-InstallArch {
   }
 }
 
+function Copy-RuntimeMerge {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$SourceDir,
+
+    [Parameter(Mandatory = $true)]
+    [string]$TargetDir
+  )
+
+  New-Item -ItemType Directory -Force -Path $TargetDir | Out-Null
+
+  Get-ChildItem -LiteralPath $SourceDir -Recurse -Force | ForEach-Object {
+    $relativePath = $_.FullName.Substring($SourceDir.Length).TrimStart("\", "/")
+    $targetPath = Join-Path $TargetDir $relativePath
+
+    if ($_.PSIsContainer) {
+      New-Item -ItemType Directory -Force -Path $targetPath | Out-Null
+      return
+    }
+
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $targetPath) | Out-Null
+    try {
+      Copy-Item -LiteralPath $_.FullName -Destination $targetPath -Force -ErrorAction Stop
+    } catch {
+      Write-Warning "Could not update locked runtime file: $targetPath"
+    }
+  }
+}
+
 if (-not (Test-Path -LiteralPath (Join-Path $resolvedVault ".obsidian"))) {
   throw "The target path does not look like an Obsidian vault: $resolvedVault"
 }
@@ -54,7 +83,7 @@ foreach ($legacyPluginId in $legacyPluginIds) {
   }
 
   Write-Host "Migrated settings from legacy plugin folder: $legacyTarget"
-  Write-Host "You can remove the legacy plugin folder after confirming Vault Terminal works: $legacyTarget"
+  Write-Host "You can remove the legacy plugin folder after confirming Obst Terminal works: $legacyTarget"
 }
 
 foreach ($file in @("manifest.json", "main.js", "styles.css", "pty-host.js")) {
@@ -77,11 +106,20 @@ if (-not (Test-Path -LiteralPath $ptySource)) {
 
 New-Item -ItemType Directory -Force -Path $homebridgeTarget | Out-Null
 
+$runtimeMerged = $false
 if (Test-Path -LiteralPath $ptyTarget) {
-  Remove-Item -LiteralPath $ptyTarget -Recurse -Force
+  try {
+    Remove-Item -LiteralPath $ptyTarget -Recurse -Force -ErrorAction Stop
+  } catch {
+    Write-Warning "Could not replace the existing runtime folder, probably because a terminal is still open. Merging runtime files instead."
+    Copy-RuntimeMerge -SourceDir $ptySource -TargetDir $ptyTarget
+    $runtimeMerged = $true
+  }
 }
 
-Copy-Item -LiteralPath $ptySource -Destination $homebridgeTarget -Recurse -Force
+if (-not $runtimeMerged) {
+  Copy-Item -LiteralPath $ptySource -Destination $homebridgeTarget -Recurse -Force
+}
 
 [ordered]@{
   version = $manifest.version

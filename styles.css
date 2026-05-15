@@ -73,6 +73,10 @@
   outline-offset: -2px;
 }
 
+.vault-powershell-terminal.vault-terminal-too-narrow {
+  overflow-x: hidden;
+}
+
 .vault-powershell-terminal .xterm {
   height: 100%;
   cursor: text;

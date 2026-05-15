@@ -1,4 +1,5 @@
 import {
+  addIcon,
   App,
   FileSystemAdapter,
   ItemView,
@@ -25,8 +26,21 @@ const VIEW_TYPE_POWERSHELL = "vault-powershell";
 const GITHUB_REPOSITORY = "obst2580/obsidian-powershell";
 const RUNTIME_INFO_FILE = "runtime.json";
 const RUNTIME_MANIFEST_FILE = "runtime-manifest.json";
-const DEFAULT_ATTACHMENT_FOLDER = "Vault Terminal Attachments";
-const EXTRA_CA_ENV_VAR = "VAULT_TERMINAL_EXTRA_CA_CERT";
+const MIN_PTY_COLS = 80;
+const MIN_PTY_ROWS = 5;
+const OBST_TERMINAL_ICON = "obst-terminal";
+const OBST_TERMINAL_ICON_SVG = `
+<rect x="10" y="18" width="80" height="64" rx="12" fill="none" stroke="currentColor" stroke-width="8"/>
+<path d="M25 43l14 9-14 9" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M48 64h20" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round"/>
+<circle cx="68" cy="39" r="8" fill="none" stroke="currentColor" stroke-width="6"/>
+<circle cx="52" cy="30" r="4" fill="currentColor"/>
+<circle cx="84" cy="30" r="4" fill="currentColor"/>
+<circle cx="84" cy="50" r="4" fill="currentColor"/>
+<path d="M60 34l-5-3M76 34l5-3M76 44l5 4" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>
+`;
+const DEFAULT_ATTACHMENT_FOLDER = "Obst Terminal Attachments";
+const EXTRA_CA_ENV_VARS = ["OBST_TERMINAL_EXTRA_CA_CERT", "VAULT_TERMINAL_EXTRA_CA_CERT"];
 const RUNTIME_REQUIRED_RELATIVE_FILES = [
   "pty-host.js",
   "node_modules/@homebridge/node-pty-prebuilt-multiarch/package.json",
@@ -115,7 +129,7 @@ const DEFAULT_SETTINGS: PowerShellSettings = {
   nodeExecutable: "",
   terminalColorScheme: "obsidian",
   shiftEnterMode: "claude-backslash",
-  windowsPtyBackend: "winpty",
+  windowsPtyBackend: "conpty",
   autoInstallRuntime: false,
   useSystemCa: false,
   extraCaCertPath: "",
@@ -186,13 +200,14 @@ export default class VaultPowerShellPlugin extends Plugin {
 
   async onload() {
     await this.loadSettings();
+    addIcon(OBST_TERMINAL_ICON, OBST_TERMINAL_ICON_SVG);
 
     this.registerView(
       VIEW_TYPE_POWERSHELL,
       (leaf) => new VaultPowerShellView(leaf, this)
     );
 
-    this.addRibbonIcon("terminal", "Open terminal", () => {
+    this.addRibbonIcon(OBST_TERMINAL_ICON, "Open terminal", () => {
       void this.activateView();
     });
 
@@ -374,10 +389,10 @@ export default class VaultPowerShellPlugin extends Plugin {
   async updateRuntimeFromUserAction(): Promise<void> {
     try {
       await this.installRuntime();
-      new Notice("Vault Terminal runtime updated. Reopen the terminal to use the updated runtime.");
+      new Notice("Obst Terminal runtime updated. Reopen the terminal to use the updated runtime.");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      new Notice(`Vault Terminal runtime update failed: ${message}`);
+      new Notice(`Obst Terminal runtime update failed: ${message}`);
     }
   }
 
@@ -394,12 +409,12 @@ export default class VaultPowerShellPlugin extends Plugin {
     void this.installRuntimeIfNeeded()
       .then((installed) => {
         if (installed) {
-          new Notice("Vault Terminal runtime was installed.");
+          new Notice("Obst Terminal runtime was installed.");
         }
       })
       .catch((error) => {
         const message = error instanceof Error ? error.message : String(error);
-        new Notice(`Vault Terminal runtime auto-install failed: ${message}`);
+        new Notice(`Obst Terminal runtime auto-install failed: ${message}`);
       });
   }
 
@@ -546,7 +561,7 @@ export default class VaultPowerShellPlugin extends Plugin {
     await this.activateView();
     const view = this.app.workspace.getLeavesOfType(VIEW_TYPE_POWERSHELL)[0]?.view;
     if (!(view instanceof VaultPowerShellView)) {
-      throw new Error("Vault Terminal view is not available.");
+      throw new Error("Obst Terminal view is not available.");
     }
 
     return view;
@@ -582,6 +597,7 @@ class VaultPowerShellView extends ItemView {
   private handledShiftEnterEvents = new WeakSet<KeyboardEvent>();
   private pendingShiftEnterTimers = new Set<number>();
   private lastShiftEnterAt = 0;
+  private lastSentResize: { cols: number; rows: number } | null = null;
   private wheelLineAccumulator = 0;
   private runtimePromptEl: HTMLElement | null = null;
   private pendingInsertTexts: string[] = [];
@@ -596,11 +612,11 @@ class VaultPowerShellView extends ItemView {
   }
 
   getDisplayText(): string {
-    return "Vault Terminal";
+    return "Obst Terminal";
   }
 
   getIcon(): string {
-    return "terminal";
+    return OBST_TERMINAL_ICON;
   }
 
   onOpen(): Promise<void> {
@@ -656,10 +672,13 @@ class VaultPowerShellView extends ItemView {
       minimumContrastRatio: 4.5,
       rightClickSelectsWord: false,
       scrollback: 50000,
-      scrollOnEraseInDisplay: true,
+      scrollOnEraseInDisplay: false,
       scrollSensitivity: 3,
       smoothScrollDuration: 0,
-      theme: terminalTheme
+      theme: terminalTheme,
+      windowsPty: process.platform === "win32"
+        ? { backend: this.plugin.settings.windowsPtyBackend }
+        : undefined
     });
 
     const fitAddon = new FitAddon();
@@ -926,14 +945,14 @@ class VaultPowerShellView extends ItemView {
       const missingRuntimeFiles = this.plugin.getRuntimeMissingFiles();
       if (missingRuntimeFiles.length > 0) {
         if (this.plugin.settings.autoInstallRuntime) {
-          terminal.writeln("Vault Terminal runtime files are missing. Installing runtime...");
+          terminal.writeln("Obst Terminal runtime files are missing. Installing runtime...");
           void this.installRuntimeAndStartShell();
           return;
         }
 
         this.showRuntimePrompt(missingRuntimeFiles);
-        terminal.writeln("Vault Terminal runtime files are missing.");
-        terminal.writeln("Install the verified runtime package from this pane or from Settings > Vault Terminal.");
+        terminal.writeln("Obst Terminal runtime files are missing.");
+        terminal.writeln("Install the verified runtime package from this pane or from Settings > Obst Terminal.");
         return;
       }
       this.clearRuntimePrompt();
@@ -946,8 +965,8 @@ class VaultPowerShellView extends ItemView {
       const host = spawn(this.plugin.getNodeExecutable(), [this.plugin.getPtyHostPath(), encodeConfig({
         shell,
         args: this.plugin.getShellArgs(shell),
-        cols: Math.max(terminal.cols, 80),
-        rows: Math.max(terminal.rows, 24),
+        cols: clampPtyCols(terminal.cols, 80),
+        rows: clampPtyRows(terminal.rows, 24),
         cwd,
         env,
         windowsPtyBackend: this.plugin.settings.windowsPtyBackend
@@ -958,6 +977,10 @@ class VaultPowerShellView extends ItemView {
       });
 
       this.host = host;
+      this.lastSentResize = {
+        cols: clampPtyCols(terminal.cols, 80),
+        rows: clampPtyRows(terminal.rows, 24)
+      };
       this.flushPendingInsertTexts();
 
       host.stdout.on("data", (chunk: Buffer) => {
@@ -1016,7 +1039,7 @@ class VaultPowerShellView extends ItemView {
 
     promptEl.createEl("strong", { text: "Runtime installation required" });
     promptEl.createEl("p", {
-      text: "Vault Terminal needs a native node-pty runtime package to start a local shell. The package is downloaded from this plugin's GitHub Release and verified with SHA-256 before installation."
+      text: "Obst Terminal needs a native node-pty runtime package to start a local shell. The package is downloaded from this plugin's GitHub Release and verified with SHA-256 before installation."
     });
 
     const detailsEl = promptEl.createEl("details");
@@ -1067,12 +1090,20 @@ class VaultPowerShellView extends ItemView {
     }
 
     try {
-      this.fitAddon.fit();
-      this.sendHostMessage({
-        type: "resize",
-        cols: this.terminal.cols,
-        rows: this.terminal.rows
-      });
+      const dimensions = this.fitAddon.proposeDimensions();
+      if (!dimensions) {
+        return;
+      }
+
+      if (dimensions.cols < MIN_PTY_COLS || dimensions.rows < MIN_PTY_ROWS) {
+        this.terminalContainer?.addClass("vault-terminal-too-narrow");
+        this.terminal.refresh(0, Math.max(this.terminal.rows - 1, 0));
+        return;
+      }
+
+      this.terminalContainer?.removeClass("vault-terminal-too-narrow");
+      this.terminal.resize(dimensions.cols, dimensions.rows);
+      this.sendResizeToHost(this.terminal.cols, this.terminal.rows);
       if (this.terminal.rows > 0) {
         this.terminal.refresh(0, this.terminal.rows - 1);
       }
@@ -1089,6 +1120,24 @@ class VaultPowerShellView extends ItemView {
     this.pendingFitFrame = requestAnimationFrame(() => {
       this.pendingFitFrame = null;
       this.fitTerminal();
+    });
+  }
+
+  private sendResizeToHost(cols: number, rows: number) {
+    const resize = {
+      cols: clampPtyCols(cols),
+      rows: clampPtyRows(rows)
+    };
+
+    if (this.lastSentResize?.cols === resize.cols && this.lastSentResize.rows === resize.rows) {
+      return;
+    }
+
+    this.lastSentResize = resize;
+    this.sendHostMessage({
+      type: "resize",
+      cols: resize.cols,
+      rows: resize.rows
     });
   }
 
@@ -1198,7 +1247,7 @@ class VaultPowerShellView extends ItemView {
       new Notice(`Inserted clipboard image: ${path}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      new Notice(`Failed to paste into Vault Terminal: ${message}`);
+      new Notice(`Failed to paste into Obst Terminal: ${message}`);
     }
   }
 
@@ -1288,7 +1337,7 @@ class VaultPowerShellView extends ItemView {
   private sendTerminalInput(text: string) {
     if (!this.host || !this.host.stdin.writable) {
       this.pendingInsertTexts.push(text);
-      new Notice("Vault Terminal is not running yet. The reference will be inserted when the terminal starts.");
+      new Notice("Obst Terminal is not running yet. The reference will be inserted when the terminal starts.");
       return;
     }
 
@@ -1319,6 +1368,7 @@ class VaultPowerShellView extends ItemView {
 
     this.host = null;
     this.hostStdoutBuffer = "";
+    this.lastSentResize = null;
   }
 
   private sendHostMessage(message: HostInputMessage) {
@@ -1374,7 +1424,7 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     new Setting(containerEl)
-      .setName("Vault Terminal")
+      .setName("Obst Terminal")
       .setHeading();
 
     new Setting(containerEl)
@@ -1505,11 +1555,11 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
     if (process.platform === "win32") {
       new Setting(containerEl)
         .setName("Windows PTY backend")
-        .setDesc("winpty preserves raw agent CLI key sequences such as Shift+Enter. ConPTY may filter those sequences before Claude Code/Codex can read them.")
+        .setDesc("ConPTY is the default because it handles fullscreen TUI rendering and resizing better on modern Windows. Try winpty only if a CLI has input compatibility issues.")
         .addDropdown((dropdown) =>
           dropdown
-            .addOption("winpty", "winpty")
             .addOption("conpty", "ConPTY")
+            .addOption("winpty", "winpty")
             .setValue(this.plugin.settings.windowsPtyBackend)
             .onChange((value) => {
               this.plugin.settings.windowsPtyBackend = normalizeWindowsPtyBackend(value);
@@ -1649,7 +1699,7 @@ function addExtraCaCert(env: { [key: string]: string | undefined }, extraCaCertP
 
 function getDefaultExtraCaCertCandidates(pluginBasePath: string): string[] {
   return [
-    process.env[EXTRA_CA_ENV_VAR],
+    ...EXTRA_CA_ENV_VARS.map((name) => process.env[name]),
     ...getSharedExtraCaCertCandidates(),
     join(pluginBasePath, "certs", "extra-ca.pem")
   ].filter((candidate): candidate is string => Boolean(candidate?.trim()));
@@ -1660,15 +1710,21 @@ function getSharedExtraCaCertCandidates(): string[] {
   if (process.platform === "win32") {
     return [
       "C:\\certs\\extra-ca.pem",
+      process.env.ProgramData ? join(process.env.ProgramData, "Obst Terminal", "extra-ca.pem") : undefined,
       process.env.ProgramData ? join(process.env.ProgramData, "Vault Terminal", "extra-ca.pem") : undefined,
+      home ? join(home, ".obst-terminal", "extra-ca.pem") : undefined,
       home ? join(home, ".vault-terminal", "extra-ca.pem") : undefined,
+      home ? join(home, ".config", "obst-terminal", "extra-ca.pem") : undefined,
       home ? join(home, ".config", "vault-terminal", "extra-ca.pem") : undefined
     ].filter((candidate): candidate is string => Boolean(candidate));
   }
 
   return [
+    home ? join(home, ".config", "obst-terminal", "extra-ca.pem") : undefined,
     home ? join(home, ".config", "vault-terminal", "extra-ca.pem") : undefined,
+    home ? join(home, ".obst-terminal", "extra-ca.pem") : undefined,
     home ? join(home, ".vault-terminal", "extra-ca.pem") : undefined,
+    "/etc/obst-terminal/extra-ca.pem",
     "/etc/vault-terminal/extra-ca.pem"
   ].filter((candidate): candidate is string => Boolean(candidate));
 }
@@ -1678,10 +1734,10 @@ function formatTerminalHostError(error: Error, plugin: VaultPowerShellPlugin): s
   if (errno.code === "ENOENT") {
     const configuredNode = plugin.settings.nodeExecutable.trim();
     if (isAutoNodeSetting(configuredNode)) {
-      return "Node.js was not found in the system PATH. Install Node.js system-wide, restart Obsidian, or set Settings > Vault Terminal > Node executable to an absolute node path. VS Code extension bundled Node is not visible to Obsidian.";
+      return "Node.js was not found in the system PATH. Install Node.js system-wide, restart Obsidian, or set Settings > Obst Terminal > Node executable to an absolute node path. VS Code extension bundled Node is not visible to Obsidian.";
     }
 
-    return `Node executable was not found: ${configuredNode}. Check Settings > Vault Terminal > Node executable, or leave it empty to use auto-detection.`;
+    return `Node executable was not found: ${configuredNode}. Check Settings > Obst Terminal > Node executable, or leave it empty to use auto-detection.`;
   }
 
   return error.message;
@@ -2129,7 +2185,15 @@ function normalizeShiftEnterMode(value: string | undefined): ShiftEnterMode {
 }
 
 function normalizeWindowsPtyBackend(value: string | undefined): WindowsPtyBackend {
-  return value === "conpty" ? "conpty" : "winpty";
+  return value === "winpty" ? "winpty" : "conpty";
+}
+
+function clampPtyCols(cols: number | undefined, fallback = MIN_PTY_COLS): number {
+  return Math.max(Math.floor(cols || fallback), MIN_PTY_COLS);
+}
+
+function clampPtyRows(rows: number | undefined, fallback = MIN_PTY_ROWS): number {
+  return Math.max(Math.floor(rows || fallback), MIN_PTY_ROWS);
 }
 
 function getRuntimeActionLabel(missingFileCount: number, updateReasonCount: number): string {

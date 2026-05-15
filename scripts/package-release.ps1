@@ -124,10 +124,10 @@ function New-ZipFromDirectory {
   Compress-Archive -Path (Join-Path $SourceDir "*") -DestinationPath $ZipPath -Force
 }
 
-$packageName = "VaultTerminal-$version-$resolvedPlatform-$resolvedArch"
+$packageName = "ObstTerminal-$version-$resolvedPlatform-$resolvedArch"
 $packageDir = Join-Path $resolvedOutputDir $packageName
 $zipPath = Join-Path $resolvedOutputDir "$packageName.zip"
-$runtimePackageName = "VaultTerminal-runtime-$version-$resolvedPlatform-$resolvedArch"
+$runtimePackageName = "ObstTerminal-runtime-$version-$resolvedPlatform-$resolvedArch"
 $runtimePackageDir = Join-Path $resolvedOutputDir $runtimePackageName
 $runtimeZipPath = Join-Path $resolvedOutputDir "$runtimePackageName.zip"
 $runtimeManifestFragmentPath = Join-Path $resolvedOutputDir "runtime-manifest-$resolvedPlatform-$resolvedArch.json"

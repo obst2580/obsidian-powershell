@@ -25,24 +25,80 @@ function loadPty() {
 
 let terminal = null;
 let stdinBuffer = "";
+let lastCols = 0;
+let lastRows = 0;
+
+const MIN_PTY_COLS = 80;
+const MIN_PTY_ROWS = 5;
+
+function clampCols(cols) {
+  return Math.max(Math.floor(cols || 80), MIN_PTY_COLS);
+}
+
+function clampRows(rows) {
+  return Math.max(Math.floor(rows || 24), MIN_PTY_ROWS);
+}
+
+function isResizeFailure(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /pty could not be resized|could not be resized/i.test(message);
+}
+
+function isMissingConptyRuntime(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /conpty\.node/i.test(message) && /MODULE_NOT_FOUND|Cannot find module/i.test(message);
+}
+
+function resizeTerminal(cols, rows) {
+  const nextCols = clampCols(cols);
+  const nextRows = clampRows(rows);
+  if (!terminal || (nextCols === lastCols && nextRows === lastRows)) {
+    return;
+  }
+
+  try {
+    terminal.resize(nextCols, nextRows);
+    lastCols = nextCols;
+    lastRows = nextRows;
+  } catch (error) {
+    if (!isResizeFailure(error)) {
+      throw error;
+    }
+  }
+}
 
 try {
   const config = decodeConfig(process.argv[2]);
   const pty = loadPty();
+  const useConpty = process.platform === "win32" && config.windowsPtyBackend === "conpty";
 
   const spawnOptions = {
     name: "xterm-256color",
-    cols: Math.max(config.cols || 80, 2),
-    rows: Math.max(config.rows || 24, 1),
+    cols: clampCols(config.cols),
+    rows: clampRows(config.rows),
     cwd: config.cwd,
     env: Object.assign({}, process.env, config.env || {})
   };
 
   if (process.platform === "win32") {
-    spawnOptions.useConpty = config.windowsPtyBackend === "conpty";
+    spawnOptions.useConpty = useConpty;
   }
 
-  terminal = pty.spawn(config.shell, config.args || [], spawnOptions);
+  try {
+    terminal = pty.spawn(config.shell, config.args || [], spawnOptions);
+  } catch (error) {
+    if (!useConpty || !isMissingConptyRuntime(error)) {
+      throw error;
+    }
+
+    terminal = pty.spawn(config.shell, config.args || [], {
+      ...spawnOptions,
+      useConpty: false
+    });
+    send({ type: "data", data: "ConPTY runtime file is missing; started with winpty fallback.\r\n" });
+  }
+  lastCols = spawnOptions.cols;
+  lastRows = spawnOptions.rows;
 
   terminal.onData((data) => {
     send({ type: "data", data });
@@ -82,7 +138,7 @@ process.stdin.on("data", (chunk) => {
       if (message.type === "data") {
         terminal.write(message.data || "");
       } else if (message.type === "resize") {
-        terminal.resize(Math.max(message.cols || 80, 2), Math.max(message.rows || 24, 1));
+        resizeTerminal(message.cols, message.rows);
       } else if (message.type === "kill") {
         terminal.kill();
       }

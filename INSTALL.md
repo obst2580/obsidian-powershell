@@ -1,8 +1,8 @@
-# Vault Terminal 설치 매뉴얼
+# Obst Terminal 설치 매뉴얼
 
-이 문서는 사용자가 Obsidian 볼트에 Vault Terminal 플러그인을 설치하고 활성화하는 절차를 설명합니다.
+이 문서는 사용자가 Obsidian 볼트에 Obst Terminal 플러그인을 설치하고 활성화하는 절차를 설명합니다.
 
-Vault Terminal은 Obsidian 우측 탭에 현재 볼트 경로를 작업 디렉터리로 사용하는 터미널을 띄웁니다. 이 터미널 안에서 PowerShell, Git, npm, Python, Claude Code, Codex CLI 같은 명령을 실행할 수 있습니다.
+Obst Terminal은 Obsidian 우측 탭에 현재 볼트 경로를 작업 디렉터리로 사용하는 터미널을 띄웁니다. 이 터미널 안에서 PowerShell, Git, npm, Python, Claude Code, Codex CLI 같은 명령을 실행할 수 있습니다.
 
 ## 설치 전 확인
 
@@ -13,7 +13,7 @@ Vault Terminal은 Obsidian 우측 탭에 현재 볼트 경로를 작업 디렉�
 - Node.js가 시스템에 설치되어 있어야 합니다. 릴리스 패키지는 Node.js 22 기준으로 빌드합니다.
 - VS Code extension이 내부적으로 사용하는 Node.js는 Obsidian에서 보이지 않습니다. 일반 PowerShell, Terminal, zsh, bash에서 `node --version`이 실행되는지 확인합니다.
 - Claude Code, Codex CLI, Git, Python 등은 필요한 사용자 PC에 별도로 설치되어 있어야 합니다.
-- Claude Code나 Codex를 VS Code extension으로만 설치한 경우 Vault Terminal 안의 `claude`, `codex` 명령과는 별개일 수 있습니다. 필요한 CLI는 시스템 npm 또는 공식 설치 방법으로 별도 설치합니다.
+- Claude Code나 Codex를 VS Code extension으로만 설치한 경우 Obst Terminal 안의 `claude`, `codex` 명령과는 별개일 수 있습니다. 필요한 CLI는 시스템 npm 또는 공식 설치 방법으로 별도 설치합니다.
 - 일반 인터넷 환경에서는 SSL 설정을 바꿀 필요가 없습니다.
 - TLS inspection proxy 또는 사용자 지정 인증서가 필요한 환경에서만 아래의 SSL 설정 절차를 확인합니다.
 
@@ -26,7 +26,7 @@ Vault Terminal은 Obsidian 우측 탭에 현재 볼트 경로를 작업 디렉�
 예시:
 
 ```text
-VaultTerminal-<version>-windows-x64.zip
+ObstTerminal-<version>-windows-x64.zip
 ```
 
 설치할 Obsidian 볼트 경로를 확인합니다.
@@ -42,6 +42,8 @@ ZIP 파일을 아래 위치에 압축 해제합니다.
 ```text
 <볼트경로>\.obsidian\plugins\vault-terminal\
 ```
+
+표시 이름은 Obst Terminal이지만, 기존 릴리스와 Obsidian Community Plugin 등록 호환을 위해 플러그인 ID와 설치 폴더명은 `vault-terminal`을 유지합니다.
 
 예시:
 
@@ -62,10 +64,10 @@ node_modules\
 Obsidian을 재시작한 뒤 플러그인을 활성화합니다.
 
 ```text
-Settings > Community plugins > Vault Terminal > Enable
+Settings > Community plugins > Obst Terminal > Enable
 ```
 
-좌측 리본 메뉴의 터미널 아이콘을 누르면 우측 탭에 Vault Terminal이 열립니다.
+좌측 리본 메뉴의 터미널 아이콘을 누르면 우측 탭에 Obst Terminal이 열립니다.
 
 ### Community Plugin / BRAT 설치 후 런타임 설치
 
@@ -77,15 +79,15 @@ main.js
 styles.css
 ```
 
-이 상태에서 Vault Terminal 탭을 열면 **Runtime installation required** 안내가 표시됩니다. **Install runtime**을 누르면 현재 플러그인 버전과 같은 GitHub Release에서 Windows x64 런타임 ZIP을 내려받고 SHA-256 검증 후 설치합니다.
+이 상태에서 Obst Terminal 탭을 열면 **Runtime installation required** 안내가 표시됩니다. **Install runtime**을 누르면 현재 플러그인 버전과 같은 GitHub Release에서 Windows x64 런타임 ZIP을 내려받고 SHA-256 검증 후 설치합니다.
 
 설정에서도 같은 작업을 할 수 있습니다.
 
 ```text
-Settings > Vault Terminal > Runtime files > Install runtime
+Settings > Obst Terminal > Runtime files > Install runtime
 ```
 
-런타임 설치 후 Vault Terminal 탭을 새로 열면 터미널이 시작됩니다.
+런타임 설치 후 Obst Terminal 탭을 새로 열면 터미널이 시작됩니다.
 
 ## 화면 색상 설정
 
@@ -94,7 +96,7 @@ Settings > Vault Terminal > Runtime files > Install runtime
 색상을 바꾸려면:
 
 ```text
-Settings > Vault Terminal > Terminal color scheme
+Settings > Obst Terminal > Terminal color scheme
 ```
 
 선택지:
@@ -115,12 +117,12 @@ Ctrl + Shift + Home / End
 
 파일이나 이미지를 Claude Code/Codex CLI에 넘기려면:
 
-- 파일을 Vault Terminal에 드롭하면 현재 볼트 안의 파일은 `@relative/path`로 입력됩니다.
+- 파일을 Obst Terminal에 드롭하면 현재 볼트 안의 파일은 `@relative/path`로 입력됩니다.
 - 볼트 밖의 파일은 quoted absolute path로 입력됩니다.
-- 클립보드에 이미지나 스크린샷이 있을 때 `Ctrl+V`를 누르면, 이미지를 볼트의 `Vault Terminal Attachments/` 폴더에 저장하고 `@path`를 입력합니다.
+- 클립보드에 이미지나 스크린샷이 있을 때 `Ctrl+V`를 누르면, 이미지를 볼트의 `Obst Terminal Attachments/` 폴더에 저장하고 `@path`를 입력합니다.
 - 현재 열린 노트는 명령 팔레트의 **Insert current note reference**로 입력할 수 있습니다.
 
-Windows에서는 기본 PTY backend가 **winpty**입니다. ConPTY는 Claude Code/Codex가 쓰는 일부 수정 키 입력 시퀀스를 프로그램에 전달하기 전에 필터링할 수 있어서, 멀티라인 입력이 필요한 agent CLI에는 winpty가 기본값입니다. 필요하면 플러그인 설정의 **Windows PTY backend**에서 ConPTY로 바꾸고 Vault Terminal 탭을 새로 엽니다.
+Windows에서는 기본 PTY backend가 **ConPTY**입니다. 최신 Windows에서는 fullscreen TUI 렌더링과 resize 동작이 대체로 ConPTY에서 더 안정적입니다. 특정 CLI에서 입력 호환 문제가 있으면 플러그인 설정의 **Windows PTY backend**에서 winpty로 바꾸고 Obst Terminal 탭을 새로 엽니다.
 
 Codex, Claude Code 같은 fullscreen TUI 도구는 alternate screen을 사용할 수 있습니다. 이 모드에서는 오래된 출력이 일반 터미널 scrollback이 아니라 CLI 내부 화면에 들어가기 때문에, 일반 PowerShell 출력처럼 전부 위로 스크롤되지 않을 수 있습니다.
 
@@ -131,8 +133,8 @@ macOS에서는 CPU 아키텍처에 맞는 패키지를 사용해야 합니다.
 예시:
 
 ```text
-VaultTerminal-<version>-macos-arm64.zip
-VaultTerminal-<version>-macos-x64.zip
+ObstTerminal-<version>-macos-arm64.zip
+ObstTerminal-<version>-macos-x64.zip
 ```
 
 ZIP 파일을 아래 위치에 압축 해제합니다.
@@ -144,7 +146,7 @@ ZIP 파일을 아래 위치에 압축 해제합니다.
 Obsidian을 재시작한 뒤 플러그인을 활성화합니다.
 
 ```text
-Settings > Community plugins > Vault Terminal > Enable
+Settings > Community plugins > Obst Terminal > Enable
 ```
 
 macOS에서 Node.js를 `nvm`으로만 설치한 경우 Obsidian이 Node 경로를 자동으로 찾지 못할 수 있습니다. 이 경우 플러그인 설정의 **Node executable**에 절대경로를 입력합니다.
@@ -195,7 +197,7 @@ Get-ChildItem "C:\obsidian" -Directory |
 
 ## SSL / 인증서 설정
 
-기본 설치 상태에서는 Vault Terminal이 Node TLS 또는 인증서 동작을 바꾸지 않습니다. 인증서 파일도 패키지에 포함하지 않습니다.
+기본 설치 상태에서는 Obst Terminal이 Node TLS 또는 인증서 동작을 바꾸지 않습니다. 인증서 파일도 패키지에 포함하지 않습니다.
 
 Claude Code 같은 Node 기반 CLI에서 다음 오류가 나오면 인증서 설정이 필요할 수 있습니다.
 
@@ -207,7 +209,7 @@ Unable to connect to API
 Obsidian에서 아래 설정을 확인합니다.
 
 ```text
-Settings > Vault Terminal
+Settings > Obst Terminal
 ```
 
 권장 설정:
@@ -219,7 +221,8 @@ Settings > Vault Terminal
 
 ```text
 C:\certs\extra-ca.pem
-C:\ProgramData\Vault Terminal\extra-ca.pem
+C:\ProgramData\Obst Terminal\extra-ca.pem
+%USERPROFILE%\.obst-terminal\extra-ca.pem
 %USERPROFILE%\.vault-terminal\extra-ca.pem
 ```
 
@@ -250,17 +253,17 @@ GitHub Release 전체 ZIP을 쓰는 경우 새 ZIP 파일을 받으면 기존 �
 문제가 있으면 플러그인을 비활성화한 뒤 다시 활성화합니다.
 
 ```text
-Settings > Community plugins > Vault Terminal
+Settings > Community plugins > Obst Terminal
 ```
 
-Community Plugin Directory 또는 BRAT으로 업데이트한 경우 표준 플러그인 파일만 갱신될 수 있습니다. Vault Terminal 탭이나 설정 화면에서 런타임이 누락되었다고 나오면 **Install runtime**을 다시 실행합니다. 런타임 설치는 기존 native runtime 폴더를 지우고 새 버전으로 교체합니다.
+Community Plugin Directory 또는 BRAT으로 업데이트한 경우 표준 플러그인 파일만 갱신될 수 있습니다. Obst Terminal 탭이나 설정 화면에서 런타임이 누락되었다고 나오면 **Install runtime**을 다시 실행합니다. 런타임 설치는 기존 native runtime 폴더를 지우고 새 버전으로 교체합니다.
 
 ## 삭제
 
 Obsidian에서 플러그인을 비활성화합니다.
 
 ```text
-Settings > Community plugins > Vault Terminal > Disable
+Settings > Community plugins > Obst Terminal > Disable
 ```
 
 그 다음 아래 폴더를 삭제합니다.
@@ -331,19 +334,19 @@ PEM 파일을 보안팀에서 따로 제공하는 경우:
 이 스크립트가 하는 일:
 
 - Windows 인증서 저장소 또는 PEM 파일에서 루트 인증서를 가져옵니다.
-- 공통 경로 `C:\certs\extra-ca.pem` 또는 `C:\ProgramData\Vault Terminal\extra-ca.pem`에 PEM 파일을 둡니다.
+- 공통 경로 `C:\certs\extra-ca.pem`, `C:\ProgramData\Obst Terminal\extra-ca.pem`, `%USERPROFILE%\.obst-terminal\extra-ca.pem` 중 하나에 PEM 파일을 둡니다.
 - 플러그인 설정 파일 `data.json`에는 `useSystemCa: true`만 기록하고 `extraCaCertPath`는 비워둘 수 있습니다.
-- 새 Vault Terminal 세션에서 `NODE_OPTIONS`, `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`이 자동으로 적용되게 합니다.
+- 새 Obst Terminal 세션에서 `NODE_OPTIONS`, `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`이 자동으로 적용되게 합니다.
 
-이미 열려 있던 터미널이나 Claude Code 세션에는 새 환경변수가 적용되지 않습니다. 설정 후 Obsidian을 재시작하거나 Vault Terminal 탭을 새로 열어야 합니다.
+이미 열려 있던 터미널이나 Claude Code 세션에는 새 환경변수가 적용되지 않습니다. 설정 후 Obsidian을 재시작하거나 Obst Terminal 탭을 새로 열어야 합니다.
 
 ## 보안 안내
 
-Vault Terminal은 Obsidian 볼트 경로에서 실제 터미널 명령을 실행할 수 있게 하는 플러그인입니다.
+Obst Terminal은 Obsidian 볼트 경로에서 실제 터미널 명령을 실행할 수 있게 하는 플러그인입니다.
 
 - 신뢰할 수 있는 배포본만 설치합니다.
 - 출처를 알 수 없는 ZIP 파일은 설치하지 않습니다.
 - 터미널에서 실행하는 명령은 사용자 PC 권한으로 실행됩니다.
 - 터미널에서 실행한 CLI는 로컬 파일, 네트워크, 인증 정보에 접근할 수 있습니다.
-- Vault Terminal은 자체 telemetry, analytics, 광고 코드를 포함하지 않습니다.
+- Obst Terminal은 자체 telemetry, analytics, 광고 코드를 포함하지 않습니다.
 - 조직 보안 정책에 맞지 않는 외부 API 키나 인증 정보를 볼트에 저장하지 않습니다.

@@ -1,4 +1,4 @@
-# Vault Terminal
+# Obst Terminal
 
 Open a real terminal in Obsidian's right sidebar, rooted at the current vault path.
 
@@ -10,11 +10,11 @@ Open a real terminal in Obsidian's right sidebar, rooted at the current vault pa
 
 ## What It Does
 
-Vault Terminal is designed for workflows where Obsidian holds project notes, indexes, plans, and handoff documents while local CLI tools work against the same folder.
+Obst Terminal is designed for workflows where Obsidian holds project notes, indexes, plans, and handoff documents while local CLI tools work against the same folder.
 
 You can keep project notes open in the main Obsidian workspace and run tools such as Claude Code, Codex CLI, git, npm, Python, PowerShell, zsh, or bash from the right sidebar. The terminal starts in the vault path, so agent CLIs can read the same `AGENTS.md`, `CLAUDE.md`, notes, and project files that you are looking at in Obsidian.
 
-![Vault Terminal running Claude Code in Obsidian's right sidebar](docs/images/vault-terminal-claude-code.png)
+![Obst Terminal running Claude Code in Obsidian's right sidebar](docs/images/vault-terminal-claude-code.png)
 
 ## Features
 
@@ -37,7 +37,7 @@ You can keep project notes open in the main Obsidian workspace and run tools suc
 - Node.js installed system-wide and visible from a normal terminal.
 - Any CLI tool you want to run, such as `claude`, `codex`, `git`, or `npm`, must be installed separately.
 
-VS Code extensions that bundle their own Node.js or CLI runtime are not enough. Obsidian starts Vault Terminal from the normal desktop environment, so `node --version`, `claude`, or `codex` must work from PowerShell, Terminal, zsh, or bash.
+VS Code extensions that bundle their own Node.js or CLI runtime are not enough. Obsidian starts Obst Terminal from the normal desktop environment, so `node --version`, `claude`, or `codex` must work from PowerShell, Terminal, zsh, or bash.
 
 ## Installation
 
@@ -51,15 +51,17 @@ Use the package that matches your machine:
 
 | File | Target |
 | --- | --- |
-| `VaultTerminal-<version>-windows-x64.zip` | Windows x64 |
-| `VaultTerminal-<version>-macos-x64.zip` | macOS Intel |
-| `VaultTerminal-<version>-macos-arm64.zip` | macOS Apple Silicon |
+| `ObstTerminal-<version>-windows-x64.zip` | Windows x64 |
+| `ObstTerminal-<version>-macos-x64.zip` | macOS Intel |
+| `ObstTerminal-<version>-macos-arm64.zip` | macOS Apple Silicon |
 
 Extract the ZIP into this folder inside your vault:
 
 ```text
 <vault>/.obsidian/plugins/vault-terminal/
 ```
+
+The display name is Obst Terminal, but the plugin ID and install folder remain `vault-terminal` for compatibility with existing releases and Obsidian Community Plugin registration.
 
 After extraction, the plugin folder should contain:
 
@@ -75,12 +77,12 @@ runtime.json
 Restart Obsidian, then enable the plugin:
 
 ```text
-Settings > Community plugins > Vault Terminal > Enable
+Settings > Community plugins > Obst Terminal > Enable
 ```
 
 ### Community Plugin / BRAT
 
-After Community Plugin Directory approval, Vault Terminal can be installed from Obsidian's plugin browser. Before approval, BRAT can install the standard plugin files from this repository.
+After Community Plugin Directory approval, Obst Terminal can be installed from Obsidian's plugin browser. Before approval, BRAT can install the standard plugin files from this repository.
 
 Community Plugin style installs only install these standard files first:
 
@@ -90,7 +92,7 @@ main.js
 styles.css
 ```
 
-Vault Terminal also needs a native `node-pty` runtime. The plugin can download the verified OS-specific runtime ZIP from the matching GitHub Release when the runtime is missing or out of date. Use **Update runtime files** from Obsidian's command palette, or use the runtime button in settings. If the runtime is missing, the Vault Terminal tab shows a **Runtime installation required** prompt with a manual **Install runtime** button.
+Obst Terminal also needs a native `node-pty` runtime. The plugin can download the verified OS-specific runtime ZIP from the matching GitHub Release when the runtime is missing or out of date. Use **Update runtime files** from Obsidian's command palette, or use the runtime button in settings. If the runtime is missing, the Obst Terminal tab shows a **Runtime installation required** prompt with a manual **Install runtime** button.
 
 The runtime installer:
 
@@ -103,8 +105,8 @@ The runtime installer:
 Run the runtime installer or optionally enable automatic runtime installation from:
 
 ```text
-Settings > Vault Terminal > Runtime files > Install runtime
-Settings > Vault Terminal > Install runtime automatically
+Settings > Obst Terminal > Runtime files > Install runtime
+Settings > Obst Terminal > Install runtime automatically
 ```
 
 ## Release Assets
@@ -115,8 +117,8 @@ Each release includes both manual install packages and Community Plugin runtime 
 | --- | --- |
 | `manifest.json`, `main.js`, `styles.css` | Standard Obsidian plugin files |
 | `runtime-manifest.json` | Runtime ZIP metadata and SHA-256 checksums |
-| `VaultTerminal-<version>-<platform>-<arch>.zip` | Full manual install package |
-| `VaultTerminal-runtime-<version>-<platform>-<arch>.zip` | Native runtime package used by the in-app installer |
+| `ObstTerminal-<version>-<platform>-<arch>.zip` | Full manual install package |
+| `ObstTerminal-runtime-<version>-<platform>-<arch>.zip` | Native runtime package used by the in-app installer |
 | `configure-corporate-ca.ps1`, `configure-corporate-ca.cmd` | Optional Windows helper scripts for custom CA setup |
 
 ## Shell Behavior
@@ -130,56 +132,56 @@ Default shell selection:
 You can override the shell in:
 
 ```text
-Settings > Vault Terminal > Shell executable
+Settings > Obst Terminal > Shell executable
 ```
 
 If Node.js is installed in a non-standard location, set:
 
 ```text
-Settings > Vault Terminal > Node executable
+Settings > Obst Terminal > Node executable
 ```
 
 ## File and image references
 
-Vault Terminal can bridge Obsidian and agent CLI attachment workflows:
+Obst Terminal can bridge Obsidian and agent CLI attachment workflows:
 
 - Drop files onto the terminal to insert references.
 - Files inside the current vault are inserted as `@relative/path`.
 - Files outside the vault are inserted as quoted absolute paths.
-- Copy an image or screenshot, then press `Ctrl+V` in the terminal. Vault Terminal saves it into the vault and inserts an `@path` reference.
+- Copy an image or screenshot, then press `Ctrl+V` in the terminal. Obst Terminal saves it into the vault and inserts an `@path` reference.
 - Use the command palette action **Insert current note reference** to insert the active note as `@note.md`.
 
 Clipboard images are saved to:
 
 ```text
-Vault Terminal Attachments/
+Obst Terminal Attachments/
 ```
 
 You can change that folder here:
 
 ```text
-Settings > Vault Terminal > Attachment folder
+Settings > Obst Terminal > Attachment folder
 ```
 
 ## Windows PTY backend
 
-The default Windows PTY backend is `winpty`.
+The default Windows PTY backend is `ConPTY`.
 
-ConPTY can filter some raw keyboard and paste escape sequences before Node-based CLIs receive them. `winpty` is the default because it has been more stable for agent CLIs such as Claude Code and Codex CLI.
+ConPTY generally handles fullscreen TUI rendering and resize behavior better on modern Windows. `winpty` remains available as a fallback if a CLI has input compatibility issues.
 
 You can switch the backend here:
 
 ```text
-Settings > Vault Terminal > Windows PTY backend
+Settings > Obst Terminal > Windows PTY backend
 ```
 
-Open a new Vault Terminal tab after changing this setting.
+Open a new Obst Terminal tab after changing this setting.
 
 ## Shift + Enter
 
 The default `Shift + Enter` behavior is **Claude backslash newline**.
 
-Claude Code treats a trailing `\` followed by Return as a multiline newline. Vault Terminal sends that sequence after a short delay so IME composition can finish before the newline is sent.
+Claude Code treats a trailing `\` followed by Return as a multiline newline. Obst Terminal sends that sequence after a short delay so IME composition can finish before the newline is sent.
 
 Other modes are also available:
 
@@ -193,7 +195,7 @@ Other modes are also available:
 Setting:
 
 ```text
-Settings > Vault Terminal > Shift+Enter behavior
+Settings > Obst Terminal > Shift+Enter behavior
 ```
 
 ## Colors and scrolling
@@ -209,7 +211,7 @@ Scrolling behavior:
 
 ## TLS / custom certificates
 
-By default, Vault Terminal does not change Node TLS behavior and does not include certificate files.
+By default, Obst Terminal does not change Node TLS behavior and does not include certificate files.
 
 If a Node-based CLI such as Claude Code shows an error like this:
 
@@ -223,12 +225,14 @@ try the settings below:
 - **Use system certificate store**: enables Node's system CA store.
 - **Extra CA certificate**: path to a PEM certificate file. Leave empty to auto-detect a shared PEM file.
 
-When the setting is empty, Vault Terminal checks these shared locations first:
+When the setting is empty, Obst Terminal checks these shared locations first:
 
 ```text
+OBST_TERMINAL_EXTRA_CA_CERT
 VAULT_TERMINAL_EXTRA_CA_CERT
 C:\certs\extra-ca.pem
-C:\ProgramData\Vault Terminal\extra-ca.pem
+C:\ProgramData\Obst Terminal\extra-ca.pem
+%USERPROFILE%\.obst-terminal\extra-ca.pem
 %USERPROFILE%\.vault-terminal\extra-ca.pem
 ```
 
@@ -301,14 +305,14 @@ The release workflow:
 
 ## Security
 
-Vault Terminal is a desktop-only plugin that starts a real local shell and a separate Node.js PTY host process.
+Obst Terminal is a desktop-only plugin that starts a real local shell and a separate Node.js PTY host process.
 
 - Commands run with your local user permissions.
 - Commands can access local files, network resources, and credentials according to your OS permissions and the CLI you run.
 - Claude Code, Codex CLI, git, npm, and other external tools are not bundled.
 - Native `node-pty` runtime files are either included in the full ZIP or downloaded from the matching GitHub Release and verified with SHA-256.
 - TLS / CA environment variables are only injected when explicitly enabled in settings.
-- Vault Terminal does not include telemetry, analytics, or advertising code.
+- Obst Terminal does not include telemetry, analytics, or advertising code.
 
 Only install releases from a source you trust.
 

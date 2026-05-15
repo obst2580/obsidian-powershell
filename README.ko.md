@@ -1,4 +1,4 @@
-# Vault Terminal
+# Obst Terminal
 
 Obsidian 데스크톱 앱의 우측 사이드바에 현재 볼트 경로를 작업 디렉터리로 사용하는 실제 터미널을 여는 플러그인입니다.
 
@@ -8,13 +8,13 @@ Obsidian 데스크톱 앱의 우측 사이드바에 현재 볼트 경로를 작�
 
 ## English Overview
 
-Vault Terminal opens a real terminal in Obsidian's right sidebar and starts it from the current vault path. It is designed for workflows where Obsidian holds project notes while Claude Code, Codex CLI, git, npm, and other local CLI tools run against the same vault.
+Obst Terminal opens a real terminal in Obsidian's right sidebar and starts it from the current vault path. It is designed for workflows where Obsidian holds project notes while Claude Code, Codex CLI, git, npm, and other local CLI tools run against the same vault.
 
 Current distribution is GitHub Release ZIP based while Community Plugin Directory registration is being prepared. The plugin is desktop-only and requires Node.js plus a native PTY runtime. Standard Community Plugin installs can download the verified OS-specific runtime from the matching GitHub Release.
 
 ## 주요 기능
 
-- Vault Terminal 탭을 열면 터미널이 자동으로 시작됩니다.
+- Obst Terminal 탭을 열면 터미널이 자동으로 시작됩니다.
 - 현재 Obsidian 볼트가 셸의 작업 디렉터리가 됩니다.
 - PowerShell, zsh, bash 같은 일반 셸 명령을 탭 안에서 실행합니다.
 - Claude Code, Codex CLI, Git, Python, npm 같은 CLI 도구를 볼트 기준으로 실행합니다.
@@ -30,11 +30,11 @@ Current distribution is GitHub Release ZIP based while Community Plugin Director
 
 ## 사용 예시
 
-![Obsidian 우측 사이드바에서 Claude Code를 실행한 Vault Terminal 화면](docs/images/vault-terminal-claude-code.png)
+![Obsidian 우측 사이드바에서 Claude Code를 실행한 Obst Terminal 화면](docs/images/vault-terminal-claude-code.png)
 
-Vault Terminal은 Obsidian 문서를 보면서 같은 볼트 경로에서 agent CLI를 실행하는 흐름에 맞춰 만들었습니다.
+Obst Terminal은 Obsidian 문서를 보면서 같은 볼트 경로에서 agent CLI를 실행하는 흐름에 맞춰 만들었습니다.
 
-예를 들어 중앙에는 프로젝트 인덱스나 작업 노트를 열어두고, 우측 사이드바에서는 Vault Terminal로 `claude`, `codex`, `git`, `npm` 같은 명령을 실행할 수 있습니다. 터미널의 작업 디렉터리는 현재 볼트이므로 Claude Code나 Codex CLI가 `AGENTS.md`, `CLAUDE.md`, 프로젝트 노트, 소스 파일을 같은 기준 경로에서 읽고 작업합니다.
+예를 들어 중앙에는 프로젝트 인덱스나 작업 노트를 열어두고, 우측 사이드바에서는 Obst Terminal로 `claude`, `codex`, `git`, `npm` 같은 명령을 실행할 수 있습니다. 터미널의 작업 디렉터리는 현재 볼트이므로 Claude Code나 Codex CLI가 `AGENTS.md`, `CLAUDE.md`, 프로젝트 노트, 소스 파일을 같은 기준 경로에서 읽고 작업합니다.
 
 이 플러그인은 실제 로컬 셸을 띄웁니다. 따라서 터미널에서 실행한 CLI의 파일 접근, 네트워크 접근, 인증서 설정은 사용자의 PC와 해당 CLI 설정을 그대로 따릅니다.
 
@@ -46,12 +46,12 @@ GitHub Actions가 태그 릴리스마다 OS별 ZIP을 자동 생성합니다.
 | --- | --- |
 | `manifest.json`, `main.js`, `styles.css` | Community Plugin Directory / BRAT용 표준 플러그인 파일 |
 | `runtime-manifest.json` | 플러그인이 런타임 ZIP을 검증하기 위한 SHA-256 매니페스트 |
-| `VaultTerminal-<version>-windows-x64.zip` | Windows x64 |
-| `VaultTerminal-<version>-macos-x64.zip` | macOS Intel |
-| `VaultTerminal-<version>-macos-arm64.zip` | macOS Apple Silicon |
-| `VaultTerminal-runtime-<version>-windows-x64.zip` | Windows x64 런타임 전용 |
-| `VaultTerminal-runtime-<version>-macos-x64.zip` | macOS Intel 런타임 전용 |
-| `VaultTerminal-runtime-<version>-macos-arm64.zip` | macOS Apple Silicon 런타임 전용 |
+| `ObstTerminal-<version>-windows-x64.zip` | Windows x64 |
+| `ObstTerminal-<version>-macos-x64.zip` | macOS Intel |
+| `ObstTerminal-<version>-macos-arm64.zip` | macOS Apple Silicon |
+| `ObstTerminal-runtime-<version>-windows-x64.zip` | Windows x64 런타임 전용 |
+| `ObstTerminal-runtime-<version>-macos-x64.zip` | macOS Intel 런타임 전용 |
+| `ObstTerminal-runtime-<version>-macos-arm64.zip` | macOS Apple Silicon 런타임 전용 |
 
 릴리스 페이지:
 
@@ -83,6 +83,8 @@ configure-corporate-ca.cmd
 <볼트경로>/.obsidian/plugins/vault-terminal/
 ```
 
+표시 이름은 Obst Terminal이지만, 기존 릴리스와 Obsidian Community Plugin 등록 호환을 위해 플러그인 ID와 설치 폴더명은 `vault-terminal`을 유지합니다.
+
 압축 해제 후 플러그인 폴더에는 다음 파일과 폴더가 있어야 합니다.
 
 ```text
@@ -96,7 +98,7 @@ node_modules/
 Obsidian을 재시작한 뒤 아래 메뉴에서 플러그인을 활성화합니다.
 
 ```text
-Settings > Community plugins > Vault Terminal > Enable
+Settings > Community plugins > Obst Terminal > Enable
 ```
 
 업데이트할 때도 같은 위치에 새 ZIP을 덮어쓴 뒤 Obsidian을 재시작하거나 플러그인을 껐다 켭니다.
@@ -113,16 +115,16 @@ main.js
 styles.css
 ```
 
-Vault Terminal은 런타임이 없거나 오래된 경우 현재 버전의 GitHub Release에서 `runtime-manifest.json`을 읽고, OS/아키텍처에 맞는 런타임 ZIP을 내려받아 SHA-256 검증 후 플러그인 폴더에 압축 해제할 수 있습니다. Obsidian 명령 팔레트의 **Update runtime files** 또는 설정 화면의 런타임 버튼으로 개별 업데이트할 수 있습니다. 런타임이 없으면 Vault Terminal 탭에 런타임 설치 안내가 표시되고 **Install runtime** 버튼으로 수동 설치할 수 있습니다.
+Obst Terminal은 런타임이 없거나 오래된 경우 현재 버전의 GitHub Release에서 `runtime-manifest.json`을 읽고, OS/아키텍처에 맞는 런타임 ZIP을 내려받아 SHA-256 검증 후 플러그인 폴더에 압축 해제할 수 있습니다. Obsidian 명령 팔레트의 **Update runtime files** 또는 설정 화면의 런타임 버튼으로 개별 업데이트할 수 있습니다. 런타임이 없으면 Obst Terminal 탭에 런타임 설치 안내가 표시되고 **Install runtime** 버튼으로 수동 설치할 수 있습니다.
 
 설정에서도 같은 작업을 실행할 수 있습니다.
 
 ```text
-Settings > Vault Terminal > Runtime files > Install runtime
-Settings > Vault Terminal > Install runtime automatically
+Settings > Obst Terminal > Runtime files > Install runtime
+Settings > Obst Terminal > Install runtime automatically
 ```
 
-터미널에 `Node.js was not found` 또는 `spawn node ENOENT`가 표시되면 Node.js를 시스템에 설치한 뒤 Obsidian을 재시작하세요. Node를 별도 위치에 설치했다면 `Settings > Vault Terminal > Node executable`에 절대경로를 입력할 수 있습니다.
+터미널에 `Node.js was not found` 또는 `spawn node ENOENT`가 표시되면 Node.js를 시스템에 설치한 뒤 Obsidian을 재시작하세요. Node를 별도 위치에 설치했다면 `Settings > Obst Terminal > Node executable`에 절대경로를 입력할 수 있습니다.
 
 ## 개발
 
@@ -204,32 +206,32 @@ native PTY 런타임이 필요하므로 전체 릴리스 ZIP과 런타임 전용
 클립보드 이미지는 기본적으로 아래 폴더에 저장됩니다.
 
 ```text
-Vault Terminal Attachments/
+Obst Terminal Attachments/
 ```
 
 설정에서 변경할 수 있습니다.
 
 ```text
-Settings > Vault Terminal > Attachment folder
+Settings > Obst Terminal > Attachment folder
 ```
 
 ## Windows PTY
 
-Windows 기본 PTY backend는 `winpty`입니다.
+Windows 기본 PTY backend는 `ConPTY`입니다.
 
-ConPTY는 일부 raw keyboard/paste escape sequence를 Node 기반 CLI가 읽기 전에 필터링할 수 있습니다. Claude Code/Codex 같은 agent CLI의 특수 입력을 안정적으로 전달하기 위해 Windows 기본값은 `winpty`입니다.
+ConPTY는 최신 Windows에서 fullscreen TUI 렌더링과 resize 동작이 대체로 더 안정적입니다. 특정 CLI에서 입력 호환 문제가 있으면 `winpty`를 fallback으로 선택할 수 있습니다.
 
-환경에 따라 ConPTY가 더 잘 맞으면 플러그인 설정에서 바꿀 수 있습니다.
+환경에 따라 winpty가 더 잘 맞으면 플러그인 설정에서 바꿀 수 있습니다.
 
 ```text
-Settings > Vault Terminal > Windows PTY backend
+Settings > Obst Terminal > Windows PTY backend
 ```
 
 ## Shift + Enter
 
 기본값은 **Claude backslash newline**입니다.
 
-Claude Code는 줄 끝의 `\` + Return을 멀티라인 줄바꿈으로 처리합니다. Vault Terminal은 `Shift + Enter`를 이 경로로 보내며, 한글 IME 마지막 글자가 먼저 커밋되도록 짧게 지연합니다.
+Claude Code는 줄 끝의 `\` + Return을 멀티라인 줄바꿈으로 처리합니다. Obst Terminal은 `Shift + Enter`를 이 경로로 보내며, 한글 IME 마지막 글자가 먼저 커밋되도록 짧게 지연합니다.
 
 다른 도구를 위해 아래 모드도 남겨두었습니다.
 
@@ -243,7 +245,7 @@ Claude Code는 줄 끝의 `\` + Return을 멀티라인 줄바꿈으로 처리합
 설정 위치:
 
 ```text
-Settings > Vault Terminal > Shift+Enter behavior
+Settings > Obst Terminal > Shift+Enter behavior
 ```
 
 ## 화면 색상과 스크롤
@@ -276,9 +278,11 @@ Unable to connect to API
 설정값이 비어 있으면 먼저 아래 공통 위치를 확인합니다.
 
 ```text
+OBST_TERMINAL_EXTRA_CA_CERT
 VAULT_TERMINAL_EXTRA_CA_CERT
 C:\certs\extra-ca.pem
-C:\ProgramData\Vault Terminal\extra-ca.pem
+C:\ProgramData\Obst Terminal\extra-ca.pem
+%USERPROFILE%\.obst-terminal\extra-ca.pem
 %USERPROFILE%\.vault-terminal\extra-ca.pem
 ```
 
@@ -315,7 +319,7 @@ Obsidian Community Plugin 표준 설치는 보통 `manifest.json`, `main.js`, `s
 
 ## 보안과 권한
 
-Vault Terminal은 데스크톱 전용 플러그인이며, 실제 로컬 셸과 별도 Node.js PTY host 프로세스를 실행합니다.
+Obst Terminal은 데스크톱 전용 플러그인이며, 실제 로컬 셸과 별도 Node.js PTY host 프로세스를 실행합니다.
 
 - 터미널에서 실행한 명령은 사용자 PC 권한으로 동작합니다.
 - 명령은 볼트 안팎의 로컬 파일, 네트워크, 인증 정보에 접근할 수 있습니다. 접근 범위는 실행한 CLI와 운영체제 권한을 따릅니다.

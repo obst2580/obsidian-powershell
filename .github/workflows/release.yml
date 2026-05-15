@@ -52,7 +52,7 @@ jobs:
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
-          name: VaultTerminal-${{ matrix.platform }}-${{ matrix.arch }}
+          name: ObstTerminal-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
             dist/*.zip
             dist/runtime-manifest-*.json
@@ -62,7 +62,7 @@ jobs:
         if: matrix.platform == 'windows' && matrix.arch == 'x64'
         uses: actions/upload-artifact@v4
         with:
-          name: VaultTerminal-core
+          name: ObstTerminal-core
           path: |
             manifest.json
             main.js
@@ -109,14 +109,14 @@ jobs:
       - name: Download packages
         uses: actions/download-artifact@v4
         with:
-          pattern: VaultTerminal-*-*
+          pattern: ObstTerminal-*-*
           path: dist
           merge-multiple: true
 
       - name: Download core plugin files
         uses: actions/download-artifact@v4
         with:
-          name: VaultTerminal-core
+          name: ObstTerminal-core
           path: .
 
       - name: Build runtime manifest
@@ -154,7 +154,7 @@ jobs:
           version="$TAG_NAME"
           notes_file="$(mktemp)"
           cat > "$notes_file" <<NOTES
-          ## Vault Terminal $version
+          ## Obst Terminal $version
 
           자동 빌드된 릴리스입니다.
 
@@ -169,7 +169,7 @@ jobs:
           - macOS Intel x64 전체 ZIP + 런타임 ZIP
           - macOS Apple Silicon arm64 전체 ZIP + 런타임 ZIP
 
-          기존 볼트에 업데이트한 뒤에는 Obsidian을 재시작하거나 플러그인을 껐다 켜고 Vault Terminal 탭을 새로 여세요.
+          기존 볼트에 업데이트한 뒤에는 Obsidian을 재시작하거나 플러그인을 껐다 켜고 Obst Terminal 탭을 새로 여세요.
           NOTES
 
           if gh release view "$TAG_NAME" --repo "$REPOSITORY" >/dev/null 2>&1; then
