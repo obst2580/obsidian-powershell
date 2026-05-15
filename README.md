@@ -100,6 +100,7 @@ The runtime installer:
 - Selects the runtime ZIP for your OS and CPU architecture.
 - Verifies file size and SHA-256 before extraction.
 - Extracts only inside the plugin folder.
+- Repairs executable permissions for the macOS/Linux `spawn-helper` file after extraction.
 - Writes `runtime.json` so stale runtime versions can be refreshed later without blocking an otherwise usable installed runtime.
 
 Run the runtime installer or optionally enable automatic runtime installation from:

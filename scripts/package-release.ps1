@@ -108,6 +108,22 @@ function Write-RuntimeInfo {
     Set-Content -LiteralPath (Join-Path $TargetDir "runtime.json") -Encoding utf8
 }
 
+function Repair-UnixRuntimePermissions {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$TargetDir
+  )
+
+  if (-not ($resolvedPlatform -eq "macos" -or $resolvedPlatform -eq "linux")) {
+    return
+  }
+
+  $spawnHelper = Join-Path $TargetDir "node_modules/@homebridge/node-pty-prebuilt-multiarch/build/Release/spawn-helper"
+  if (Test-Path -LiteralPath $spawnHelper) {
+    & chmod 755 $spawnHelper
+  }
+}
+
 function New-ZipFromDirectory {
   param(
     [Parameter(Mandatory = $true)]
@@ -119,6 +135,22 @@ function New-ZipFromDirectory {
 
   if (Test-Path -LiteralPath $ZipPath) {
     Remove-Item -LiteralPath $ZipPath -Force
+  }
+
+  if ($IsWindows) {
+    Compress-Archive -Path (Join-Path $SourceDir "*") -DestinationPath $ZipPath -Force
+    return
+  }
+
+  $zipCommand = Get-Command zip -ErrorAction SilentlyContinue
+  if ($zipCommand) {
+    Push-Location -LiteralPath $SourceDir
+    try {
+      & $zipCommand.Path -r -q $ZipPath .
+    } finally {
+      Pop-Location
+    }
+    return
   }
 
   Compress-Archive -Path (Join-Path $SourceDir "*") -DestinationPath $ZipPath -Force
@@ -143,6 +175,7 @@ foreach ($file in @("manifest.json", "main.js", "styles.css")) {
 }
 
 Copy-RuntimeFiles -TargetDir $packageDir
+Repair-UnixRuntimePermissions -TargetDir $packageDir
 Write-RuntimeInfo -TargetDir $packageDir
 New-ZipFromDirectory -SourceDir $packageDir -ZipPath $zipPath
 
@@ -152,6 +185,7 @@ if (Test-Path -LiteralPath $runtimePackageDir) {
 
 New-Item -ItemType Directory -Force -Path $runtimePackageDir | Out-Null
 Copy-RuntimeFiles -TargetDir $runtimePackageDir
+Repair-UnixRuntimePermissions -TargetDir $runtimePackageDir
 Write-RuntimeInfo -TargetDir $runtimePackageDir
 New-ZipFromDirectory -SourceDir $runtimePackageDir -ZipPath $runtimeZipPath
 

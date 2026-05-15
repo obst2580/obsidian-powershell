@@ -73,6 +73,11 @@ if [[ "$runtime_merged" != true ]]; then
   cp -R "$runtime_source" "$runtime_root/"
 fi
 
+spawn_helper="$runtime_target/build/Release/spawn-helper"
+if [[ -f "$spawn_helper" ]]; then
+  chmod 755 "$spawn_helper"
+fi
+
 case "$(uname -s)" in
   Darwin) runtime_platform="macos" ;;
   Linux) runtime_platform="linux" ;;

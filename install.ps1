@@ -33,6 +33,22 @@ function Resolve-InstallArch {
   }
 }
 
+function Repair-UnixRuntimePermissions {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$RuntimeDir
+  )
+
+  if (-not ($IsMacOS -or $IsLinux)) {
+    return
+  }
+
+  $spawnHelper = Join-Path $RuntimeDir "build/Release/spawn-helper"
+  if (Test-Path -LiteralPath $spawnHelper) {
+    & chmod 755 $spawnHelper
+  }
+}
+
 function Copy-RuntimeMerge {
   param(
     [Parameter(Mandatory = $true)]
@@ -120,6 +136,8 @@ if (Test-Path -LiteralPath $ptyTarget) {
 if (-not $runtimeMerged) {
   Copy-Item -LiteralPath $ptySource -Destination $homebridgeTarget -Recurse -Force
 }
+
+Repair-UnixRuntimePermissions -RuntimeDir $ptyTarget
 
 [ordered]@{
   version = $manifest.version

@@ -115,7 +115,7 @@ main.js
 styles.css
 ```
 
-Obst Terminal은 런타임이 없거나 오래된 경우 현재 버전의 GitHub Release에서 `runtime-manifest.json`을 읽고, OS/아키텍처에 맞는 런타임 ZIP을 내려받아 SHA-256 검증 후 플러그인 폴더에 압축 해제할 수 있습니다. Obsidian 명령 팔레트의 **Update runtime files** 또는 설정 화면의 런타임 버튼으로 개별 업데이트할 수 있습니다. 런타임이 없으면 Obst Terminal 탭에 런타임 설치 안내가 표시되고 **Install runtime** 버튼으로 수동 설치할 수 있습니다.
+Obst Terminal은 런타임이 없거나 오래된 경우 현재 버전의 GitHub Release에서 `runtime-manifest.json`을 읽고, OS/아키텍처에 맞는 런타임 ZIP을 내려받아 SHA-256 검증 후 플러그인 폴더에 압축 해제할 수 있습니다. macOS/Linux에서는 압축 해제 후 `spawn-helper` 실행 권한도 자동 복구합니다. Obsidian 명령 팔레트의 **Update runtime files** 또는 설정 화면의 런타임 버튼으로 개별 업데이트할 수 있습니다. 런타임이 없으면 Obst Terminal 탭에 런타임 설치 안내가 표시되고 **Install runtime** 버튼으로 수동 설치할 수 있습니다.
 
 설정에서도 같은 작업을 실행할 수 있습니다.
 

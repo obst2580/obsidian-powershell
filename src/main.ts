@@ -19,7 +19,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { unzipSync } from "fflate";
 import { ChildProcessWithoutNullStreams, spawn } from "child_process";
 import { createHash } from "crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
 
 const VIEW_TYPE_POWERSHELL = "vault-powershell";
@@ -41,10 +41,17 @@ const OBST_TERMINAL_ICON_SVG = `
 `;
 const DEFAULT_ATTACHMENT_FOLDER = "Obst Terminal Attachments";
 const EXTRA_CA_ENV_VARS = ["OBST_TERMINAL_EXTRA_CA_CERT", "VAULT_TERMINAL_EXTRA_CA_CERT"];
-const RUNTIME_REQUIRED_RELATIVE_FILES = [
+const RUNTIME_BASE_REQUIRED_RELATIVE_FILES = [
   "pty-host.js",
   "node_modules/@homebridge/node-pty-prebuilt-multiarch/package.json",
   "node_modules/@homebridge/node-pty-prebuilt-multiarch/lib/index.js"
+];
+const RUNTIME_UNIX_REQUIRED_RELATIVE_FILES = [
+  "node_modules/@homebridge/node-pty-prebuilt-multiarch/build/Release/pty.node",
+  "node_modules/@homebridge/node-pty-prebuilt-multiarch/build/Release/spawn-helper"
+];
+const RUNTIME_UNIX_EXECUTABLE_RELATIVE_FILES = [
+  "node_modules/@homebridge/node-pty-prebuilt-multiarch/build/Release/spawn-helper"
 ];
 const DEFAULT_PWSH_PATH = "C:\\Program Files\\PowerShell\\7\\pwsh.exe";
 const WINDOWS_POWERSHELL_PATH = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
@@ -335,13 +342,14 @@ export default class VaultPowerShellPlugin extends Plugin {
 
   getRuntimeMissingFiles(): string[] {
     const pluginBasePath = this.getPluginBasePath();
-    const missingFiles = RUNTIME_REQUIRED_RELATIVE_FILES
+    const permissionIssues = repairRuntimeFilePermissions(pluginBasePath);
+    const missingFiles = getRuntimeRequiredRelativeFiles()
       .map((relativePath) => join(pluginBasePath, ...relativePath.split("/")))
       .filter((file) => !existsSync(file));
 
     const runtimeInfoPath = join(pluginBasePath, RUNTIME_INFO_FILE);
     if (!existsSync(runtimeInfoPath)) {
-      return missingFiles;
+      return [...missingFiles, ...permissionIssues];
     }
 
     const platform = getRuntimePlatform();
@@ -355,10 +363,10 @@ export default class VaultPowerShellPlugin extends Plugin {
         missingFiles.push(`${runtimeInfoPath} (architecture ${runtimeInfo.arch} does not match ${arch})`);
       }
     } catch {
-      return missingFiles;
+      return [...missingFiles, ...permissionIssues];
     }
 
-    return missingFiles;
+    return [...missingFiles, ...permissionIssues];
   }
 
   getRuntimeUpdateReasons(): string[] {
@@ -471,6 +479,10 @@ export default class VaultPowerShellPlugin extends Plugin {
     const pluginBasePath = this.getPluginBasePath();
     removeRuntimeFiles(pluginBasePath);
     extractRuntimeArchive(archiveBytes, pluginBasePath);
+    const permissionIssues = repairRuntimeFilePermissions(pluginBasePath);
+    if (permissionIssues.length > 0) {
+      throw new Error(`Runtime permission repair failed: ${permissionIssues.join(", ")}`);
+    }
     writeFileSync(join(pluginBasePath, RUNTIME_INFO_FILE), JSON.stringify({
       version: runtimeManifest.version,
       platform,
@@ -1823,6 +1835,37 @@ function removeRuntimeFiles(pluginBasePath: string) {
   ]) {
     rmSync(join(pluginBasePath, ...relativePath.split("/")), { recursive: true, force: true });
   }
+}
+
+function getRuntimeRequiredRelativeFiles(): string[] {
+  if (process.platform === "darwin" || process.platform === "linux") {
+    return [...RUNTIME_BASE_REQUIRED_RELATIVE_FILES, ...RUNTIME_UNIX_REQUIRED_RELATIVE_FILES];
+  }
+
+  return RUNTIME_BASE_REQUIRED_RELATIVE_FILES;
+}
+
+function repairRuntimeFilePermissions(pluginBasePath: string): string[] {
+  if (process.platform === "win32") {
+    return [];
+  }
+
+  const issues: string[] = [];
+  for (const relativePath of RUNTIME_UNIX_EXECUTABLE_RELATIVE_FILES) {
+    const filePath = join(pluginBasePath, ...relativePath.split("/"));
+    if (!existsSync(filePath)) {
+      continue;
+    }
+
+    try {
+      chmodSync(filePath, 0o755);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      issues.push(`${filePath} (could not set executable permission: ${message})`);
+    }
+  }
+
+  return issues;
 }
 
 function extractRuntimeArchive(archiveBytes: Uint8Array, pluginBasePath: string) {

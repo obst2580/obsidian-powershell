@@ -1,4 +1,5 @@
 const path = require("path");
+const fs = require("fs");
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -51,7 +52,7 @@ function isMissingConptyRuntime(error) {
 
 function isShellSpawnFailure(error) {
   const message = error instanceof Error ? error.message : String(error);
-  return /posix_spawnp failed|ENOENT|spawn .*ENOENT|no such file|not found/i.test(message);
+  return /posix_spawnp failed|ENOENT|spawn .*ENOENT|no such file|not found|EACCES|permission denied|operation not permitted/i.test(message);
 }
 
 function getErrorMessage(error) {
@@ -76,8 +77,29 @@ function resizeTerminal(cols, rows) {
   }
 }
 
+function repairRuntimePermissions() {
+  if (process.platform === "win32") {
+    return;
+  }
+
+  const spawnHelperPath = path.join(
+    __dirname,
+    "node_modules",
+    "@homebridge",
+    "node-pty-prebuilt-multiarch",
+    "build",
+    "Release",
+    "spawn-helper"
+  );
+
+  if (fs.existsSync(spawnHelperPath)) {
+    fs.chmodSync(spawnHelperPath, 0o755);
+  }
+}
+
 try {
   const config = decodeConfig(process.argv[2]);
+  repairRuntimePermissions();
   const pty = loadPty();
   const useConpty = process.platform === "win32" && config.windowsPtyBackend === "conpty";
 
@@ -98,6 +120,7 @@ try {
     ...(Array.isArray(config.fallbackShells) ? config.fallbackShells : [])
   ].filter((candidate) => candidate?.shell);
   let lastSpawnError = null;
+  const spawnFailures = [];
 
   for (const candidate of shellCandidates) {
     try {
@@ -120,6 +143,7 @@ try {
       }
 
       lastSpawnError = error;
+      spawnFailures.push(`${candidate.shell}: ${getErrorMessage(error)}`);
       if (!isShellSpawnFailure(error)) {
         throw error;
       }
@@ -128,7 +152,8 @@ try {
 
   if (!terminal) {
     const attemptedShells = shellCandidates.map((candidate) => candidate.shell).join(", ");
-    throw new Error(`Could not start any shell (${attemptedShells}): ${getErrorMessage(lastSpawnError)}`);
+    const failureDetails = spawnFailures.length > 0 ? ` Details: ${spawnFailures.join(" | ")}` : "";
+    throw new Error(`Could not start any shell (${attemptedShells}): ${getErrorMessage(lastSpawnError)}.${failureDetails}`);
   }
   lastCols = spawnOptions.cols;
   lastRows = spawnOptions.rows;
