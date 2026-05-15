@@ -190,8 +190,10 @@ macOS runner 라벨은 GitHub 공식 hosted runner 문서를 기준으로 선택
 기본 셸 선택:
 
 - Windows: PowerShell 7이 있으면 PowerShell 7, 없으면 Windows PowerShell
-- macOS: Homebrew `pwsh`가 있으면 `pwsh`, 없으면 사용자 `$SHELL`, 그 다음 `zsh`/`bash`
-- Linux: `pwsh`가 있으면 `pwsh`, 없으면 사용자 `$SHELL`, 그 다음 `bash`/`sh`
+- macOS: 사용자 `$SHELL`, 그 다음 `zsh`/`bash`; Homebrew `pwsh`는 fallback으로만 사용
+- Linux: 사용자 `$SHELL`, 그 다음 `bash`/`sh`; `pwsh`는 fallback으로만 사용
+
+동기화된 볼트에 다른 OS의 shell 경로가 저장되어 있으면 Obst Terminal은 명백히 호환되지 않는 경로를 무시하고 현재 OS의 기본 셸로 fallback합니다. macOS에서 강제로 지정하려면 `Settings > Obst Terminal > Shell executable`에 `/bin/zsh`를 입력하세요.
 
 native PTY 런타임이 필요하므로 전체 릴리스 ZIP과 런타임 전용 ZIP은 OS/아키텍처별로 분리됩니다. Community Plugin 표준 설치에서는 런타임 전용 ZIP을 현재 플러그인 버전과 같은 GitHub Release에서 내려받고 SHA-256으로 검증합니다.
 

@@ -84,11 +84,17 @@ type WindowsPtyBackend = "winpty" | "conpty";
 interface PtyHostConfig {
   shell: string;
   args: string[];
+  fallbackShells: ShellLaunchConfig[];
   cols: number;
   rows: number;
   cwd: string;
   env: { [key: string]: string | undefined };
   windowsPtyBackend: WindowsPtyBackend;
+}
+
+interface ShellLaunchConfig {
+  shell: string;
+  args: string[];
 }
 
 type HostInputMessage =
@@ -264,10 +270,23 @@ export default class VaultPowerShellPlugin extends Plugin {
 
   getShellExecutable(): string {
     const configured = this.settings.executable.trim();
-    if (!isAutoShellSetting(configured)) {
+    if (!isAutoShellSetting(configured) && !isPlatformIncompatiblePath(configured)) {
       return configured;
     }
 
+    return this.getAutoShellExecutable();
+  }
+
+  getShellFallbacks(primaryShell: string): ShellLaunchConfig[] {
+    return uniqueStrings(getAutoShellCandidates())
+      .filter((shell) => shell !== primaryShell)
+      .map((shell) => ({
+        shell,
+        args: this.getShellArgs(shell)
+      }));
+  }
+
+  private getAutoShellExecutable(): string {
     if (process.platform === "win32" && existsSync(DEFAULT_PWSH_PATH)) {
       return DEFAULT_PWSH_PATH;
     }
@@ -277,11 +296,11 @@ export default class VaultPowerShellPlugin extends Plugin {
     }
 
     if (process.platform === "darwin") {
-      return firstExistingPath(MACOS_PWSH_PATHS) ?? getUserShell() ?? firstExistingPath(["/bin/zsh", "/bin/bash", "/bin/sh"]) ?? "/bin/zsh";
+      return getUserShell() ?? firstExistingPath(["/bin/zsh", "/bin/bash", "/bin/sh"]) ?? firstExistingPath(MACOS_PWSH_PATHS) ?? "/bin/zsh";
     }
 
     if (process.platform === "linux") {
-      return firstExistingPath(LINUX_PWSH_PATHS) ?? getUserShell() ?? firstExistingPath(["/bin/bash", "/bin/sh"]) ?? "/bin/sh";
+      return getUserShell() ?? firstExistingPath(["/bin/bash", "/bin/sh"]) ?? firstExistingPath(LINUX_PWSH_PATHS) ?? "/bin/sh";
     }
 
     return getUserShell() ?? "pwsh";
@@ -965,6 +984,7 @@ class VaultPowerShellView extends ItemView {
       const host = spawn(this.plugin.getNodeExecutable(), [this.plugin.getPtyHostPath(), encodeConfig({
         shell,
         args: this.plugin.getShellArgs(shell),
+        fallbackShells: this.plugin.getShellFallbacks(shell),
         cols: clampPtyCols(terminal.cols, 80),
         rows: clampPtyRows(terminal.rows, 24),
         cwd,
@@ -1429,7 +1449,7 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Shell executable")
-      .setDesc("Leave empty for automatic selection. Uses PowerShell on Windows, then pwsh/zsh/bash on macOS or Linux.")
+      .setDesc("Leave empty for automatic selection. Uses PowerShell on Windows, zsh/bash on macOS, and the local user shell on Linux.")
       .addText((text) =>
         text
           .setPlaceholder("auto")
@@ -2104,9 +2124,41 @@ function firstExistingPath(candidates: string[]): string | null {
   return candidates.find((candidate) => existsSync(candidate)) ?? null;
 }
 
+function getAutoShellCandidates(): string[] {
+  if (process.platform === "win32") {
+    return [DEFAULT_PWSH_PATH, WINDOWS_POWERSHELL_PATH].filter((candidate) => existsSync(candidate));
+  }
+
+  if (process.platform === "darwin") {
+    return [
+      getUserShell(),
+      ...["/bin/zsh", "/bin/bash", "/bin/sh"].filter((candidate) => existsSync(candidate)),
+      ...MACOS_PWSH_PATHS.filter((candidate) => existsSync(candidate))
+    ].filter((candidate): candidate is string => Boolean(candidate));
+  }
+
+  if (process.platform === "linux") {
+    return [
+      getUserShell(),
+      ...["/bin/bash", "/bin/sh"].filter((candidate) => existsSync(candidate)),
+      ...LINUX_PWSH_PATHS.filter((candidate) => existsSync(candidate))
+    ].filter((candidate): candidate is string => Boolean(candidate));
+  }
+
+  return [getUserShell(), "pwsh"].filter((candidate): candidate is string => Boolean(candidate));
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values));
+}
+
 function getUserShell(): string | null {
   const shell = process.env.SHELL?.trim();
   return shell && existsSync(shell) ? shell : null;
+}
+
+function isPlatformIncompatiblePath(value: string): boolean {
+  return process.platform !== "win32" && /^[a-z]:[\\/]/i.test(value);
 }
 
 function isAutoShellSetting(value: string): boolean {

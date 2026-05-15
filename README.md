@@ -126,14 +126,16 @@ Each release includes both manual install packages and Community Plugin runtime 
 Default shell selection:
 
 - Windows: PowerShell 7 if available, otherwise Windows PowerShell.
-- macOS: Homebrew `pwsh` if available, otherwise `$SHELL`, then `zsh` or `bash`.
-- Linux: `pwsh` if available, otherwise `$SHELL`, then `bash` or `sh`.
+- macOS: `$SHELL`, then `zsh` or `bash`; Homebrew `pwsh` is used only as a fallback.
+- Linux: `$SHELL`, then `bash` or `sh`; `pwsh` is used only as a fallback.
 
 You can override the shell in:
 
 ```text
 Settings > Obst Terminal > Shell executable
 ```
+
+If a synced vault carries a shell path from another OS, Obst Terminal ignores obvious incompatible paths and falls back to the local system shell. On macOS, set this to `/bin/zsh` if you need to force the native default shell.
 
 If Node.js is installed in a non-standard location, set:
 

@@ -49,6 +49,15 @@ function isMissingConptyRuntime(error) {
   return /conpty\.node/i.test(message) && /MODULE_NOT_FOUND|Cannot find module/i.test(message);
 }
 
+function isShellSpawnFailure(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /posix_spawnp failed|ENOENT|spawn .*ENOENT|no such file|not found/i.test(message);
+}
+
+function getErrorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function resizeTerminal(cols, rows) {
   const nextCols = clampCols(cols);
   const nextRows = clampRows(rows);
@@ -84,18 +93,42 @@ try {
     spawnOptions.useConpty = useConpty;
   }
 
-  try {
-    terminal = pty.spawn(config.shell, config.args || [], spawnOptions);
-  } catch (error) {
-    if (!useConpty || !isMissingConptyRuntime(error)) {
-      throw error;
-    }
+  const shellCandidates = [
+    { shell: config.shell, args: config.args || [] },
+    ...(Array.isArray(config.fallbackShells) ? config.fallbackShells : [])
+  ].filter((candidate) => candidate?.shell);
+  let lastSpawnError = null;
 
-    terminal = pty.spawn(config.shell, config.args || [], {
-      ...spawnOptions,
-      useConpty: false
-    });
-    send({ type: "data", data: "ConPTY runtime file is missing; started with winpty fallback.\r\n" });
+  for (const candidate of shellCandidates) {
+    try {
+      terminal = pty.spawn(candidate.shell, candidate.args || [], spawnOptions);
+      if (candidate.shell !== config.shell) {
+        send({
+          type: "data",
+          data: `Could not start configured shell ${config.shell}; started fallback shell ${candidate.shell}.\r\n`
+        });
+      }
+      break;
+    } catch (error) {
+      if (useConpty && isMissingConptyRuntime(error)) {
+        terminal = pty.spawn(candidate.shell, candidate.args || [], {
+          ...spawnOptions,
+          useConpty: false
+        });
+        send({ type: "data", data: "ConPTY runtime file is missing; started with winpty fallback.\r\n" });
+        break;
+      }
+
+      lastSpawnError = error;
+      if (!isShellSpawnFailure(error)) {
+        throw error;
+      }
+    }
+  }
+
+  if (!terminal) {
+    const attemptedShells = shellCandidates.map((candidate) => candidate.shell).join(", ");
+    throw new Error(`Could not start any shell (${attemptedShells}): ${getErrorMessage(lastSpawnError)}`);
   }
   lastCols = spawnOptions.cols;
   lastRows = spawnOptions.rows;

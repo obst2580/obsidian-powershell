@@ -151,6 +151,8 @@ Settings > Community plugins > Obst Terminal > Enable
 
 macOS에서 Node.js를 `nvm`으로만 설치한 경우 Obsidian이 Node 경로를 자동으로 찾지 못할 수 있습니다. 이 경우 플러그인 설정의 **Node executable**에 절대경로를 입력합니다.
 
+macOS에서 `posix_spawnp failed`가 표시되면 shell 실행 경로 문제일 가능성이 큽니다. Obsidian 설정에서 `Settings > Obst Terminal > Shell executable`을 비우거나 `/bin/zsh`로 지정한 뒤 Obst Terminal 탭을 새로 여세요. Windows와 macOS가 같은 볼트를 동기화하는 경우 Windows shell 경로가 macOS 설정에 남아 있을 수 있습니다.
+
 Community Plugin Directory 또는 BRAT으로 설치한 경우 Windows와 동일하게 첫 실행 때 **Install runtime**을 눌러 macOS Intel 또는 Apple Silicon 런타임을 설치합니다. 플러그인이 현재 Mac의 CPU 아키텍처를 감지해 맞는 런타임 ZIP을 선택합니다.
 
 ## Linux 설치
