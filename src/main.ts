@@ -57,6 +57,7 @@ interface PowerShellSettings {
   terminalColorScheme: TerminalColorScheme;
   shiftEnterMode: ShiftEnterMode;
   windowsPtyBackend: WindowsPtyBackend;
+  autoInstallRuntime: boolean;
   useSystemCa: boolean;
   extraCaCertPath: string;
   attachmentFolder: string;
@@ -115,6 +116,7 @@ const DEFAULT_SETTINGS: PowerShellSettings = {
   terminalColorScheme: "obsidian",
   shiftEnterMode: "claude-backslash",
   windowsPtyBackend: "winpty",
+  autoInstallRuntime: false,
   useSystemCa: false,
   extraCaCertPath: "",
   attachmentFolder: DEFAULT_ATTACHMENT_FOLDER
@@ -180,6 +182,7 @@ const LIGHT_TERMINAL_THEME: ITheme = {
 
 export default class VaultPowerShellPlugin extends Plugin {
   settings: PowerShellSettings;
+  private runtimeInstallPromise: Promise<void> | null = null;
 
   async onload() {
     await this.loadSettings();
@@ -207,8 +210,19 @@ export default class VaultPowerShellPlugin extends Plugin {
         void this.insertCurrentNoteReference();
       }
     });
+    this.addCommand({
+      id: "update-runtime-files",
+      name: "Update runtime files",
+      callback: () => {
+        void this.updateRuntimeFromUserAction();
+      }
+    });
 
     this.addSettingTab(new VaultPowerShellSettingTab(this.app, this));
+
+    this.app.workspace.onLayoutReady(() => {
+      this.startAutomaticRuntimeInstall();
+    });
   }
 
   async loadSettings() {
@@ -217,6 +231,7 @@ export default class VaultPowerShellPlugin extends Plugin {
     this.settings.terminalColorScheme = normalizeTerminalColorScheme(this.settings.terminalColorScheme);
     this.settings.shiftEnterMode = normalizeShiftEnterMode(this.settings.shiftEnterMode);
     this.settings.windowsPtyBackend = normalizeWindowsPtyBackend(this.settings.windowsPtyBackend);
+    this.settings.autoInstallRuntime = this.settings.autoInstallRuntime === true;
   }
 
   async saveSettings() {
@@ -292,24 +307,100 @@ export default class VaultPowerShellPlugin extends Plugin {
 
     const runtimeInfoPath = join(pluginBasePath, RUNTIME_INFO_FILE);
     if (!existsSync(runtimeInfoPath)) {
-      missingFiles.push(runtimeInfoPath);
       return missingFiles;
     }
 
+    const platform = getRuntimePlatform();
+    const arch = getRuntimeArch();
     try {
       const runtimeInfo = JSON.parse(readFileSync(runtimeInfoPath, "utf8")) as RuntimeInfo;
-      if (runtimeInfo.version !== this.manifest.version) {
-        missingFiles.push(`${runtimeInfoPath} (version ${runtimeInfo.version ?? "unknown"} does not match plugin ${this.manifest.version})`);
+      if (runtimeInfo.platform && platform && runtimeInfo.platform !== platform) {
+        missingFiles.push(`${runtimeInfoPath} (platform ${runtimeInfo.platform} does not match ${platform})`);
+      }
+      if (runtimeInfo.arch && arch && runtimeInfo.arch !== arch) {
+        missingFiles.push(`${runtimeInfoPath} (architecture ${runtimeInfo.arch} does not match ${arch})`);
       }
     } catch {
-      missingFiles.push(`${runtimeInfoPath} (invalid runtime metadata)`);
+      return missingFiles;
     }
 
     return missingFiles;
   }
 
+  getRuntimeUpdateReasons(): string[] {
+    const missingFiles = this.getRuntimeMissingFiles();
+    if (missingFiles.length > 0) {
+      return missingFiles;
+    }
+
+    const runtimeInfoPath = join(this.getPluginBasePath(), RUNTIME_INFO_FILE);
+    if (!existsSync(runtimeInfoPath)) {
+      return ["Runtime metadata is missing."];
+    }
+
+    try {
+      const runtimeInfo = JSON.parse(readFileSync(runtimeInfoPath, "utf8")) as RuntimeInfo;
+      if (runtimeInfo.version !== this.manifest.version) {
+        return [`Runtime version ${runtimeInfo.version ?? "unknown"} does not match plugin ${this.manifest.version}.`];
+      }
+    } catch {
+      return ["Runtime metadata is invalid."];
+    }
+
+    return [];
+  }
+
   hasRuntime(): boolean {
     return this.getRuntimeMissingFiles().length === 0;
+  }
+
+  async installRuntimeIfNeeded(onProgress: (message: string) => void = () => undefined): Promise<boolean> {
+    const reasons = this.getRuntimeUpdateReasons();
+    if (reasons.length === 0) {
+      return false;
+    }
+
+    if (!this.runtimeInstallPromise) {
+      this.runtimeInstallPromise = this.installRuntime(onProgress)
+        .finally(() => {
+          this.runtimeInstallPromise = null;
+        });
+    }
+
+    await this.runtimeInstallPromise;
+    return true;
+  }
+
+  async updateRuntimeFromUserAction(): Promise<void> {
+    try {
+      await this.installRuntime();
+      new Notice("Vault Terminal runtime updated. Reopen the terminal to use the updated runtime.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      new Notice(`Vault Terminal runtime update failed: ${message}`);
+    }
+  }
+
+  private startAutomaticRuntimeInstall() {
+    if (!this.settings.autoInstallRuntime) {
+      return;
+    }
+
+    const reasons = this.getRuntimeUpdateReasons();
+    if (reasons.length === 0) {
+      return;
+    }
+
+    void this.installRuntimeIfNeeded()
+      .then((installed) => {
+        if (installed) {
+          new Notice("Vault Terminal runtime was installed.");
+        }
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        new Notice(`Vault Terminal runtime auto-install failed: ${message}`);
+      });
   }
 
   async installRuntime(onProgress: (message: string) => void = () => undefined): Promise<void> {
@@ -834,6 +925,12 @@ class VaultPowerShellView extends ItemView {
     try {
       const missingRuntimeFiles = this.plugin.getRuntimeMissingFiles();
       if (missingRuntimeFiles.length > 0) {
+        if (this.plugin.settings.autoInstallRuntime) {
+          terminal.writeln("Vault Terminal runtime files are missing. Installing runtime...");
+          void this.installRuntimeAndStartShell();
+          return;
+        }
+
         this.showRuntimePrompt(missingRuntimeFiles);
         terminal.writeln("Vault Terminal runtime files are missing.");
         terminal.writeln("Install the verified runtime package from this pane or from Settings > Vault Terminal.");
@@ -886,6 +983,21 @@ class VaultPowerShellView extends ItemView {
       const message = error instanceof Error ? error.message : String(error);
       terminal.writeln(`Failed to start terminal: ${message}`);
       new Notice(`Failed to start terminal: ${message}`);
+    }
+  }
+
+  private async installRuntimeAndStartShell() {
+    try {
+      await this.plugin.installRuntimeIfNeeded((message) => {
+        this.terminal?.writeln(message);
+      });
+      this.clearRuntimePrompt();
+      this.terminal?.clear();
+      this.startShell();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.terminal?.writeln(`Runtime installation failed: ${message}`);
+      this.showRuntimePrompt(this.plugin.getRuntimeMissingFiles());
     }
   }
 
@@ -1305,28 +1417,40 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
       );
 
     const runtimeMissingFiles = this.plugin.getRuntimeMissingFiles();
+    const runtimeUpdateReasons = this.plugin.getRuntimeUpdateReasons();
     new Setting(containerEl)
       .setName("Runtime files")
       .setDesc(runtimeMissingFiles.length === 0
-        ? "Runtime files are installed."
+        ? (runtimeUpdateReasons.length === 0 ? "Runtime files are installed." : "Runtime files are installed. A runtime update is available.")
         : "Runtime files are missing. Install the verified OS-specific runtime package from GitHub Releases.")
       .addButton((button) =>
         button
-          .setButtonText(runtimeMissingFiles.length === 0 ? "Reinstall runtime" : "Install runtime")
+          .setButtonText(getRuntimeActionLabel(runtimeMissingFiles.length, runtimeUpdateReasons.length))
           .onClick(() => {
             button.setDisabled(true);
             button.setButtonText("Installing...");
-            void this.plugin.installRuntime()
+            void this.plugin.updateRuntimeFromUserAction()
               .then(() => {
-                new Notice("Vault Terminal runtime installed. Reopen the terminal to start a shell.");
                 this.display();
               })
               .catch((error) => {
                 const message = error instanceof Error ? error.message : String(error);
                 new Notice(`Runtime installation failed: ${message}`);
-                button.setButtonText("Install runtime");
+                button.setButtonText(getRuntimeActionLabel(runtimeMissingFiles.length, runtimeUpdateReasons.length));
                 button.setDisabled(false);
               });
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Install runtime automatically")
+      .setDesc("Optional. Downloads the verified OS-specific runtime package when the native terminal runtime is missing or out of date.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.autoInstallRuntime)
+          .onChange((value) => {
+            this.plugin.settings.autoInstallRuntime = value;
+            void this.plugin.saveSettings();
           })
       );
 
@@ -2006,6 +2130,18 @@ function normalizeShiftEnterMode(value: string | undefined): ShiftEnterMode {
 
 function normalizeWindowsPtyBackend(value: string | undefined): WindowsPtyBackend {
   return value === "conpty" ? "conpty" : "winpty";
+}
+
+function getRuntimeActionLabel(missingFileCount: number, updateReasonCount: number): string {
+  if (missingFileCount > 0) {
+    return "Install runtime";
+  }
+
+  if (updateReasonCount > 0) {
+    return "Update runtime";
+  }
+
+  return "Reinstall runtime";
 }
 
 function isObsidianDarkTheme(): boolean {

@@ -113,12 +113,13 @@ main.js
 styles.css
 ```
 
-Vault Terminal 탭을 열면 런타임 파일이 없다는 안내가 표시됩니다. **Install runtime**을 누르면 플러그인이 현재 버전의 GitHub Release에서 `runtime-manifest.json`을 읽고, OS/아키텍처에 맞는 런타임 ZIP을 내려받아 SHA-256 검증 후 플러그인 폴더에 압축 해제합니다.
+Vault Terminal은 런타임이 없거나 오래된 경우 현재 버전의 GitHub Release에서 `runtime-manifest.json`을 읽고, OS/아키텍처에 맞는 런타임 ZIP을 내려받아 SHA-256 검증 후 플러그인 폴더에 압축 해제할 수 있습니다. Obsidian 명령 팔레트의 **Update runtime files** 또는 설정 화면의 런타임 버튼으로 개별 업데이트할 수 있습니다. 런타임이 없으면 Vault Terminal 탭에 런타임 설치 안내가 표시되고 **Install runtime** 버튼으로 수동 설치할 수 있습니다.
 
 설정에서도 같은 작업을 실행할 수 있습니다.
 
 ```text
 Settings > Vault Terminal > Runtime files > Install runtime
+Settings > Vault Terminal > Install runtime automatically
 ```
 
 터미널에 `Node.js was not found` 또는 `spawn node ENOENT`가 표시되면 Node.js를 시스템에 설치한 뒤 Obsidian을 재시작하세요. Node를 별도 위치에 설치했다면 `Settings > Vault Terminal > Node executable`에 절대경로를 입력할 수 있습니다.
@@ -310,7 +311,7 @@ Obsidian Community Plugin 표준 설치는 보통 `manifest.json`, `main.js`, `s
 - 수동 설치용 전체 ZIP: 표준 플러그인 파일 + `pty-host.js` + native 런타임 포함
 - Community Plugin용 런타임 ZIP: 표준 플러그인 설치 후 플러그인이 직접 내려받아 설치
 
-런타임 자동 설치는 같은 버전의 GitHub Release에서만 받도록 제한하고, `runtime-manifest.json`의 크기와 SHA-256 값이 맞지 않으면 설치하지 않습니다.
+런타임 설치/업데이트는 같은 버전의 GitHub Release에서만 받도록 제한하고, `runtime-manifest.json`의 크기와 SHA-256 값이 맞지 않으면 설치하지 않습니다. 런타임 파일은 이미 설치되어 있는데 `runtime.json` 버전만 오래된 경우에는 터미널 실행을 막지 않고 업데이트 가능 상태로만 처리합니다.
 
 ## 보안과 권한
 

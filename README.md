@@ -90,7 +90,7 @@ main.js
 styles.css
 ```
 
-Vault Terminal also needs a native `node-pty` runtime. If the runtime is missing, the Vault Terminal tab shows a **Runtime installation required** prompt. Click **Install runtime** to download the OS-specific runtime ZIP from the matching GitHub Release.
+Vault Terminal also needs a native `node-pty` runtime. The plugin can download the verified OS-specific runtime ZIP from the matching GitHub Release when the runtime is missing or out of date. Use **Update runtime files** from Obsidian's command palette, or use the runtime button in settings. If the runtime is missing, the Vault Terminal tab shows a **Runtime installation required** prompt with a manual **Install runtime** button.
 
 The runtime installer:
 
@@ -98,12 +98,13 @@ The runtime installer:
 - Selects the runtime ZIP for your OS and CPU architecture.
 - Verifies file size and SHA-256 before extraction.
 - Extracts only inside the plugin folder.
-- Writes `runtime.json` so stale runtime versions can be detected later.
+- Writes `runtime.json` so stale runtime versions can be refreshed later without blocking an otherwise usable installed runtime.
 
-You can also run the installer from:
+Run the runtime installer or optionally enable automatic runtime installation from:
 
 ```text
 Settings > Vault Terminal > Runtime files > Install runtime
+Settings > Vault Terminal > Install runtime automatically
 ```
 
 ## Release Assets
