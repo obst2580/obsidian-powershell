@@ -28,6 +28,7 @@ let terminal = null;
 let stdinBuffer = "";
 let lastCols = 0;
 let lastRows = 0;
+let shuttingDown = false;
 
 const MIN_PTY_COLS = 80;
 const MIN_PTY_ROWS = 5;
@@ -95,6 +96,18 @@ function repairRuntimePermissions() {
   if (fs.existsSync(spawnHelperPath)) {
     fs.chmodSync(spawnHelperPath, 0o755);
   }
+}
+
+function shutdown(code = 0) {
+  if (shuttingDown) {
+    return;
+  }
+
+  shuttingDown = true;
+  if (terminal) {
+    terminal.kill();
+  }
+  process.exit(code);
 }
 
 try {
@@ -166,6 +179,8 @@ try {
     send({ type: "exit", exitCode, signal });
     process.exit(exitCode || 0);
   });
+
+  send({ type: "ready" });
 } catch (error) {
   send({
     type: "error",
@@ -209,16 +224,18 @@ process.stdin.on("data", (chunk) => {
   }
 });
 
+process.stdin.on("end", () => {
+  shutdown(0);
+});
+
+process.stdin.on("close", () => {
+  shutdown(0);
+});
+
 process.on("SIGTERM", () => {
-  if (terminal) {
-    terminal.kill();
-  }
-  process.exit(0);
+  shutdown(0);
 });
 
 process.on("SIGINT", () => {
-  if (terminal) {
-    terminal.kill();
-  }
-  process.exit(0);
+  shutdown(0);
 });

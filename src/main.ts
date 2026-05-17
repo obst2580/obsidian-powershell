@@ -111,6 +111,7 @@ type HostInputMessage =
 
 type HostOutputMessage =
   | { type: "data"; data: string }
+  | { type: "ready" }
   | { type: "exit"; exitCode?: number | null; signal?: number }
   | { type: "error"; message: string };
 
@@ -619,6 +620,7 @@ class VaultPowerShellView extends ItemView {
   private terminal: Terminal | null = null;
   private fitAddon: FitAddon | null = null;
   private host: ChildProcessWithoutNullStreams | null = null;
+  private hostReady = false;
   private hostStdoutBuffer = "";
   private terminalContainer: HTMLElement | null = null;
   private resizeObserver: ResizeObserver | null = null;
@@ -1009,11 +1011,11 @@ class VaultPowerShellView extends ItemView {
       });
 
       this.host = host;
+      this.hostReady = false;
       this.lastSentResize = {
         cols: clampPtyCols(terminal.cols, 80),
         rows: clampPtyRows(terminal.rows, 24)
       };
-      this.flushPendingInsertTexts();
 
       host.stdout.on("data", (chunk: Buffer) => {
         this.handleHostStdout(chunk.toString());
@@ -1027,12 +1029,14 @@ class VaultPowerShellView extends ItemView {
         const message = formatTerminalHostError(error, this.plugin);
         terminal.writeln(`Failed to start terminal host: ${message}`);
         new Notice(`Failed to start terminal host: ${message}`);
+        this.hostReady = false;
       });
 
       host.on("close", (code: number | null) => {
         terminal.writeln("");
         terminal.writeln(`[terminal host exited with code ${code ?? "unknown"}]`);
         this.host = null;
+        this.hostReady = false;
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1378,7 +1382,7 @@ class VaultPowerShellView extends ItemView {
   }
 
   private flushPendingInsertTexts() {
-    if (!this.host || !this.host.stdin.writable || this.pendingInsertTexts.length === 0) {
+    if (!this.host || !this.hostReady || !this.host.stdin.writable || this.pendingInsertTexts.length === 0) {
       return;
     }
 
@@ -1399,12 +1403,18 @@ class VaultPowerShellView extends ItemView {
     }
 
     this.host = null;
+    this.hostReady = false;
     this.hostStdoutBuffer = "";
     this.lastSentResize = null;
   }
 
   private sendHostMessage(message: HostInputMessage) {
     if (!this.host || !this.host.stdin.writable) {
+      return;
+    }
+
+    if (message.type === "data" && !this.hostReady) {
+      this.pendingInsertTexts.push(message.data);
       return;
     }
 
@@ -1431,6 +1441,9 @@ class VaultPowerShellView extends ItemView {
         const message = JSON.parse(line) as HostOutputMessage;
         if (message.type === "data") {
           this.terminal?.write(message.data);
+        } else if (message.type === "ready") {
+          this.hostReady = true;
+          this.flushPendingInsertTexts();
         } else if (message.type === "exit") {
           this.terminal?.writeln("");
           this.terminal?.writeln(`[terminal exited with code ${message.exitCode ?? "unknown"}]`);
@@ -1632,17 +1645,16 @@ function tokenizeArgs(template: string): string[] {
   const args: string[] = [];
   let current = "";
   let quote: "'" | "\"" | null = null;
-  let escaping = false;
-
-  for (const char of template) {
-    if (escaping) {
-      current += char;
-      escaping = false;
-      continue;
-    }
-
+  for (let index = 0; index < template.length; index += 1) {
+    const char = template[index];
     if (char === "\\") {
-      escaping = true;
+      const next = template[index + 1];
+      if (next && (next === "\\" || next === "'" || next === "\"" || /\s/.test(next))) {
+        current += next;
+        index += 1;
+      } else {
+        current += char;
+      }
       continue;
     }
 
@@ -2201,7 +2213,15 @@ function getUserShell(): string | null {
 }
 
 function isPlatformIncompatiblePath(value: string): boolean {
-  return process.platform !== "win32" && /^[a-z]:[\\/]/i.test(value);
+  if (process.platform !== "win32" && /^[a-z]:[\\/]/i.test(value)) {
+    return true;
+  }
+
+  if (process.platform === "win32" && /^\/(?!\/)/.test(value)) {
+    return true;
+  }
+
+  return false;
 }
 
 function isAutoShellSetting(value: string): boolean {
