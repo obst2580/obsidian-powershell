@@ -137,6 +137,15 @@ interface RuntimeInfo {
   arch?: string;
 }
 
+interface ClipboardNativeImage {
+  isEmpty(): boolean;
+  toPNG(): Buffer;
+}
+
+type ClipboardWithImage = typeof clipboard & {
+  readImage?: () => ClipboardNativeImage;
+};
+
 const DEFAULT_SETTINGS: PowerShellSettings = {
   executable: "",
   args: "",
@@ -1185,6 +1194,11 @@ class VaultPowerShellView extends ItemView {
     }
 
     if (isTerminalPasteShortcut(event)) {
+      if (this.pasteImageFromSystemClipboard()) {
+        this.consumeKeyboardEvent(event);
+        return true;
+      }
+
       const text = clipboard.readText();
       if (!text) {
         return false;
@@ -1210,6 +1224,10 @@ class VaultPowerShellView extends ItemView {
   }
 
   private pasteFromSystemClipboard(): boolean {
+    if (this.pasteImageFromSystemClipboard()) {
+      return true;
+    }
+
     const text = clipboard.readText();
     if (!text) {
       return false;
@@ -1237,7 +1255,7 @@ class VaultPowerShellView extends ItemView {
       item
         .setTitle("Paste")
         .setIcon("clipboard-paste")
-        .setDisabled(!clipboard.readText())
+        .setDisabled(!clipboard.readText() && !hasSystemClipboardImage())
         .onClick(() => {
           this.pasteFromSystemClipboard();
         });
@@ -1250,6 +1268,11 @@ class VaultPowerShellView extends ItemView {
     if (imageFile) {
       this.consumeClipboardEvent(event);
       void this.insertClipboardImage(imageFile);
+      return;
+    }
+
+    if (this.pasteImageFromSystemClipboard()) {
+      this.consumeClipboardEvent(event);
       return;
     }
 
@@ -1273,11 +1296,30 @@ class VaultPowerShellView extends ItemView {
     this.sendTerminalInput(data);
   }
 
+  private pasteImageFromSystemClipboard(): boolean {
+    const imageBytes = readSystemClipboardImageBytes();
+    if (!imageBytes) {
+      return false;
+    }
+
+    void this.insertClipboardImageBytes(imageBytes, "png", "clipboard");
+    return true;
+  }
+
   private async insertClipboardImage(imageFile: File) {
     try {
       const imageBytes = new Uint8Array(await imageFile.arrayBuffer());
       const extension = getExtensionFromFile(imageFile);
       const label = sanitizeFileStem(imageFile.name || "clipboard");
+      await this.insertClipboardImageBytes(imageBytes, extension, label);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      new Notice(`Failed to paste into Obst Terminal: ${message}`);
+    }
+  }
+
+  private async insertClipboardImageBytes(imageBytes: Uint8Array, extension: string, label: string) {
+    try {
       const path = await this.plugin.saveAttachmentBytes(imageBytes, extension, label);
       this.insertTerminalText(`${formatVaultFileReference(path)} `);
       new Notice(`Inserted clipboard image: ${path}`);
@@ -2100,6 +2142,36 @@ function getClipboardImageFile(clipboardData: DataTransfer | null): File | null 
   }
 
   return Array.from(clipboardData.files).find((file) => file.type.startsWith("image/")) ?? null;
+}
+
+function hasSystemClipboardImage(): boolean {
+  try {
+    const image = readSystemClipboardImage();
+    return Boolean(image && !image.isEmpty());
+  } catch {
+    return false;
+  }
+}
+
+function readSystemClipboardImageBytes(): Uint8Array | null {
+  try {
+    const image = readSystemClipboardImage();
+    if (!image || image.isEmpty()) {
+      return null;
+    }
+
+    const png = image.toPNG();
+    return png.byteLength > 0 ? new Uint8Array(png) : null;
+  } catch {
+    return null;
+  }
+}
+
+function readSystemClipboardImage(): ClipboardNativeImage | null {
+  const imageClipboard = clipboard as ClipboardWithImage;
+  return typeof imageClipboard.readImage === "function"
+    ? imageClipboard.readImage()
+    : null;
 }
 
 function getDroppedTextPaths(dataTransfer: DataTransfer): string[] {
