@@ -153,7 +153,7 @@ const DEFAULT_SETTINGS: PowerShellSettings = {
   terminalColorScheme: "obsidian",
   shiftEnterMode: "claude-backslash",
   windowsPtyBackend: "conpty",
-  autoInstallRuntime: false,
+  autoInstallRuntime: true,
   useSystemCa: false,
   extraCaCertPath: "",
   attachmentFolder: DEFAULT_ATTACHMENT_FOLDER

@@ -107,6 +107,25 @@ Settings > Community plugins > Obst Terminal > Enable
 
 Community Plugin Directory 등록 후에는 Obsidian에서 일반 플러그인처럼 설치할 수 있습니다. BRAT으로 테스트 설치하는 경우에도 표준 플러그인 파일만 먼저 설치됩니다.
 
+Community Plugin 승인 전 팀원들에게 배포할 때는 BRAT을 사용하는 것을 권장합니다.
+
+1. Obsidian에서 BRAT 커뮤니티 플러그인을 설치합니다.
+2. **Settings > BRAT > Beta plugin list**를 엽니다.
+3. 아래 저장소를 추가합니다.
+
+```text
+https://github.com/obst2580/obsidian-powershell
+```
+
+4. BRAT의 시작 시 업데이트 확인 옵션을 켜거나, 명령 팔레트에서 **BRAT: Check for updates to all beta plugins and UPDATE**를 실행합니다.
+5. **Settings > Community plugins**에서 **Obst Terminal**을 활성화합니다.
+
+새 GitHub Release가 올라오면 BRAT이 표준 플러그인 파일을 업데이트합니다. 이후 Obst Terminal이 같은 릴리스에서 OS/아키텍처에 맞는 native runtime을 설치하거나 업데이트합니다. 새 설치에서는 runtime 자동 설치가 기본으로 켜져 있으며, 아래 설정에서 바꿀 수 있습니다.
+
+```text
+Settings > Obst Terminal > Install runtime automatically
+```
+
 표준 설치 직후 플러그인 폴더에는 보통 아래 세 파일만 있습니다.
 
 ```text

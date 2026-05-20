@@ -73,18 +73,32 @@ Settings > Community plugins > Obst Terminal > Enable
 
 Community Plugin Directory 또는 BRAT으로 설치하면 처음에는 아래 표준 플러그인 파일만 설치될 수 있습니다.
 
+Community Plugin 승인 전 팀원들에게 자동 업데이트 방식으로 배포하려면 BRAT을 사용합니다.
+
+1. Obsidian에서 BRAT 커뮤니티 플러그인을 설치합니다.
+2. **Settings > BRAT > Beta plugin list**를 엽니다.
+3. 아래 저장소를 추가합니다.
+
+```text
+https://github.com/obst2580/obsidian-powershell
+```
+
+4. BRAT의 시작 시 업데이트 확인 옵션을 켜거나, 명령 팔레트에서 **BRAT: Check for updates to all beta plugins and UPDATE**를 실행합니다.
+5. **Settings > Community plugins**에서 **Obst Terminal**을 활성화합니다.
+
 ```text
 manifest.json
 main.js
 styles.css
 ```
 
-이 상태에서 Obst Terminal 탭을 열면 **Runtime installation required** 안내가 표시됩니다. **Install runtime**을 누르면 현재 플러그인 버전과 같은 GitHub Release에서 Windows x64 런타임 ZIP을 내려받고 SHA-256 검증 후 설치합니다.
+이 상태에서 Obst Terminal 탭을 열면 현재 플러그인 버전과 같은 GitHub Release에서 OS/아키텍처에 맞는 런타임 ZIP을 내려받고 SHA-256 검증 후 설치합니다. 새 설치에서는 runtime 자동 설치가 기본으로 켜져 있습니다. 자동 설치를 끄면 **Runtime installation required** 안내에서 **Install runtime**을 수동으로 눌러 설치할 수 있습니다.
 
 설정에서도 같은 작업을 할 수 있습니다.
 
 ```text
 Settings > Obst Terminal > Runtime files > Install runtime
+Settings > Obst Terminal > Install runtime automatically
 ```
 
 런타임 설치 후 Obst Terminal 탭을 새로 열면 터미널이 시작됩니다.
@@ -258,7 +272,7 @@ GitHub Release 전체 ZIP을 쓰는 경우 새 ZIP 파일을 받으면 기존 �
 Settings > Community plugins > Obst Terminal
 ```
 
-Community Plugin Directory 또는 BRAT으로 업데이트한 경우 표준 플러그인 파일만 갱신될 수 있습니다. Obst Terminal 탭이나 설정 화면에서 런타임이 누락되었다고 나오면 **Install runtime**을 다시 실행합니다. 런타임 설치는 기존 native runtime 폴더를 지우고 새 버전으로 교체합니다.
+Community Plugin Directory 또는 BRAT으로 업데이트한 경우 BRAT/Obsidian이 `manifest.json`, `main.js`, `styles.css`를 갱신합니다. 이후 Obst Terminal은 같은 버전의 GitHub Release에서 런타임 ZIP을 확인하고, 자동 설치가 켜져 있으면 런타임도 갱신합니다. 자동 설치를 끈 경우 Obst Terminal 탭이나 설정 화면에서 **Install runtime** 또는 **Update runtime**을 실행합니다. 런타임 설치는 기존 native runtime 폴더를 지우고 새 버전으로 교체합니다.
 
 ## 삭제
 

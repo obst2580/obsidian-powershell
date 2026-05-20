@@ -84,6 +84,25 @@ Settings > Community plugins > Obst Terminal > Enable
 
 After Community Plugin Directory approval, Obst Terminal can be installed from Obsidian's plugin browser. Before approval, BRAT can install the standard plugin files from this repository.
 
+For team beta distribution before Community Plugin approval:
+
+1. Install the BRAT community plugin in Obsidian.
+2. Open **Settings > BRAT > Beta plugin list**.
+3. Add this repository:
+
+```text
+https://github.com/obst2580/obsidian-powershell
+```
+
+4. Enable BRAT's startup update check, or run **BRAT: Check for updates to all beta plugins and UPDATE** from the command palette.
+5. Enable **Obst Terminal** in **Settings > Community plugins**.
+
+When a new GitHub Release is published, BRAT updates the standard plugin files. Obst Terminal then installs or updates the matching native runtime from the same release. Runtime auto-install is enabled by default for new installs and can be changed here:
+
+```text
+Settings > Obst Terminal > Install runtime automatically
+```
+
 Community Plugin style installs only install these standard files first:
 
 ```text
