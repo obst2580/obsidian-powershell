@@ -70,6 +70,7 @@ const SHIFT_ENTER_SEQUENCES: Record<Exclude<ShiftEnterMode, "xterm-paste">, stri
 const BRACKETED_PASTE_START = "\x1b[200~";
 const BRACKETED_PASTE_END = "\x1b[201~";
 const CLAUDE_BACKSLASH_NEWLINE_DELAY_MS = 60;
+const CLAUDE_SUGGESTION_SCAN_LINES = 8;
 
 interface PowerShellSettings {
   executable: string;
@@ -140,6 +141,16 @@ interface RuntimeInfo {
 interface ClipboardNativeImage {
   isEmpty(): boolean;
   toPNG(): Buffer;
+}
+
+interface TerminalBufferLineLike {
+  readonly isWrapped: boolean;
+  translateToString(trimRight?: boolean, startColumn?: number, endColumn?: number): string;
+}
+
+interface TerminalBufferLike {
+  readonly length: number;
+  getLine(y: number): TerminalBufferLineLike | undefined;
 }
 
 type ClipboardWithImage = typeof clipboard & {
@@ -637,6 +648,7 @@ class VaultPowerShellView extends ItemView {
   private pendingFitFrame: number | null = null;
   private windowKeydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private handledShiftEnterEvents = new WeakSet<KeyboardEvent>();
+  private handledClaudeSuggestionEnterEvents = new WeakSet<KeyboardEvent>();
   private pendingShiftEnterTimers = new Set<number>();
   private lastShiftEnterAt = 0;
   private lastSentResize: { cols: number; rows: number } | null = null;
@@ -745,6 +757,10 @@ class VaultPowerShellView extends ItemView {
         return false;
       }
 
+      if (this.handleClaudeSuggestionEnter(event)) {
+        return false;
+      }
+
       if (this.handleScrollKey(event, terminal)) {
         return false;
       }
@@ -762,6 +778,7 @@ class VaultPowerShellView extends ItemView {
       }
 
       this.handleShiftEnter(event);
+      this.handleClaudeSuggestionEnter(event);
     }, { passive: false, capture: true });
 
     container.addEventListener("paste", (event) => {
@@ -848,6 +865,52 @@ class VaultPowerShellView extends ItemView {
 
     this.lastShiftEnterAt = now;
     return true;
+  }
+
+  private handleClaudeSuggestionEnter(event: KeyboardEvent): boolean {
+    if (!isEnterKey(event) || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) {
+      return false;
+    }
+
+    if (this.handledClaudeSuggestionEnterEvents.has(event)) {
+      this.consumeKeyboardEvent(event);
+      return true;
+    }
+
+    const suggestion = this.getVisibleClaudeSuggestion();
+    if (!suggestion) {
+      return false;
+    }
+
+    this.handledClaudeSuggestionEnterEvents.add(event);
+    this.consumeKeyboardEvent(event);
+    this.sendHostMessage({ type: "data", data: `${suggestion}\r` });
+    return true;
+  }
+
+  private getVisibleClaudeSuggestion(): string | null {
+    const terminal = this.terminal;
+    if (!terminal) {
+      return null;
+    }
+
+    const buffer = terminal.buffer.active;
+    const cursorLine = Math.min(buffer.baseY + buffer.cursorY, buffer.length - 1);
+    const firstLine = Math.max(0, cursorLine - CLAUDE_SUGGESTION_SCAN_LINES);
+
+    for (let lineIndex = cursorLine; lineIndex >= firstLine; lineIndex -= 1) {
+      const logicalLine = getLogicalBufferLineText(buffer, lineIndex);
+      const suggestion = extractClaudeTrySuggestion(logicalLine);
+      if (suggestion) {
+        return suggestion;
+      }
+
+      if (!isClaudeSuggestionNeutralLine(logicalLine)) {
+        break;
+      }
+    }
+
+    return null;
   }
 
   private consumeKeyboardEvent(event: KeyboardEvent) {
@@ -2313,6 +2376,40 @@ function isAutoNodeSetting(value: string): boolean {
 function isPowerShellExecutable(shell: string): boolean {
   const executableName = shell.replace(/\\/g, "/").split("/").pop()?.toLowerCase();
   return executableName === "pwsh" || executableName === "pwsh.exe" || executableName === "powershell.exe";
+}
+
+function getLogicalBufferLineText(buffer: TerminalBufferLike, lineIndex: number): string {
+  let startLine = Math.max(0, lineIndex);
+  while (startLine > 0 && buffer.getLine(startLine)?.isWrapped) {
+    startLine -= 1;
+  }
+
+  let endLine = Math.min(buffer.length - 1, lineIndex);
+  while (endLine + 1 < buffer.length && buffer.getLine(endLine + 1)?.isWrapped) {
+    endLine += 1;
+  }
+
+  const parts: string[] = [];
+  for (let currentLine = startLine; currentLine <= endLine; currentLine += 1) {
+    parts.push(buffer.getLine(currentLine)?.translateToString(true) ?? "");
+  }
+
+  return parts.join("").trim();
+}
+
+function extractClaudeTrySuggestion(line: string): string | null {
+  const normalized = line.replace(/\s+/g, " ").trim();
+  const quoted = normalized.match(/^(?:[>›❯»]\s*)?Try\s+["“”'](.+)["“”']\s*$/i);
+  if (quoted?.[1]?.trim()) {
+    return quoted[1].trim();
+  }
+
+  const unquoted = normalized.match(/^(?:[>›❯»]\s*)?Try\s+(.+)$/i);
+  return unquoted?.[1]?.trim() || null;
+}
+
+function isClaudeSuggestionNeutralLine(line: string): boolean {
+  return line.trim() === "" || /^[>›❯»]\s*$/.test(line.trim());
 }
 
 function isEnterKey(event: KeyboardEvent): boolean {

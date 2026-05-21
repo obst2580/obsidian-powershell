@@ -22,6 +22,7 @@ Current distribution is GitHub Release ZIP based while Community Plugin Director
 - 파일을 터미널에 드롭하면 agent CLI용 파일 참조를 입력합니다.
 - 클립보드 이미지를 볼트에 저장하고 `@path` 참조를 입력합니다.
 - Claude Code 멀티라인 입력을 위해 `Shift + Enter`를 기본적으로 Claude의 `\` + Return 줄바꿈 경로로 보냅니다.
+- Claude Code가 터미널 입력 영역에 표시한 `Try "..."` 추천 문구를 Enter로 바로 채택해 전송할 수 있습니다.
 - 한글 IME 조합 중 마지막 글자가 다음 줄로 밀리지 않도록 짧은 지연 후 줄바꿈을 보냅니다.
 - Obsidian 테마를 기본으로 따르되 Codex/Claude Code ANSI 색상이 읽히도록 터미널 팔레트를 보정합니다.
 - 긴 scrollback과 `Shift + Wheel`, `Ctrl + Shift + PageUp/PageDown` 강제 스크롤을 지원합니다.

@@ -28,6 +28,7 @@ You can keep project notes open in the main Obsidian workspace and run tools suc
 - Uses Obsidian-aware light/dark terminal colors while keeping ANSI output readable.
 - Keeps a long scrollback buffer and supports forced scrolling with `Shift + mouse wheel`.
 - Supports `Shift + Enter` multiline input modes, including Claude Code's backslash newline flow.
+- Accepts Claude Code `Try "..."` suggestions with Enter when they are shown in the terminal input area.
 - Provides optional TLS / custom CA settings for networks that require a custom certificate.
 - Supports Community Plugin style installs by downloading a verified OS-specific native runtime package on first launch.
 
