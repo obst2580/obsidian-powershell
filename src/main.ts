@@ -71,6 +71,8 @@ const BRACKETED_PASTE_START = "\x1b[200~";
 const BRACKETED_PASTE_END = "\x1b[201~";
 const CLAUDE_BACKSLASH_NEWLINE_DELAY_MS = 60;
 const CLAUDE_SUGGESTION_SCAN_LINES = 8;
+const CLAUDE_SUGGESTION_CACHE_TTL_MS = 60000;
+const CLAUDE_SUGGESTION_OUTPUT_TAIL_MAX = 4000;
 
 interface PowerShellSettings {
   executable: string;
@@ -651,6 +653,9 @@ class VaultPowerShellView extends ItemView {
   private handledClaudeSuggestionEnterEvents = new WeakSet<KeyboardEvent>();
   private pendingShiftEnterTimers = new Set<number>();
   private lastShiftEnterAt = 0;
+  private cachedClaudeSuggestion: string | null = null;
+  private cachedClaudeSuggestionAt = 0;
+  private claudeSuggestionOutputTail = "";
   private lastSentResize: { cols: number; rows: number } | null = null;
   private wheelLineAccumulator = 0;
   private runtimePromptEl: HTMLElement | null = null;
@@ -741,6 +746,7 @@ class VaultPowerShellView extends ItemView {
     terminal.focus();
 
     terminal.onData((data) => {
+      this.clearCachedClaudeSuggestion(true);
       this.sendHostMessage({ type: "data", data });
     });
 
@@ -795,7 +801,7 @@ class VaultPowerShellView extends ItemView {
       void this.handleTerminalDrop(event);
     });
 
-    this.windowKeydownHandler = (event) => this.handleGlobalShiftEnter(event);
+    this.windowKeydownHandler = (event) => this.handleGlobalTerminalKeydown(event);
     window.addEventListener("keydown", this.windowKeydownHandler, { capture: true });
 
     container.addEventListener("contextmenu", (event) => {
@@ -877,13 +883,14 @@ class VaultPowerShellView extends ItemView {
       return true;
     }
 
-    const suggestion = this.getVisibleClaudeSuggestion();
+    const suggestion = this.getVisibleClaudeSuggestion() ?? this.getCachedClaudeSuggestion();
     if (!suggestion) {
       return false;
     }
 
     this.handledClaudeSuggestionEnterEvents.add(event);
     this.consumeKeyboardEvent(event);
+    this.clearCachedClaudeSuggestion(true);
     this.sendHostMessage({ type: "data", data: `${suggestion}\r` });
     return true;
   }
@@ -913,15 +920,56 @@ class VaultPowerShellView extends ItemView {
     return null;
   }
 
+  private rememberClaudeSuggestionFromOutput(data: string) {
+    const plainText = stripTerminalControlSequences(data);
+    if (!plainText) {
+      return;
+    }
+
+    this.claudeSuggestionOutputTail = `${this.claudeSuggestionOutputTail}${plainText}`.slice(-CLAUDE_SUGGESTION_OUTPUT_TAIL_MAX);
+    const suggestion = extractClaudeTrySuggestion(this.claudeSuggestionOutputTail);
+    if (!suggestion) {
+      return;
+    }
+
+    this.cachedClaudeSuggestion = suggestion;
+    this.cachedClaudeSuggestionAt = Date.now();
+  }
+
+  private getCachedClaudeSuggestion(): string | null {
+    if (!this.cachedClaudeSuggestion) {
+      return null;
+    }
+
+    if (Date.now() - this.cachedClaudeSuggestionAt > CLAUDE_SUGGESTION_CACHE_TTL_MS) {
+      this.clearCachedClaudeSuggestion(true);
+      return null;
+    }
+
+    return this.cachedClaudeSuggestion;
+  }
+
+  private clearCachedClaudeSuggestion(clearOutputTail = false) {
+    this.cachedClaudeSuggestion = null;
+    this.cachedClaudeSuggestionAt = 0;
+    if (clearOutputTail) {
+      this.claudeSuggestionOutputTail = "";
+    }
+  }
+
   private consumeKeyboardEvent(event: KeyboardEvent) {
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
   }
 
-  private handleGlobalShiftEnter(event: KeyboardEvent) {
+  private handleGlobalTerminalKeydown(event: KeyboardEvent) {
     if (this.isTerminalEventTarget(event)) {
-      this.handleShiftEnter(event);
+      if (this.handleShiftEnter(event)) {
+        return;
+      }
+
+      this.handleClaudeSuggestionEnter(event);
     }
   }
 
@@ -1476,6 +1524,7 @@ class VaultPowerShellView extends ItemView {
   }
 
   private sendTerminalInput(text: string) {
+    this.clearCachedClaudeSuggestion(true);
     if (!this.host || !this.host.stdin.writable) {
       this.pendingInsertTexts.push(text);
       new Notice("Obst Terminal is not running yet. The reference will be inserted when the terminal starts.");
@@ -1510,6 +1559,7 @@ class VaultPowerShellView extends ItemView {
     this.host = null;
     this.hostReady = false;
     this.hostStdoutBuffer = "";
+    this.clearCachedClaudeSuggestion(true);
     this.lastSentResize = null;
   }
 
@@ -1545,6 +1595,7 @@ class VaultPowerShellView extends ItemView {
       try {
         const message = JSON.parse(line) as HostOutputMessage;
         if (message.type === "data") {
+          this.rememberClaudeSuggestionFromOutput(message.data);
           this.terminal?.write(message.data);
         } else if (message.type === "ready") {
           this.hostReady = true;
@@ -2399,9 +2450,23 @@ function getLogicalBufferLineText(buffer: TerminalBufferLike, lineIndex: number)
 
 function extractClaudeTrySuggestion(line: string): string | null {
   const normalized = line.replace(/\s+/g, " ").trim();
-  const quoted = normalized.match(/^(?:[>›❯»]\s*)?Try\s+["“”'](.+)["“”']\s*$/i);
+  const doubleQuotedMatches = Array.from(normalized.matchAll(/(?:^|[\s>›❯»|│┃╰╭])Try\s+["“]([^"”]+)["”]/gi));
+  const singleQuotedMatches = Array.from(normalized.matchAll(/(?:^|[\s>›❯»|│┃╰╭])Try\s+'([^']+)'/gi));
+  const quoted = [...doubleQuotedMatches, ...singleQuotedMatches]
+    .sort((left, right) => (left.index ?? 0) - (right.index ?? 0))
+    .at(-1);
   if (quoted?.[1]?.trim()) {
     return quoted[1].trim();
+  }
+
+  const partialDoubleQuoted = normalized.match(/(?:^|[\s>›❯»|│┃╰╭])Try\s+["“]([^"”]+)$/i);
+  if (partialDoubleQuoted?.[1]?.trim()) {
+    return partialDoubleQuoted[1].trim();
+  }
+
+  const partialSingleQuoted = normalized.match(/(?:^|[\s>›❯»|│┃╰╭])Try\s+'([^']+)$/i);
+  if (partialSingleQuoted?.[1]?.trim()) {
+    return partialSingleQuoted[1].trim();
   }
 
   const unquoted = normalized.match(/^(?:[>›❯»]\s*)?Try\s+(.+)$/i);
@@ -2410,6 +2475,14 @@ function extractClaudeTrySuggestion(line: string): string | null {
 
 function isClaudeSuggestionNeutralLine(line: string): boolean {
   return line.trim() === "" || /^[>›❯»]\s*$/.test(line.trim());
+}
+
+function stripTerminalControlSequences(data: string): string {
+  return data
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\x1b[()][A-Za-z0-9]/g, "")
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
 }
 
 function isEnterKey(event: KeyboardEvent): boolean {
