@@ -79,6 +79,7 @@ const PAGE_UP_SEQUENCE = "\x1b[5~";
 const PAGE_DOWN_SEQUENCE = "\x1b[6~";
 const KILL_LINE_SEQUENCE = "\x15";
 const CODEX_RESIZE_REFLOW_CONFIG = "tui.terminal_resize_reflow=false";
+const TERMINAL_FIT_STABILIZATION_DELAYS_MS = [0, 16, 50, 150, 400, 1000];
 
 interface PowerShellSettings {
   executable: string;
@@ -660,6 +661,7 @@ class VaultPowerShellView extends ItemView {
   private resizeObserver: ResizeObserver | null = null;
   private themeObserver: MutationObserver | null = null;
   private pendingFitFrame: number | null = null;
+  private pendingFitTimers = new Set<number>();
   private pendingRefreshFrame: number | null = null;
   private windowKeydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private handledShiftEnterEvents = new WeakSet<KeyboardEvent>();
@@ -720,6 +722,8 @@ class VaultPowerShellView extends ItemView {
       cancelAnimationFrame(this.pendingFitFrame);
       this.pendingFitFrame = null;
     }
+    this.pendingFitTimers.forEach((timer) => window.clearTimeout(timer));
+    this.pendingFitTimers.clear();
     if (this.pendingRefreshFrame !== null) {
       cancelAnimationFrame(this.pendingRefreshFrame);
       this.pendingRefreshFrame = null;
@@ -847,9 +851,16 @@ class VaultPowerShellView extends ItemView {
       attributeFilter: ["class", "style"]
     });
 
-    requestAnimationFrame(() => {
-      this.fitTerminal();
-    });
+    this.scheduleTerminalFitStabilization();
+    if (document.fonts) {
+      void document.fonts.ready.then(() => {
+        if (this.terminal) {
+          this.scheduleTerminalFitStabilization();
+        }
+      }).catch(() => {
+        // Font readiness is only a layout hint; the terminal can continue without it.
+      });
+    }
   }
 
   private handleShiftEnter(event: KeyboardEvent): boolean {
@@ -1214,6 +1225,8 @@ class VaultPowerShellView extends ItemView {
       return;
     }
 
+    this.fitTerminal();
+
     try {
       const missingRuntimeFiles = this.plugin.getRuntimeMissingFiles();
       if (missingRuntimeFiles.length > 0) {
@@ -1262,7 +1275,7 @@ class VaultPowerShellView extends ItemView {
       });
 
       host.stderr.on("data", (chunk: Buffer) => {
-        terminal.write(chunk.toString());
+        this.writeTerminalData(chunk.toString());
       });
 
       host.on("error", (error: Error) => {
@@ -1399,6 +1412,23 @@ class VaultPowerShellView extends ItemView {
     });
   }
 
+  private scheduleTerminalFitStabilization() {
+    if (!this.terminal) {
+      return;
+    }
+
+    this.pendingFitTimers.forEach((timer) => window.clearTimeout(timer));
+    this.pendingFitTimers.clear();
+
+    TERMINAL_FIT_STABILIZATION_DELAYS_MS.forEach((delay) => {
+      const timer = window.setTimeout(() => {
+        this.pendingFitTimers.delete(timer);
+        this.scheduleFitTerminal();
+      }, delay);
+      this.pendingFitTimers.add(timer);
+    });
+  }
+
   private scheduleTerminalRefresh() {
     if (!this.terminal || this.pendingRefreshFrame !== null) {
       return;
@@ -1411,6 +1441,26 @@ class VaultPowerShellView extends ItemView {
       }
 
       this.terminal.refresh(0, this.terminal.rows - 1);
+    });
+  }
+
+  private writeTerminalData(data: string) {
+    const terminal = this.terminal;
+    if (!terminal) {
+      return;
+    }
+
+    const shouldFollowOutput = isTerminalScrolledToBottom(terminal);
+    terminal.write(data, () => {
+      if (!this.terminal) {
+        return;
+      }
+
+      this.scheduleFitTerminal();
+      this.scheduleTerminalRefresh();
+      if (shouldFollowOutput) {
+        this.terminal.scrollToBottom();
+      }
     });
   }
 
@@ -1734,9 +1784,10 @@ class VaultPowerShellView extends ItemView {
         const message = JSON.parse(line) as HostOutputMessage;
         if (message.type === "data") {
           this.rememberClaudeSuggestionFromOutput(message.data);
-          this.terminal?.write(message.data);
+          this.writeTerminalData(message.data);
         } else if (message.type === "ready") {
           this.hostReady = true;
+          this.scheduleTerminalFitStabilization();
           this.flushPendingInsertTexts();
         } else if (message.type === "exit") {
           this.terminal?.writeln("");
@@ -1745,7 +1796,7 @@ class VaultPowerShellView extends ItemView {
           this.terminal?.writeln(`Failed to start terminal: ${message.message}`);
         }
       } catch {
-        this.terminal?.write(line);
+        this.writeTerminalData(line);
       }
     }
   }
@@ -2678,6 +2729,11 @@ function getWheelRawLines(event: WheelEvent, terminal: Terminal): number {
   }
 
   return event.deltaY;
+}
+
+function isTerminalScrolledToBottom(terminal: Terminal): boolean {
+  const buffer = terminal.buffer.active;
+  return buffer.viewportY >= buffer.baseY;
 }
 
 function stripTerminalControlSequences(data: string): string {
