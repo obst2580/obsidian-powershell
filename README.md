@@ -29,7 +29,7 @@ You can keep project notes open in the main Obsidian workspace and run tools suc
 - Keeps a long scrollback buffer and supports forced scrolling with `Shift + mouse wheel`.
 - Supports `Shift + Enter` multiline input modes, including Claude Code's backslash newline flow.
 - Accepts Claude Code `Try "..."` suggestions with Enter when they are shown in the terminal input area.
-- Runs `codex` as `codex --no-alt-screen` by default so Codex CLI output stays in normal terminal scrollback.
+- Optionally runs `codex` as `codex --no-alt-screen` when you prefer normal terminal scrollback over Codex's fullscreen UI.
 - Provides optional TLS / custom CA settings for networks that require a custom certificate.
 - Supports Community Plugin style installs by downloading a verified OS-specific native runtime package on first launch.
 
@@ -230,12 +230,12 @@ Scrolling behavior:
 
 - Normal terminal output keeps a 50,000-line scrollback buffer.
 - Use `Shift + mouse wheel` when an interactive CLI captures mouse input.
-- Codex CLI is run with `--no-alt-screen` by default, preserving Codex output in normal terminal scrollback.
+- Codex CLI normally keeps its fullscreen UI. You can enable `codex --no-alt-screen` rewriting if you prefer normal terminal scrollback.
 - In other fullscreen TUI tools, normal mouse wheel input is translated to `PageUp` / `PageDown` so the CLI can scroll its own transcript.
 - Use `Ctrl + Shift + PageUp/PageDown` for forced page scrolling.
 - Fullscreen TUI tools may use the alternate screen buffer. In that mode, older output belongs to the CLI's own screen state rather than normal terminal scrollback.
 
-You can disable the Codex rewrite here:
+You can enable the Codex rewrite here:
 
 ```text
 Settings > Obst Terminal > Run Codex without alternate screen

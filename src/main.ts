@@ -171,7 +171,7 @@ const DEFAULT_SETTINGS: PowerShellSettings = {
   nodeExecutable: "",
   terminalColorScheme: "obsidian",
   shiftEnterMode: "claude-backslash",
-  codexNoAltScreen: true,
+  codexNoAltScreen: false,
   windowsPtyBackend: "conpty",
   autoInstallRuntime: true,
   useSystemCa: false,
@@ -288,7 +288,7 @@ export default class VaultPowerShellPlugin extends Plugin {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, saved ?? {});
     this.settings.terminalColorScheme = normalizeTerminalColorScheme(this.settings.terminalColorScheme);
     this.settings.shiftEnterMode = normalizeShiftEnterMode(this.settings.shiftEnterMode);
-    this.settings.codexNoAltScreen = this.settings.codexNoAltScreen !== false;
+    this.settings.codexNoAltScreen = this.settings.codexNoAltScreen === true;
     this.settings.windowsPtyBackend = normalizeWindowsPtyBackend(this.settings.windowsPtyBackend);
     this.settings.autoInstallRuntime = this.settings.autoInstallRuntime === true;
   }
@@ -656,6 +656,7 @@ class VaultPowerShellView extends ItemView {
   private resizeObserver: ResizeObserver | null = null;
   private themeObserver: MutationObserver | null = null;
   private pendingFitFrame: number | null = null;
+  private pendingRefreshFrame: number | null = null;
   private windowKeydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private handledShiftEnterEvents = new WeakSet<KeyboardEvent>();
   private handledClaudeSuggestionEnterEvents = new WeakSet<KeyboardEvent>();
@@ -715,6 +716,10 @@ class VaultPowerShellView extends ItemView {
       cancelAnimationFrame(this.pendingFitFrame);
       this.pendingFitFrame = null;
     }
+    if (this.pendingRefreshFrame !== null) {
+      cancelAnimationFrame(this.pendingRefreshFrame);
+      this.pendingRefreshFrame = null;
+    }
     this.pendingShiftEnterTimers.forEach((timer) => window.clearTimeout(timer));
     this.pendingShiftEnterTimers.clear();
     this.pendingInsertTexts = [];
@@ -731,13 +736,14 @@ class VaultPowerShellView extends ItemView {
 
     const terminal = new Terminal({
       allowProposedApi: false,
-      convertEol: true,
+      convertEol: false,
       cursorBlink: true,
       cursorStyle: "block",
       drawBoldTextInBrightColors: true,
       fastScrollSensitivity: 12,
-      fontFamily: "Cascadia Mono, JetBrains Mono, Menlo, Monaco, Consolas, monospace",
+      fontFamily: "D2Coding, NanumGothicCoding, GulimChe, 'MS Gothic', 'Cascadia Mono', 'JetBrains Mono', Menlo, Monaco, Consolas, monospace",
       fontSize: 13,
+      letterSpacing: 0,
       lineHeight: 1.22,
       minimumContrastRatio: 4.5,
       rightClickSelectsWord: false,
@@ -759,6 +765,9 @@ class VaultPowerShellView extends ItemView {
     terminal.onData((data) => {
       this.clearCachedClaudeSuggestion(true);
       this.sendHostMessage({ type: "data", data: this.rewriteTerminalInput(data) });
+    });
+    terminal.onWriteParsed(() => {
+      this.scheduleTerminalRefresh();
     });
 
     terminal.attachCustomKeyEventHandler((event) => {
@@ -1383,6 +1392,21 @@ class VaultPowerShellView extends ItemView {
     });
   }
 
+  private scheduleTerminalRefresh() {
+    if (!this.terminal || this.pendingRefreshFrame !== null) {
+      return;
+    }
+
+    this.pendingRefreshFrame = requestAnimationFrame(() => {
+      this.pendingRefreshFrame = null;
+      if (!this.terminal || this.terminal.rows <= 0) {
+        return;
+      }
+
+      this.terminal.refresh(0, this.terminal.rows - 1);
+    });
+  }
+
   private sendResizeToHost(cols: number, rows: number) {
     const resize = {
       cols: clampPtyCols(cols),
@@ -1862,7 +1886,7 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Run Codex without alternate screen")
-      .setDesc("On by default. When you run codex, Obst Terminal submits it as codex --no-alt-screen so Codex output stays in normal terminal scrollback.")
+      .setDesc("Off by default. When enabled, Obst Terminal submits codex as codex --no-alt-screen so output stays in normal terminal scrollback. Leave off if Codex input rendering feels unstable.")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.codexNoAltScreen)
