@@ -278,6 +278,7 @@ Settings > Obst Terminal > Shift+Enter behavior
 
 - 일반 출력은 50,000줄 scrollback을 유지합니다.
 - CLI가 마우스 입력을 잡고 있으면 `Shift + mouse wheel`로 터미널 scrollback을 강제 스크롤합니다.
+- Codex CLI 같은 fullscreen TUI에서는 일반 mouse wheel 입력을 `PageUp` / `PageDown`으로 변환해 CLI 내부 대화 화면을 스크롤합니다.
 - `Ctrl + Shift + PageUp/PageDown`으로 페이지 단위 이동을 할 수 있습니다.
 - fullscreen TUI 도구는 alternate screen buffer를 사용할 수 있습니다. 이 경우 오래된 출력은 일반 scrollback이 아니라 CLI 내부 화면에 있을 수 있습니다.
 

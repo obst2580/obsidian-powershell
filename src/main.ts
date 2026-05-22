@@ -73,6 +73,10 @@ const CLAUDE_BACKSLASH_NEWLINE_DELAY_MS = 60;
 const CLAUDE_SUGGESTION_SCAN_LINES = 8;
 const CLAUDE_SUGGESTION_CACHE_TTL_MS = 60000;
 const CLAUDE_SUGGESTION_OUTPUT_TAIL_MAX = 4000;
+const WHEEL_PIXELS_PER_LINE = 18;
+const ALTERNATE_WHEEL_LINES_PER_PAGE_KEY = 4;
+const PAGE_UP_SEQUENCE = "\x1b[5~";
+const PAGE_DOWN_SEQUENCE = "\x1b[6~";
 
 interface PowerShellSettings {
   executable: string;
@@ -658,6 +662,7 @@ class VaultPowerShellView extends ItemView {
   private claudeSuggestionOutputTail = "";
   private lastSentResize: { cols: number; rows: number } | null = null;
   private wheelLineAccumulator = 0;
+  private alternateWheelAccumulator = 0;
   private runtimePromptEl: HTMLElement | null = null;
   private pendingInsertTexts: string[] = [];
 
@@ -1041,6 +1046,7 @@ class VaultPowerShellView extends ItemView {
 
     const activeBuffer = terminal.buffer.active;
     if (activeBuffer.type === "alternate" && !event.shiftKey) {
+      this.handleAlternateScreenWheel(event, terminal);
       return;
     }
 
@@ -1056,12 +1062,7 @@ class VaultPowerShellView extends ItemView {
   }
 
   private normalizeWheelLines(event: WheelEvent, terminal: Terminal): number {
-    const pixelsPerLine = 18;
-    const rawLines = event.deltaMode === WheelEvent.DOM_DELTA_PIXEL
-      ? event.deltaY / pixelsPerLine
-      : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
-        ? event.deltaY * terminal.rows
-        : event.deltaY;
+    const rawLines = getWheelRawLines(event, terminal);
 
     this.wheelLineAccumulator += rawLines;
     const lines = this.wheelLineAccumulator > 0
@@ -1070,6 +1071,30 @@ class VaultPowerShellView extends ItemView {
 
     this.wheelLineAccumulator -= lines;
     return lines;
+  }
+
+  private handleAlternateScreenWheel(event: WheelEvent, terminal: Terminal) {
+    const steps = this.normalizeAlternateWheelSteps(event, terminal);
+    if (steps === 0) {
+      return;
+    }
+
+    const sequence = steps > 0 ? PAGE_DOWN_SEQUENCE : PAGE_UP_SEQUENCE;
+    const count = Math.min(Math.abs(steps), 3);
+    this.sendHostMessage({ type: "data", data: sequence.repeat(count) });
+    terminal.focus();
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  private normalizeAlternateWheelSteps(event: WheelEvent, terminal: Terminal): number {
+    this.alternateWheelAccumulator += getWheelRawLines(event, terminal) / ALTERNATE_WHEEL_LINES_PER_PAGE_KEY;
+    const steps = this.alternateWheelAccumulator > 0
+      ? Math.floor(this.alternateWheelAccumulator)
+      : Math.ceil(this.alternateWheelAccumulator);
+
+    this.alternateWheelAccumulator -= steps;
+    return steps;
   }
 
   private refreshTerminalTheme() {
@@ -1561,6 +1586,8 @@ class VaultPowerShellView extends ItemView {
     this.hostStdoutBuffer = "";
     this.clearCachedClaudeSuggestion(true);
     this.lastSentResize = null;
+    this.wheelLineAccumulator = 0;
+    this.alternateWheelAccumulator = 0;
   }
 
   private sendHostMessage(message: HostInputMessage) {
@@ -2475,6 +2502,18 @@ function extractClaudeTrySuggestion(line: string): string | null {
 
 function isClaudeSuggestionNeutralLine(line: string): boolean {
   return line.trim() === "" || /^[>›❯»]\s*$/.test(line.trim());
+}
+
+function getWheelRawLines(event: WheelEvent, terminal: Terminal): number {
+  if (event.deltaMode === WheelEvent.DOM_DELTA_PIXEL) {
+    return event.deltaY / WHEEL_PIXELS_PER_LINE;
+  }
+
+  if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+    return event.deltaY * terminal.rows;
+  }
+
+  return event.deltaY;
 }
 
 function stripTerminalControlSequences(data: string): string {

@@ -229,6 +229,7 @@ Scrolling behavior:
 
 - Normal terminal output keeps a 50,000-line scrollback buffer.
 - Use `Shift + mouse wheel` when an interactive CLI captures mouse input.
+- In fullscreen TUI tools such as Codex CLI, normal mouse wheel input is translated to `PageUp` / `PageDown` so the CLI can scroll its own transcript.
 - Use `Ctrl + Shift + PageUp/PageDown` for forced page scrolling.
 - Fullscreen TUI tools may use the alternate screen buffer. In that mode, older output belongs to the CLI's own screen state rather than normal terminal scrollback.
 
