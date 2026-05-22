@@ -78,6 +78,7 @@ const ALTERNATE_WHEEL_LINES_PER_PAGE_KEY = 4;
 const PAGE_UP_SEQUENCE = "\x1b[5~";
 const PAGE_DOWN_SEQUENCE = "\x1b[6~";
 const KILL_LINE_SEQUENCE = "\x15";
+const CODEX_RESIZE_REFLOW_CONFIG = "tui.terminal_resize_reflow=false";
 
 interface PowerShellSettings {
   executable: string;
@@ -85,6 +86,7 @@ interface PowerShellSettings {
   nodeExecutable: string;
   terminalColorScheme: TerminalColorScheme;
   shiftEnterMode: ShiftEnterMode;
+  codexDisableResizeReflow: boolean;
   codexNoAltScreen: boolean;
   windowsPtyBackend: WindowsPtyBackend;
   autoInstallRuntime: boolean;
@@ -171,6 +173,7 @@ const DEFAULT_SETTINGS: PowerShellSettings = {
   nodeExecutable: "",
   terminalColorScheme: "obsidian",
   shiftEnterMode: "claude-backslash",
+  codexDisableResizeReflow: true,
   codexNoAltScreen: false,
   windowsPtyBackend: "conpty",
   autoInstallRuntime: true,
@@ -288,6 +291,7 @@ export default class VaultPowerShellPlugin extends Plugin {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, saved ?? {});
     this.settings.terminalColorScheme = normalizeTerminalColorScheme(this.settings.terminalColorScheme);
     this.settings.shiftEnterMode = normalizeShiftEnterMode(this.settings.shiftEnterMode);
+    this.settings.codexDisableResizeReflow = this.settings.codexDisableResizeReflow !== false;
     this.settings.codexNoAltScreen = this.settings.codexNoAltScreen === true;
     this.settings.windowsPtyBackend = normalizeWindowsPtyBackend(this.settings.windowsPtyBackend);
     this.settings.autoInstallRuntime = this.settings.autoInstallRuntime === true;
@@ -748,7 +752,7 @@ class VaultPowerShellView extends ItemView {
       minimumContrastRatio: 4.5,
       rightClickSelectsWord: false,
       scrollback: 50000,
-      scrollOnEraseInDisplay: false,
+      scrollOnEraseInDisplay: true,
       scrollSensitivity: 3,
       smoothScrollDuration: 0,
       theme: terminalTheme,
@@ -1113,7 +1117,7 @@ class VaultPowerShellView extends ItemView {
   }
 
   private rewriteTerminalInput(data: string): string {
-    if (!this.plugin.settings.codexNoAltScreen) {
+    if (!this.plugin.settings.codexDisableResizeReflow && !this.plugin.settings.codexNoAltScreen) {
       this.trackTerminalInput(data);
       return data;
     }
@@ -1134,7 +1138,10 @@ class VaultPowerShellView extends ItemView {
 
   private rewriteTerminalEnter(newline: string): string {
     const line = this.inputLineReliable ? this.inputLineBuffer : "";
-    const rewrittenLine = rewriteCodexNoAltScreenCommand(line);
+    const rewrittenLine = rewriteCodexCommand(line, {
+      disableResizeReflow: this.plugin.settings.codexDisableResizeReflow,
+      noAltScreen: this.plugin.settings.codexNoAltScreen
+    });
     this.resetInputLineTracking();
 
     if (!rewrittenLine || rewrittenLine === line) {
@@ -1896,6 +1903,18 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
           })
       );
 
+    new Setting(containerEl)
+      .setName("Stabilize Codex resize rendering")
+      .setDesc("On by default. When you run codex, Obst Terminal adds -c tui.terminal_resize_reflow=false to reduce stale text and overwritten lines after pane resize or TUI redraw.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.codexDisableResizeReflow)
+          .onChange((value) => {
+            this.plugin.settings.codexDisableResizeReflow = value;
+            void this.plugin.saveSettings();
+          })
+      );
+
     if (process.platform === "win32") {
       new Setting(containerEl)
         .setName("Windows PTY backend")
@@ -2620,18 +2639,33 @@ function isClaudeSuggestionNeutralLine(line: string): boolean {
   return line.trim() === "" || /^[>›❯»]\s*$/.test(line.trim());
 }
 
-function rewriteCodexNoAltScreenCommand(line: string): string | null {
+interface CodexRewriteOptions {
+  disableResizeReflow: boolean;
+  noAltScreen: boolean;
+}
+
+function rewriteCodexCommand(line: string, options: CodexRewriteOptions): string | null {
   const match = line.match(/^(\s*)(codex(?:\.(?:cmd|ps1|exe))?)(\s.*)?$/i);
   if (!match) {
     return null;
   }
 
   const rest = match[3] ?? "";
-  if (/(^|\s)--no-alt-screen(\s|$)/i.test(rest) || /tui\.alternate_screen\s*=\s*false/i.test(rest)) {
+  const injectedArgs: string[] = [];
+
+  if (options.disableResizeReflow && !/tui\.terminal_resize_reflow\s*=\s*false/i.test(rest)) {
+    injectedArgs.push("-c", CODEX_RESIZE_REFLOW_CONFIG);
+  }
+
+  if (options.noAltScreen && !/(^|\s)--no-alt-screen(\s|$)/i.test(rest) && !/tui\.alternate_screen\s*=\s*false/i.test(rest)) {
+    injectedArgs.push("--no-alt-screen");
+  }
+
+  if (injectedArgs.length === 0) {
     return line;
   }
 
-  return `${match[1]}${match[2]} --no-alt-screen${rest}`;
+  return `${match[1]}${match[2]} ${injectedArgs.join(" ")}${rest}`;
 }
 
 function getWheelRawLines(event: WheelEvent, terminal: Terminal): number {

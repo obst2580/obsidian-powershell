@@ -23,6 +23,7 @@ Current distribution is GitHub Release ZIP based while Community Plugin Director
 - 클립보드 이미지를 볼트에 저장하고 `@path` 참조를 입력합니다.
 - Claude Code 멀티라인 입력을 위해 `Shift + Enter`를 기본적으로 Claude의 `\` + Return 줄바꿈 경로로 보냅니다.
 - Claude Code가 터미널 입력 영역에 표시한 `Try "..."` 추천 문구를 Enter로 바로 채택해 전송할 수 있습니다.
+- Codex CLI를 기본적으로 `tui.terminal_resize_reflow=false`로 실행해 화면 다시 그리기와 pane resize 뒤의 잔상/덮어쓰기를 줄입니다.
 - 필요하면 `codex`를 `codex --no-alt-screen`으로 실행해 Codex CLI 출력을 일반 터미널 scrollback에 남길 수 있습니다.
 - 한글 IME 조합 중 마지막 글자가 다음 줄로 밀리지 않도록 짧은 지연 후 줄바꿈을 보냅니다.
 - Obsidian 테마를 기본으로 따르되 Codex/Claude Code ANSI 색상이 읽히도록 터미널 팔레트를 보정합니다.
@@ -279,6 +280,7 @@ Settings > Obst Terminal > Shift+Enter behavior
 
 - 일반 출력은 50,000줄 scrollback을 유지합니다.
 - CLI가 마우스 입력을 잡고 있으면 `Shift + mouse wheel`로 터미널 scrollback을 강제 스크롤합니다.
+- Codex CLI는 기본적으로 `-c tui.terminal_resize_reflow=false`로 실행해 terminal redraw와 pane resize 뒤의 줄 덮어쓰기를 줄입니다.
 - Codex CLI는 기본적으로 fullscreen UI를 유지합니다. 일반 터미널 scrollback을 선호하면 `codex --no-alt-screen` 자동 변환을 켤 수 있습니다.
 - 다른 fullscreen TUI에서는 일반 mouse wheel 입력을 `PageUp` / `PageDown`으로 변환해 CLI 내부 대화 화면을 스크롤합니다.
 - `Ctrl + Shift + PageUp/PageDown`으로 페이지 단위 이동을 할 수 있습니다.
@@ -288,6 +290,12 @@ Codex 명령 자동 변환은 아래 설정에서 켤 수 있습니다.
 
 ```text
 Settings > Obst Terminal > Run Codex without alternate screen
+```
+
+Codex resize 렌더링 보정은 아래 설정에서 끌 수 있습니다.
+
+```text
+Settings > Obst Terminal > Stabilize Codex resize rendering
 ```
 
 ## SSL / 인증서 설정
