@@ -77,6 +77,7 @@ const WHEEL_PIXELS_PER_LINE = 18;
 const ALTERNATE_WHEEL_LINES_PER_PAGE_KEY = 4;
 const PAGE_UP_SEQUENCE = "\x1b[5~";
 const PAGE_DOWN_SEQUENCE = "\x1b[6~";
+const KILL_LINE_SEQUENCE = "\x15";
 
 interface PowerShellSettings {
   executable: string;
@@ -84,6 +85,7 @@ interface PowerShellSettings {
   nodeExecutable: string;
   terminalColorScheme: TerminalColorScheme;
   shiftEnterMode: ShiftEnterMode;
+  codexNoAltScreen: boolean;
   windowsPtyBackend: WindowsPtyBackend;
   autoInstallRuntime: boolean;
   useSystemCa: boolean;
@@ -169,6 +171,7 @@ const DEFAULT_SETTINGS: PowerShellSettings = {
   nodeExecutable: "",
   terminalColorScheme: "obsidian",
   shiftEnterMode: "claude-backslash",
+  codexNoAltScreen: true,
   windowsPtyBackend: "conpty",
   autoInstallRuntime: true,
   useSystemCa: false,
@@ -285,6 +288,7 @@ export default class VaultPowerShellPlugin extends Plugin {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, saved ?? {});
     this.settings.terminalColorScheme = normalizeTerminalColorScheme(this.settings.terminalColorScheme);
     this.settings.shiftEnterMode = normalizeShiftEnterMode(this.settings.shiftEnterMode);
+    this.settings.codexNoAltScreen = this.settings.codexNoAltScreen !== false;
     this.settings.windowsPtyBackend = normalizeWindowsPtyBackend(this.settings.windowsPtyBackend);
     this.settings.autoInstallRuntime = this.settings.autoInstallRuntime === true;
   }
@@ -663,6 +667,8 @@ class VaultPowerShellView extends ItemView {
   private lastSentResize: { cols: number; rows: number } | null = null;
   private wheelLineAccumulator = 0;
   private alternateWheelAccumulator = 0;
+  private inputLineBuffer = "";
+  private inputLineReliable = true;
   private runtimePromptEl: HTMLElement | null = null;
   private pendingInsertTexts: string[] = [];
 
@@ -752,7 +758,7 @@ class VaultPowerShellView extends ItemView {
 
     terminal.onData((data) => {
       this.clearCachedClaudeSuggestion(true);
-      this.sendHostMessage({ type: "data", data });
+      this.sendHostMessage({ type: "data", data: this.rewriteTerminalInput(data) });
     });
 
     terminal.attachCustomKeyEventHandler((event) => {
@@ -1095,6 +1101,79 @@ class VaultPowerShellView extends ItemView {
 
     this.alternateWheelAccumulator -= steps;
     return steps;
+  }
+
+  private rewriteTerminalInput(data: string): string {
+    if (!this.plugin.settings.codexNoAltScreen) {
+      this.trackTerminalInput(data);
+      return data;
+    }
+
+    let rewritten = "";
+    for (const char of Array.from(data)) {
+      if (char === "\r" || char === "\n") {
+        rewritten += this.rewriteTerminalEnter(char);
+        continue;
+      }
+
+      rewritten += char;
+      this.trackTerminalInput(char);
+    }
+
+    return rewritten;
+  }
+
+  private rewriteTerminalEnter(newline: string): string {
+    const line = this.inputLineReliable ? this.inputLineBuffer : "";
+    const rewrittenLine = rewriteCodexNoAltScreenCommand(line);
+    this.resetInputLineTracking();
+
+    if (!rewrittenLine || rewrittenLine === line) {
+      return newline;
+    }
+
+    return `${KILL_LINE_SEQUENCE}${rewrittenLine}${newline}`;
+  }
+
+  private trackTerminalInput(data: string) {
+    for (const char of Array.from(data)) {
+      if (char === "\r" || char === "\n") {
+        this.resetInputLineTracking();
+        continue;
+      }
+
+      if (char === "\x03") {
+        this.resetInputLineTracking();
+        continue;
+      }
+
+      if (char === "\x15") {
+        this.inputLineBuffer = "";
+        this.inputLineReliable = true;
+        continue;
+      }
+
+      if (char === "\b" || char === "\x7f") {
+        if (this.inputLineReliable) {
+          this.inputLineBuffer = Array.from(this.inputLineBuffer).slice(0, -1).join("");
+        }
+        continue;
+      }
+
+      if (char === "\x1b" || char < " ") {
+        this.inputLineReliable = false;
+        continue;
+      }
+
+      if (this.inputLineReliable) {
+        this.inputLineBuffer += char;
+      }
+    }
+  }
+
+  private resetInputLineTracking() {
+    this.inputLineBuffer = "";
+    this.inputLineReliable = true;
   }
 
   private refreshTerminalTheme() {
@@ -1588,6 +1667,7 @@ class VaultPowerShellView extends ItemView {
     this.lastSentResize = null;
     this.wheelLineAccumulator = 0;
     this.alternateWheelAccumulator = 0;
+    this.resetInputLineTracking();
   }
 
   private sendHostMessage(message: HostInputMessage) {
@@ -1777,6 +1857,18 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
             this.plugin.settings.shiftEnterMode = normalizeShiftEnterMode(value);
             void this.plugin.saveSettings();
             new Notice("Reopen the terminal to apply Shift+Enter behavior.");
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Run Codex without alternate screen")
+      .setDesc("On by default. When you run codex, Obst Terminal submits it as codex --no-alt-screen so Codex output stays in normal terminal scrollback.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.codexNoAltScreen)
+          .onChange((value) => {
+            this.plugin.settings.codexNoAltScreen = value;
+            void this.plugin.saveSettings();
           })
       );
 
@@ -2502,6 +2594,20 @@ function extractClaudeTrySuggestion(line: string): string | null {
 
 function isClaudeSuggestionNeutralLine(line: string): boolean {
   return line.trim() === "" || /^[>›❯»]\s*$/.test(line.trim());
+}
+
+function rewriteCodexNoAltScreenCommand(line: string): string | null {
+  const match = line.match(/^(\s*)(codex(?:\.(?:cmd|ps1|exe))?)(\s.*)?$/i);
+  if (!match) {
+    return null;
+  }
+
+  const rest = match[3] ?? "";
+  if (/(^|\s)--no-alt-screen(\s|$)/i.test(rest) || /tui\.alternate_screen\s*=\s*false/i.test(rest)) {
+    return line;
+  }
+
+  return `${match[1]}${match[2]} --no-alt-screen${rest}`;
 }
 
 function getWheelRawLines(event: WheelEvent, terminal: Terminal): number {
