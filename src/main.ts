@@ -80,8 +80,10 @@ const PAGE_DOWN_SEQUENCE = "\x1b[6~";
 const KILL_LINE_SEQUENCE = "\x15";
 const CODEX_RESIZE_REFLOW_CONFIG = "tui.terminal_resize_reflow=false";
 const TERMINAL_FIT_STABILIZATION_DELAYS_MS = [0, 16, 50, 150, 400, 1000];
+const SETTINGS_SCHEMA_VERSION = 2;
 
 interface PowerShellSettings {
+  settingsSchemaVersion: number;
   executable: string;
   args: string;
   nodeExecutable: string;
@@ -169,13 +171,14 @@ type ClipboardWithImage = typeof clipboard & {
 };
 
 const DEFAULT_SETTINGS: PowerShellSettings = {
+  settingsSchemaVersion: SETTINGS_SCHEMA_VERSION,
   executable: "",
   args: "",
   nodeExecutable: "",
   terminalColorScheme: "obsidian",
   shiftEnterMode: "claude-backslash",
   codexDisableResizeReflow: true,
-  codexNoAltScreen: false,
+  codexNoAltScreen: true,
   windowsPtyBackend: "conpty",
   autoInstallRuntime: true,
   useSystemCa: false,
@@ -289,13 +292,20 @@ export default class VaultPowerShellPlugin extends Plugin {
 
   async loadSettings() {
     const saved = (await this.loadData()) as Partial<PowerShellSettings> | null;
+    const needsCodexScrollbackMigration = (saved?.settingsSchemaVersion ?? 0) < 2;
     this.settings = Object.assign({}, DEFAULT_SETTINGS, saved ?? {});
+    this.settings.settingsSchemaVersion = SETTINGS_SCHEMA_VERSION;
     this.settings.terminalColorScheme = normalizeTerminalColorScheme(this.settings.terminalColorScheme);
     this.settings.shiftEnterMode = normalizeShiftEnterMode(this.settings.shiftEnterMode);
     this.settings.codexDisableResizeReflow = this.settings.codexDisableResizeReflow !== false;
-    this.settings.codexNoAltScreen = this.settings.codexNoAltScreen === true;
+    this.settings.codexNoAltScreen = needsCodexScrollbackMigration
+      ? true
+      : this.settings.codexNoAltScreen !== false;
     this.settings.windowsPtyBackend = normalizeWindowsPtyBackend(this.settings.windowsPtyBackend);
     this.settings.autoInstallRuntime = this.settings.autoInstallRuntime === true;
+    if (needsCodexScrollbackMigration) {
+      await this.saveSettings();
+    }
   }
 
   async saveSettings() {
@@ -1944,7 +1954,7 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Run Codex without alternate screen")
-      .setDesc("Off by default. When enabled, Obst Terminal submits codex as codex --no-alt-screen so output stays in normal terminal scrollback. Leave off if Codex input rendering feels unstable.")
+      .setDesc("On by default. Obst Terminal submits codex as codex --no-alt-screen so long conversations stay in normal terminal scrollback instead of being redrawn in a fullscreen TUI buffer.")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.codexNoAltScreen)
