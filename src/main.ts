@@ -726,6 +726,7 @@ class VaultPowerShellView extends ItemView {
   private agentSeenEntries = new Set<string>();
   private agentLocalMessageCounter = 0;
   private agentLastRawNotice = "";
+  private agentNeedsAuth = false;
 
   constructor(leaf: WorkspaceLeaf, plugin: VaultPowerShellPlugin) {
     super(leaf);
@@ -876,6 +877,10 @@ class VaultPowerShellView extends ItemView {
     rawButton.addEventListener("click", () => {
       this.showPane("terminal");
     });
+    const loginButton = actions.createEl("button", { text: "Login" });
+    loginButton.addEventListener("click", () => {
+      this.sendAgentControlInput("/login");
+    });
 
     this.agentTranscriptEl = container.createDiv("vault-agent-transcript");
     this.appendAgentTranscript({
@@ -950,6 +955,7 @@ class VaultPowerShellView extends ItemView {
     this.agentSessionPath = null;
     this.agentSessionOffset = 0;
     this.agentSeenEntries.clear();
+    this.agentNeedsAuth = false;
     this.agentReadyForInput = false;
     this.setAgentStatus(`Starting ${getAgentProviderLabel(provider)}...`);
     this.appendAgentTranscript({
@@ -1102,7 +1108,7 @@ class VaultPowerShellView extends ItemView {
       this.appendAgentTranscript({
         id: this.nextLocalAgentEntryId("system"),
         role: "system",
-        text: `${getAgentProviderLabel(this.agentProvider)} is running. If login, permission, or picker UI is needed, switch to Raw terminal.`
+        text: `${getAgentProviderLabel(this.agentProvider)} is running. If it asks for login, use the Login button or send /login in this console. The top Raw terminal tab is a separate fallback shell.`
       });
     }, AGENT_READY_DELAY_MS);
   }
@@ -1123,6 +1129,16 @@ class VaultPowerShellView extends ItemView {
       return;
     }
 
+    if (this.agentNeedsAuth && !text.startsWith("/")) {
+      new Notice("The agent is asking for authentication. Send /login first.");
+      this.appendAgentTranscript({
+        id: this.nextLocalAgentEntryId("system"),
+        role: "system",
+        text: "Authentication is required before normal messages can be sent. Click Login or type /login."
+      });
+      return;
+    }
+
     inputEl.value = "";
     this.appendAgentTranscript({
       id: this.nextLocalAgentEntryId("user"),
@@ -1131,6 +1147,21 @@ class VaultPowerShellView extends ItemView {
     });
     this.sendAgentHostMessage({ type: "data", data: `${formatTerminalPasteData(text)}\r` });
     this.setAgentStatus(`${getAgentProviderLabel(this.agentProvider)} working...`);
+  }
+
+  private sendAgentControlInput(text: string) {
+    if (!this.agentHost || !this.agentHostReady || !this.agentReadyForInput) {
+      new Notice("Start the selected agent first.");
+      return;
+    }
+
+    this.appendAgentTranscript({
+      id: this.nextLocalAgentEntryId("user"),
+      role: "user",
+      text
+    });
+    this.sendAgentHostMessage({ type: "data", data: `${text}\r` });
+    this.setAgentStatus(`${getAgentProviderLabel(this.agentProvider)} waiting`);
   }
 
   private sendAgentHostMessage(message: HostInputMessage) {
@@ -1151,18 +1182,23 @@ class VaultPowerShellView extends ItemView {
       return;
     }
 
+    const actionablePrompt = extractAgentActionablePrompt(plainText);
+    if (actionablePrompt?.requiresAuth) {
+      this.agentNeedsAuth = true;
+    }
+
     if (!this.agentSessionPath && /login|auth|permission|trust|press|continue|not recognized|not found|command not found/i.test(plainText)) {
       this.setAgentStatus("Agent prompt needs input");
     }
 
-    if (/login|auth|permission|trust|press|continue|allow|deny|approve|yes|no|y\/n|not recognized|not found|command not found/i.test(plainText)) {
-      const notice = plainText.slice(-1200);
+    if (actionablePrompt || /login|auth|permission|trust|press|continue|allow|deny|approve|yes|no|y\/n|not recognized|not found|command not found/i.test(plainText)) {
+      const notice = actionablePrompt?.text ?? plainText.slice(-1200);
       if (notice !== this.agentLastRawNotice) {
         this.agentLastRawNotice = notice;
         this.appendAgentTranscript({
           id: this.nextLocalAgentEntryId("system"),
           role: "system",
-          text: `Agent prompt:\n${notice}\n\nReply in the message box if the prompt expects a short answer. Use Raw terminal for a fresh login or setup flow.`
+          text: `Agent prompt:\n${notice}\n\nReply in the message box if the prompt expects a short answer. For Claude login, click Login or send /login here. The top Raw terminal tab is a separate fallback shell.`
         });
       }
     }
@@ -2306,6 +2342,7 @@ class VaultPowerShellView extends ItemView {
     this.agentSessionOffset = 0;
     this.agentSeenEntries.clear();
     this.agentLastRawNotice = "";
+    this.agentNeedsAuth = false;
     this.setAgentStatus("Idle");
   }
 
@@ -3473,6 +3510,37 @@ function parseAgentTranscriptEntries(provider: AgentProvider, text: string): Age
   }
 
   return entries;
+}
+
+function extractAgentActionablePrompt(text: string): { text: string; requiresAuth: boolean } | null {
+  const normalized = text
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[─━═]{3,}/g, "").trim())
+    .filter(Boolean)
+    .join("\n");
+
+  const lines = normalized
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => {
+      if (!line) {
+        return false;
+      }
+
+      return /\/login|api error|401|mcp servers need auth|need auth|authentication|login|permission|trust|allow|deny|approve|not recognized|not found|command not found/i.test(line);
+    });
+
+  if (lines.length === 0) {
+    return null;
+  }
+
+  const deduped = uniqueStrings(lines).slice(-8);
+  const requiresAuth = deduped.some((line) => /\/login|api error|401|mcp servers need auth|need auth|authentication|login/i.test(line));
+  return {
+    text: deduped.join("\n"),
+    requiresAuth
+  };
 }
 
 function parseClaudeTranscriptEntry(value: unknown): AgentTranscriptEntry | null {
