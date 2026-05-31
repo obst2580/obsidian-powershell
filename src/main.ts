@@ -19,7 +19,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { unzipSync } from "fflate";
 import { ChildProcessWithoutNullStreams, spawn } from "child_process";
 import { createHash } from "crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from "fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
 
 const VIEW_TYPE_POWERSHELL = "vault-powershell";
@@ -81,6 +81,13 @@ const KILL_LINE_SEQUENCE = "\x15";
 const CODEX_RESIZE_REFLOW_CONFIG = "tui.terminal_resize_reflow=false";
 const TERMINAL_FIT_STABILIZATION_DELAYS_MS = [0, 16, 50, 150, 400, 1000];
 const SETTINGS_SCHEMA_VERSION = 2;
+const AGENT_CONSOLE_COLS = 120;
+const AGENT_CONSOLE_ROWS = 30;
+const AGENT_READY_DELAY_MS = 2500;
+const AGENT_SESSION_POLL_MS = 1200;
+const AGENT_SESSION_LOOKBACK_MS = 30000;
+const AGENT_SESSION_MATCH_BYTES = 262144;
+const AGENT_SESSION_MAX_READ_BYTES = 1024 * 1024;
 
 interface PowerShellSettings {
   settingsSchemaVersion: number;
@@ -101,6 +108,9 @@ interface PowerShellSettings {
 type TerminalColorScheme = "dark" | "light" | "obsidian";
 type ShiftEnterMode = "bracketed-paste" | "claude-backslash" | "xterm-paste" | "modified-enter" | "csi-u" | "line-feed";
 type WindowsPtyBackend = "winpty" | "conpty";
+type ViewPane = "agent" | "terminal";
+type AgentProvider = "claude" | "codex";
+type AgentTranscriptRole = "user" | "assistant" | "tool" | "system";
 
 interface PtyHostConfig {
   shell: string;
@@ -149,6 +159,12 @@ interface RuntimeInfo {
   version?: string;
   platform?: string;
   arch?: string;
+}
+
+interface AgentTranscriptEntry {
+  id: string;
+  role: AgentTranscriptRole;
+  text: string;
 }
 
 interface ClipboardNativeImage {
@@ -688,6 +704,28 @@ class VaultPowerShellView extends ItemView {
   private inputLineReliable = true;
   private runtimePromptEl: HTMLElement | null = null;
   private pendingInsertTexts: string[] = [];
+  private activePane: ViewPane = "agent";
+  private paneTabEls: Record<ViewPane, HTMLElement | null> = { agent: null, terminal: null };
+  private agentPaneEl: HTMLElement | null = null;
+  private terminalPaneEl: HTMLElement | null = null;
+  private terminalStarted = false;
+  private agentProvider: AgentProvider = "claude";
+  private agentHost: ChildProcessWithoutNullStreams | null = null;
+  private agentHostReady = false;
+  private agentReadyForInput = false;
+  private agentStdoutBuffer = "";
+  private agentStatusEl: HTMLElement | null = null;
+  private agentTranscriptEl: HTMLElement | null = null;
+  private agentInputEl: HTMLTextAreaElement | null = null;
+  private agentProviderButtons: Record<AgentProvider, HTMLElement | null> = { claude: null, codex: null };
+  private agentSessionPollTimer: number | null = null;
+  private agentReadyTimer: number | null = null;
+  private agentStartedAt = 0;
+  private agentSessionPath: string | null = null;
+  private agentSessionOffset = 0;
+  private agentSeenEntries = new Set<string>();
+  private agentLocalMessageCounter = 0;
+  private agentLastRawNotice = "";
 
   constructor(leaf: WorkspaceLeaf, plugin: VaultPowerShellPlugin) {
     super(leaf);
@@ -711,13 +749,20 @@ class VaultPowerShellView extends ItemView {
     container.empty();
     container.addClass("vault-powershell-view");
 
-    const terminalEl = container.createDiv("vault-powershell-terminal");
-    this.createTerminal(terminalEl);
-    this.startShell();
+    const tabBar = container.createDiv("vault-terminal-tabbar");
+    this.paneTabEls.agent = this.createPaneTab(tabBar, "Agent console", "agent");
+    this.paneTabEls.terminal = this.createPaneTab(tabBar, "Raw terminal", "terminal");
+
+    this.agentPaneEl = container.createDiv("vault-agent-console");
+    this.createAgentConsole(this.agentPaneEl);
+
+    this.terminalPaneEl = container.createDiv("vault-powershell-terminal vault-terminal-pane-hidden");
+    this.showPane("agent");
     return Promise.resolve();
   }
 
   onClose(): Promise<void> {
+    this.disposeAgent();
     this.disposeShell();
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
@@ -745,7 +790,481 @@ class VaultPowerShellView extends ItemView {
     this.terminal = null;
     this.terminalContainer = null;
     this.fitAddon = null;
+    this.terminalStarted = false;
+    this.agentPaneEl = null;
+    this.terminalPaneEl = null;
+    this.agentStatusEl = null;
+    this.agentTranscriptEl = null;
+    this.agentInputEl = null;
+    this.paneTabEls = { agent: null, terminal: null };
+    this.agentProviderButtons = { claude: null, codex: null };
     return Promise.resolve();
+  }
+
+  private createPaneTab(container: Element, label: string, pane: ViewPane): HTMLElement {
+    const button = container.createEl("button", {
+      cls: "vault-terminal-tab",
+      text: label
+    });
+    button.addEventListener("click", () => {
+      this.showPane(pane);
+    });
+    return button;
+  }
+
+  private showPane(pane: ViewPane) {
+    this.activePane = pane;
+    this.agentPaneEl?.toggleClass("vault-terminal-pane-hidden", pane !== "agent");
+    this.terminalPaneEl?.toggleClass("vault-terminal-pane-hidden", pane !== "terminal");
+    this.paneTabEls.agent?.toggleClass("is-active", pane === "agent");
+    this.paneTabEls.terminal?.toggleClass("is-active", pane === "terminal");
+
+    if (pane === "terminal") {
+      this.ensureRawTerminal();
+      this.terminal?.focus();
+      this.scheduleTerminalFitStabilization();
+    } else {
+      this.agentInputEl?.focus();
+    }
+  }
+
+  private ensureRawTerminal() {
+    if (this.terminalStarted || !this.terminalPaneEl) {
+      return;
+    }
+
+    this.terminalStarted = true;
+    this.createTerminal(this.terminalPaneEl);
+    this.startShell();
+  }
+
+  private createAgentConsole(container: HTMLElement) {
+    container.empty();
+
+    const header = container.createDiv("vault-agent-header");
+    const titleWrap = header.createDiv("vault-agent-title-wrap");
+    titleWrap.createEl("div", { cls: "vault-agent-title", text: "Agent console" });
+    titleWrap.createEl("div", {
+      cls: "vault-agent-subtitle",
+      text: this.plugin.getVaultPath() ?? "No local vault path"
+    });
+
+    this.agentStatusEl = header.createDiv("vault-agent-status");
+    this.setAgentStatus("Idle");
+
+    const toolbar = container.createDiv("vault-agent-toolbar");
+    const providerGroup = toolbar.createDiv("vault-agent-provider-group");
+    this.agentProviderButtons.claude = this.createAgentProviderButton(providerGroup, "Claude", "claude");
+    this.agentProviderButtons.codex = this.createAgentProviderButton(providerGroup, "Codex", "codex");
+    this.refreshAgentProviderButtons();
+
+    const actions = toolbar.createDiv("vault-agent-actions");
+    const startButton = actions.createEl("button", { text: "Start" });
+    startButton.addEventListener("click", () => {
+      void this.startAgent(this.agentProvider);
+    });
+    const stopButton = actions.createEl("button", { text: "Stop" });
+    stopButton.addEventListener("click", () => {
+      this.disposeAgent();
+      this.appendAgentTranscript({
+        id: this.nextLocalAgentEntryId("system"),
+        role: "system",
+        text: "Agent stopped."
+      });
+    });
+    const rawButton = actions.createEl("button", { text: "Raw" });
+    rawButton.addEventListener("click", () => {
+      this.showPane("terminal");
+    });
+
+    this.agentTranscriptEl = container.createDiv("vault-agent-transcript");
+    this.appendAgentTranscript({
+      id: this.nextLocalAgentEntryId("system"),
+      role: "system",
+      text: "Start Claude or Codex. The CLI runs in interactive subscription mode behind this pane; the transcript is rendered from local session logs when available."
+    });
+
+    const composer = container.createDiv("vault-agent-composer");
+    this.agentInputEl = composer.createEl("textarea", {
+      cls: "vault-agent-input",
+      attr: {
+        rows: "4",
+        placeholder: "Message to the selected agent. Shift+Enter inserts a new line."
+      }
+    });
+    this.agentInputEl.addEventListener("keydown", (event) => {
+      if (isEnterKey(event) && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+        event.preventDefault();
+        void this.sendAgentInput();
+      }
+    });
+
+    const composerActions = composer.createDiv("vault-agent-composer-actions");
+    const noteButton = composerActions.createEl("button", { text: "Add current note" });
+    noteButton.addEventListener("click", () => {
+      void this.insertCurrentNoteReferenceIntoAgent();
+    });
+    const sendButton = composerActions.createEl("button", {
+      cls: "mod-cta",
+      text: "Send"
+    });
+    sendButton.addEventListener("click", () => {
+      void this.sendAgentInput();
+    });
+  }
+
+  private createAgentProviderButton(container: HTMLElement, label: string, provider: AgentProvider): HTMLElement {
+    const button = container.createEl("button", {
+      cls: "vault-agent-provider",
+      text: label
+    });
+    button.addEventListener("click", () => {
+      if (this.agentHost) {
+        new Notice("Stop the current agent before switching providers.");
+        return;
+      }
+
+      this.agentProvider = provider;
+      this.refreshAgentProviderButtons();
+      this.agentInputEl?.focus();
+    });
+    return button;
+  }
+
+  private refreshAgentProviderButtons() {
+    this.agentProviderButtons.claude?.toggleClass("is-active", this.agentProvider === "claude");
+    this.agentProviderButtons.codex?.toggleClass("is-active", this.agentProvider === "codex");
+  }
+
+  private async startAgent(provider: AgentProvider) {
+    const cwd = this.plugin.getVaultPath();
+    if (!cwd) {
+      new Notice("This vault does not expose a local file-system path.");
+      return;
+    }
+
+    this.disposeAgent();
+    this.agentProvider = provider;
+    this.refreshAgentProviderButtons();
+    this.agentStartedAt = Date.now();
+    this.agentSessionPath = null;
+    this.agentSessionOffset = 0;
+    this.agentSeenEntries.clear();
+    this.agentReadyForInput = false;
+    this.setAgentStatus(`Starting ${getAgentProviderLabel(provider)}...`);
+    this.appendAgentTranscript({
+      id: this.nextLocalAgentEntryId("system"),
+      role: "system",
+      text: `Starting ${getAgentProviderLabel(provider)} in ${cwd}`
+    });
+
+    try {
+      const missingRuntimeFiles = this.plugin.getRuntimeMissingFiles();
+      if (missingRuntimeFiles.length > 0) {
+        if (!this.plugin.settings.autoInstallRuntime) {
+          throw new Error("Runtime files are missing. Use Settings > Obst Terminal > Runtime files first.");
+        }
+
+        await this.plugin.installRuntimeIfNeeded((message) => {
+          this.setAgentStatus(message);
+        });
+      }
+
+      const env = buildProcessEnv({
+        useSystemCa: this.plugin.settings.useSystemCa,
+        extraCaCertPath: this.plugin.getExtraCaCertPath()
+      });
+      const shell = this.plugin.getShellExecutable();
+      const host = spawn(this.plugin.getNodeExecutable(), [this.plugin.getPtyHostPath(), encodeConfig({
+        shell,
+        args: this.plugin.getShellArgs(shell),
+        fallbackShells: this.plugin.getShellFallbacks(shell),
+        cols: AGENT_CONSOLE_COLS,
+        rows: AGENT_CONSOLE_ROWS,
+        cwd,
+        env,
+        windowsPtyBackend: this.plugin.settings.windowsPtyBackend
+      })], {
+        cwd: this.plugin.getPluginBasePath(),
+        env,
+        windowsHide: true
+      });
+
+      this.agentHost = host;
+      this.agentHostReady = false;
+      this.startAgentSessionPolling();
+
+      host.stdout.on("data", (chunk: Buffer) => {
+        this.handleAgentHostStdout(chunk.toString());
+      });
+
+      host.stderr.on("data", (chunk: Buffer) => {
+        this.appendAgentTranscript({
+          id: this.nextLocalAgentEntryId("system"),
+          role: "system",
+          text: stripTerminalControlSequences(chunk.toString()).trim() || chunk.toString()
+        });
+      });
+
+      host.on("error", (error: Error) => {
+        const message = formatTerminalHostError(error, this.plugin);
+        this.setAgentStatus("Failed");
+        this.appendAgentTranscript({
+          id: this.nextLocalAgentEntryId("system"),
+          role: "system",
+          text: `Failed to start agent host: ${message}`
+        });
+      });
+
+      host.on("close", (code: number | null) => {
+        this.setAgentStatus(`Exited ${code ?? "unknown"}`);
+        this.appendAgentTranscript({
+          id: this.nextLocalAgentEntryId("system"),
+          role: "system",
+          text: `Agent host exited with code ${code ?? "unknown"}.`
+        });
+        this.agentHost = null;
+        this.agentHostReady = false;
+        this.agentReadyForInput = false;
+        this.stopAgentSessionPolling();
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.setAgentStatus("Failed");
+      this.appendAgentTranscript({
+        id: this.nextLocalAgentEntryId("system"),
+        role: "system",
+        text: `Failed to start ${getAgentProviderLabel(provider)}: ${message}`
+      });
+      new Notice(`Failed to start ${getAgentProviderLabel(provider)}: ${message}`);
+    }
+  }
+
+  private handleAgentHostStdout(chunk: string) {
+    this.agentStdoutBuffer += chunk;
+
+    while (true) {
+      const newlineIndex = this.agentStdoutBuffer.indexOf("\n");
+      if (newlineIndex === -1) {
+        return;
+      }
+
+      const line = this.agentStdoutBuffer.slice(0, newlineIndex).trimEnd();
+      this.agentStdoutBuffer = this.agentStdoutBuffer.slice(newlineIndex + 1);
+      if (!line) {
+        continue;
+      }
+
+      try {
+        const message = JSON.parse(line) as HostOutputMessage;
+        if (message.type === "ready") {
+          this.agentHostReady = true;
+          this.launchAgentCli();
+        } else if (message.type === "data") {
+          this.rememberAgentRawOutput(message.data);
+        } else if (message.type === "exit") {
+          this.appendAgentTranscript({
+            id: this.nextLocalAgentEntryId("system"),
+            role: "system",
+            text: `${getAgentProviderLabel(this.agentProvider)} exited with code ${message.exitCode ?? "unknown"}.`
+          });
+        } else if (message.type === "error") {
+          this.setAgentStatus("Failed");
+          this.appendAgentTranscript({
+            id: this.nextLocalAgentEntryId("system"),
+            role: "system",
+            text: `Agent error: ${message.message}`
+          });
+        }
+      } catch {
+        this.rememberAgentRawOutput(line);
+      }
+    }
+  }
+
+  private launchAgentCli() {
+    const command = getAgentLaunchCommand(this.agentProvider, this.plugin.settings);
+    this.sendAgentHostMessage({ type: "data", data: `${command}\r` });
+    this.setAgentStatus(`Launching ${getAgentProviderLabel(this.agentProvider)}...`);
+
+    if (this.agentReadyTimer !== null) {
+      window.clearTimeout(this.agentReadyTimer);
+    }
+
+    this.agentReadyTimer = window.setTimeout(() => {
+      this.agentReadyTimer = null;
+      if (!this.agentHost) {
+        return;
+      }
+
+      this.agentReadyForInput = true;
+      this.setAgentStatus(`${getAgentProviderLabel(this.agentProvider)} running`);
+      this.appendAgentTranscript({
+        id: this.nextLocalAgentEntryId("system"),
+        role: "system",
+        text: `${getAgentProviderLabel(this.agentProvider)} is running. If login, permission, or picker UI is needed, switch to Raw terminal.`
+      });
+    }, AGENT_READY_DELAY_MS);
+  }
+
+  private async sendAgentInput() {
+    const inputEl = this.agentInputEl;
+    if (!inputEl) {
+      return;
+    }
+
+    const text = inputEl.value.trim();
+    if (!text) {
+      return;
+    }
+
+    if (!this.agentHost || !this.agentHostReady || !this.agentReadyForInput) {
+      new Notice("Start the selected agent first, then send after it is running.");
+      return;
+    }
+
+    inputEl.value = "";
+    this.appendAgentTranscript({
+      id: this.nextLocalAgentEntryId("user"),
+      role: "user",
+      text
+    });
+    this.sendAgentHostMessage({ type: "data", data: `${formatTerminalPasteData(text)}\r` });
+    this.setAgentStatus(`${getAgentProviderLabel(this.agentProvider)} working...`);
+  }
+
+  private sendAgentHostMessage(message: HostInputMessage) {
+    if (!this.agentHost || !this.agentHost.stdin.writable) {
+      return;
+    }
+
+    if (message.type === "data" && !this.agentHostReady) {
+      return;
+    }
+
+    this.agentHost.stdin.write(`${JSON.stringify(message)}\n`);
+  }
+
+  private rememberAgentRawOutput(data: string) {
+    const plainText = stripTerminalControlSequences(data).trim();
+    if (!plainText) {
+      return;
+    }
+
+    if (!this.agentSessionPath && /login|auth|permission|trust|press|continue|not recognized|not found|command not found/i.test(plainText)) {
+      this.setAgentStatus("Agent prompt needs input");
+    }
+
+    if (/login|auth|permission|trust|press|continue|allow|deny|approve|yes|no|y\/n|not recognized|not found|command not found/i.test(plainText)) {
+      const notice = plainText.slice(-1200);
+      if (notice !== this.agentLastRawNotice) {
+        this.agentLastRawNotice = notice;
+        this.appendAgentTranscript({
+          id: this.nextLocalAgentEntryId("system"),
+          role: "system",
+          text: `Agent prompt:\n${notice}\n\nReply in the message box if the prompt expects a short answer. Use Raw terminal for a fresh login or setup flow.`
+        });
+      }
+    }
+  }
+
+  private startAgentSessionPolling() {
+    this.stopAgentSessionPolling();
+    this.agentSessionPollTimer = window.setInterval(() => {
+      this.pollAgentSessionLog();
+    }, AGENT_SESSION_POLL_MS);
+  }
+
+  private stopAgentSessionPolling() {
+    if (this.agentSessionPollTimer !== null) {
+      window.clearInterval(this.agentSessionPollTimer);
+      this.agentSessionPollTimer = null;
+    }
+  }
+
+  private pollAgentSessionLog() {
+    const cwd = this.plugin.getVaultPath();
+    if (!cwd) {
+      return;
+    }
+
+    if (!this.agentSessionPath) {
+      const sessionPath = findLatestAgentSessionFile(this.agentProvider, cwd, this.agentStartedAt);
+      if (!sessionPath) {
+        return;
+      }
+
+      this.agentSessionPath = sessionPath;
+      this.agentSessionOffset = 0;
+      this.appendAgentTranscript({
+        id: this.nextLocalAgentEntryId("system"),
+        role: "system",
+        text: `Reading session log: ${sessionPath}`
+      });
+    }
+
+    const chunk = readFileTextFromOffset(this.agentSessionPath, this.agentSessionOffset);
+    if (!chunk || !chunk.text) {
+      return;
+    }
+
+    this.agentSessionOffset = chunk.nextOffset;
+    for (const entry of parseAgentTranscriptEntries(this.agentProvider, chunk.text)) {
+      if (this.agentSeenEntries.has(entry.id)) {
+        continue;
+      }
+
+      this.agentSeenEntries.add(entry.id);
+      if (entry.role === "user") {
+        continue;
+      }
+
+      this.appendAgentTranscript(entry);
+      this.setAgentStatus(`${getAgentProviderLabel(this.agentProvider)} running`);
+    }
+  }
+
+  private appendAgentTranscript(entry: AgentTranscriptEntry) {
+    if (!entry.text.trim() || !this.agentTranscriptEl) {
+      return;
+    }
+
+    const item = this.agentTranscriptEl.createDiv(`vault-agent-message vault-agent-message-${entry.role}`);
+    item.createDiv("vault-agent-message-role").setText(getTranscriptRoleLabel(entry.role));
+    item.createDiv("vault-agent-message-body").setText(entry.text.trim());
+    this.agentTranscriptEl.scrollTop = this.agentTranscriptEl.scrollHeight;
+  }
+
+  private setAgentStatus(text: string) {
+    this.agentStatusEl?.setText(text);
+  }
+
+  private nextLocalAgentEntryId(role: AgentTranscriptRole): string {
+    this.agentLocalMessageCounter += 1;
+    return `local-${role}-${Date.now()}-${this.agentLocalMessageCounter}`;
+  }
+
+  private async insertCurrentNoteReferenceIntoAgent() {
+    const file = this.app.workspace.getActiveFile();
+    if (!file) {
+      new Notice("No active note to reference.");
+      return;
+    }
+
+    this.insertAgentInputText(`${formatVaultFileReference(file.path)} `);
+  }
+
+  private insertAgentInputText(text: string) {
+    if (!this.agentInputEl) {
+      return;
+    }
+
+    const start = this.agentInputEl.selectionStart ?? this.agentInputEl.value.length;
+    const end = this.agentInputEl.selectionEnd ?? this.agentInputEl.value.length;
+    this.agentInputEl.value = `${this.agentInputEl.value.slice(0, start)}${text}${this.agentInputEl.value.slice(end)}`;
+    const cursor = start + text.length;
+    this.agentInputEl.setSelectionRange(cursor, cursor);
+    this.agentInputEl.focus();
   }
 
   private createTerminal(container: HTMLElement) {
@@ -1715,6 +2234,12 @@ class VaultPowerShellView extends ItemView {
   }
 
   insertTerminalText(text: string) {
+    if (this.activePane === "agent") {
+      this.insertAgentInputText(text);
+      return;
+    }
+
+    this.ensureRawTerminal();
     this.sendTerminalInput(text);
   }
 
@@ -1759,6 +2284,29 @@ class VaultPowerShellView extends ItemView {
     this.wheelLineAccumulator = 0;
     this.alternateWheelAccumulator = 0;
     this.resetInputLineTracking();
+  }
+
+  private disposeAgent(kill = true) {
+    if (this.agentReadyTimer !== null) {
+      window.clearTimeout(this.agentReadyTimer);
+      this.agentReadyTimer = null;
+    }
+    this.stopAgentSessionPolling();
+
+    if (this.agentHost && kill) {
+      this.sendAgentHostMessage({ type: "kill" });
+      this.agentHost.kill();
+    }
+
+    this.agentHost = null;
+    this.agentHostReady = false;
+    this.agentReadyForInput = false;
+    this.agentStdoutBuffer = "";
+    this.agentSessionPath = null;
+    this.agentSessionOffset = 0;
+    this.agentSeenEntries.clear();
+    this.agentLastRawNotice = "";
+    this.setAgentStatus("Idle");
   }
 
   private sendHostMessage(message: HostInputMessage) {
@@ -2744,6 +3292,282 @@ function getWheelRawLines(event: WheelEvent, terminal: Terminal): number {
 function isTerminalScrolledToBottom(terminal: Terminal): boolean {
   const buffer = terminal.buffer.active;
   return buffer.viewportY >= buffer.baseY;
+}
+
+function getAgentProviderLabel(provider: AgentProvider): string {
+  return provider === "claude" ? "Claude Code" : "Codex";
+}
+
+function getTranscriptRoleLabel(role: AgentTranscriptRole): string {
+  if (role === "assistant") {
+    return "Agent";
+  }
+
+  if (role === "user") {
+    return "You";
+  }
+
+  if (role === "tool") {
+    return "Tool";
+  }
+
+  return "System";
+}
+
+function getAgentLaunchCommand(provider: AgentProvider, settings: PowerShellSettings): string {
+  if (provider === "claude") {
+    return "claude";
+  }
+
+  return rewriteCodexCommand("codex", {
+    disableResizeReflow: settings.codexDisableResizeReflow,
+    noAltScreen: settings.codexNoAltScreen
+  }) ?? "codex";
+}
+
+function findLatestAgentSessionFile(provider: AgentProvider, cwd: string, startedAt: number): string | null {
+  const root = getAgentSessionRoot(provider);
+  if (!root || !existsSync(root)) {
+    return null;
+  }
+
+  const files = getRecentJsonlFiles(root, startedAt - AGENT_SESSION_LOOKBACK_MS);
+  for (const file of files) {
+    if (agentSessionFileMatches(file, cwd)) {
+      return file;
+    }
+  }
+
+  return null;
+}
+
+function getAgentSessionRoot(provider: AgentProvider): string | null {
+  const home = getUserHome();
+  if (!home) {
+    return null;
+  }
+
+  return provider === "claude"
+    ? join(home, ".claude", "projects")
+    : join(home, ".codex", "sessions");
+}
+
+function getRecentJsonlFiles(root: string, sinceMs: number): string[] {
+  const files: { path: string; mtimeMs: number }[] = [];
+  const stack = [root];
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) {
+      continue;
+    }
+
+    let entries: string[];
+    try {
+      entries = readdirSync(current);
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const fullPath = join(current, entry);
+      let stats;
+      try {
+        stats = statSync(fullPath);
+      } catch {
+        continue;
+      }
+
+      if (stats.isDirectory()) {
+        if (stats.mtimeMs >= sinceMs || current === root) {
+          stack.push(fullPath);
+        }
+        continue;
+      }
+
+      if (stats.isFile() && entry.toLowerCase().endsWith(".jsonl") && stats.mtimeMs >= sinceMs) {
+        files.push({ path: fullPath, mtimeMs: stats.mtimeMs });
+      }
+    }
+  }
+
+  return files
+    .sort((left, right) => right.mtimeMs - left.mtimeMs)
+    .slice(0, 50)
+    .map((file) => file.path);
+}
+
+function agentSessionFileMatches(filePath: string, cwd: string): boolean {
+  const expected = normalizeSessionSearchText(cwd);
+  const pathText = normalizeSessionSearchText(filePath);
+  if (pathText.includes(expected) || pathText.includes(sanitizeSessionPath(cwd))) {
+    return true;
+  }
+
+  try {
+    const prefix = readFilePrefix(filePath, AGENT_SESSION_MATCH_BYTES);
+    return normalizeSessionSearchText(prefix).includes(expected);
+  } catch {
+    return false;
+  }
+}
+
+function readFilePrefix(filePath: string, maxBytes: number): string {
+  const fd = openSync(filePath, "r");
+  try {
+    const buffer = Buffer.alloc(maxBytes);
+    const bytesRead = readSync(fd, buffer, 0, maxBytes, 0);
+    return buffer.subarray(0, bytesRead).toString("utf8");
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function readFileTextFromOffset(filePath: string, offset: number): { text: string; nextOffset: number } | null {
+  let stats;
+  try {
+    stats = statSync(filePath);
+  } catch {
+    return null;
+  }
+
+  if (stats.size <= offset) {
+    return { text: "", nextOffset: stats.size };
+  }
+
+  const start = Math.max(offset, stats.size - AGENT_SESSION_MAX_READ_BYTES);
+  const length = stats.size - start;
+  const fd = openSync(filePath, "r");
+  try {
+    const buffer = Buffer.alloc(length);
+    const bytesRead = readSync(fd, buffer, 0, length, start);
+    return {
+      text: buffer.subarray(0, bytesRead).toString("utf8"),
+      nextOffset: stats.size
+    };
+  } catch {
+    return null;
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function parseAgentTranscriptEntries(provider: AgentProvider, text: string): AgentTranscriptEntry[] {
+  const entries: AgentTranscriptEntry[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) {
+      continue;
+    }
+
+    try {
+      const parsed = JSON.parse(line) as unknown;
+      const entry = provider === "claude"
+        ? parseClaudeTranscriptEntry(parsed)
+        : parseCodexTranscriptEntry(parsed);
+      if (entry) {
+        entries.push(entry);
+      }
+    } catch {
+      // Session logs are append-only. Ignore a partial final line until the next poll.
+    }
+  }
+
+  return entries;
+}
+
+function parseClaudeTranscriptEntry(value: unknown): AgentTranscriptEntry | null {
+  const entry = value as {
+    uuid?: string;
+    type?: string;
+    isMeta?: boolean;
+    message?: {
+      id?: string;
+      role?: string;
+      content?: unknown;
+    };
+    timestamp?: string;
+  };
+
+  if (entry.isMeta || !entry.message || entry.type === "user") {
+    return null;
+  }
+
+  const role = entry.type === "assistant" || entry.message.role === "assistant" ? "assistant" : "tool";
+  const text = extractClaudeContentText(entry.message.content);
+  if (!text) {
+    return null;
+  }
+
+  return {
+    id: entry.uuid ?? entry.message.id ?? `${entry.timestamp ?? ""}-${text.slice(0, 32)}`,
+    role,
+    text
+  };
+}
+
+function parseCodexTranscriptEntry(value: unknown): AgentTranscriptEntry | null {
+  const entry = value as {
+    timestamp?: string;
+    type?: string;
+    payload?: {
+      type?: string;
+      message?: string;
+    };
+  };
+
+  if (entry.type !== "event_msg" || entry.payload?.type !== "agent_message") {
+    return null;
+  }
+
+  const text = entry.payload.message?.trim();
+  if (!text) {
+    return null;
+  }
+
+  return {
+    id: `${entry.timestamp ?? ""}-${text.slice(0, 32)}`,
+    role: "assistant",
+    text
+  };
+}
+
+function extractClaudeContentText(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  const pieces: string[] = [];
+  for (const item of content) {
+    const typed = item as { type?: string; text?: string; name?: string; input?: unknown; content?: unknown };
+    if (typed.type === "text" && typed.text) {
+      pieces.push(typed.text);
+    } else if (typed.type === "tool_use" && typed.name) {
+      pieces.push(`[tool] ${typed.name}`);
+    } else if (typed.type === "tool_result") {
+      const resultText = typeof typed.content === "string" ? typed.content : "";
+      if (resultText) {
+        pieces.push(`[tool result]\n${resultText}`);
+      }
+    }
+  }
+
+  return pieces.join("\n\n").trim();
+}
+
+function normalizeSessionSearchText(value: string): string {
+  return value.replace(/\\/g, "/").toLowerCase();
+}
+
+function sanitizeSessionPath(value: string): string {
+  return normalizeSessionSearchText(value).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function getUserHome(): string | null {
+  return process.env.USERPROFILE ?? process.env.HOME ?? null;
 }
 
 function stripTerminalControlSequences(data: string): string {

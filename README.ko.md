@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obsidian 데스크톱 앱의 우측 사이드바에 현재 볼트 경로를 작업 디렉터리로 사용하는 실제 터미널을 여는 플러그인입니다.
+Obsidian 데스크톱 앱의 우측 사이드바에서 현재 볼트 경로 기준으로 agent CLI를 실행하는 플러그인입니다. Agent Console을 기본으로 제공하고, 기존 raw terminal은 fallback으로 유지합니다.
 
 > 상태: 초기 데스크톱 베타입니다. Windows와 macOS 릴리스 패키지를 배포하며, Community Plugin Directory 등록을 준비 중입니다. Linux는 소스 설치 경로를 유지합니다.
 
@@ -8,16 +8,17 @@ Obsidian 데스크톱 앱의 우측 사이드바에 현재 볼트 경로를 작�
 
 ## English Overview
 
-Obst Terminal opens a real terminal in Obsidian's right sidebar and starts it from the current vault path. It is designed for workflows where Obsidian holds project notes while Claude Code, Codex CLI, git, npm, and other local CLI tools run against the same vault.
+Obst Terminal opens an Agent Console and a raw terminal fallback in Obsidian's right sidebar. It starts from the current vault path and is designed for workflows where Obsidian holds project notes while Claude Code, Codex CLI, git, npm, and other local CLI tools run against the same vault.
 
 Current distribution is GitHub Release ZIP based while Community Plugin Directory registration is being prepared. The plugin is desktop-only and requires Node.js plus a native PTY runtime. Standard Community Plugin installs can download the verified OS-specific runtime from the matching GitHub Release.
 
 ## 주요 기능
 
-- Obst Terminal 탭을 열면 터미널이 자동으로 시작됩니다.
-- 현재 Obsidian 볼트가 셸의 작업 디렉터리가 됩니다.
-- PowerShell, zsh, bash 같은 일반 셸 명령을 탭 안에서 실행합니다.
-- Claude Code, Codex CLI, Git, Python, npm 같은 CLI 도구를 볼트 기준으로 실행합니다.
+- Obst Terminal 탭을 열면 Agent Console이 기본으로 표시됩니다.
+- 현재 Obsidian 볼트가 agent CLI와 raw terminal의 작업 디렉터리가 됩니다.
+- Claude Code와 Codex CLI를 공식 interactive CLI로 실행해 기존 구독 로그인을 그대로 사용합니다.
+- 세션 로그를 읽어 append-only transcript로 표시해 Windows TUI 렌더링 문제를 줄입니다.
+- PowerShell, zsh, bash 같은 일반 셸 명령은 Raw terminal 탭에서 실행합니다.
 - 터미널 텍스트 선택과 복사를 지원합니다.
 - 파일을 터미널에 드롭하면 agent CLI용 파일 참조를 입력합니다.
 - 클립보드 이미지를 볼트에 저장하고 `@path` 참조를 입력합니다.

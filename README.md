@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Open a real terminal in Obsidian's right sidebar, rooted at the current vault path.
+Run vault-rooted agent CLIs from Obsidian's right sidebar, with an Agent Console and a raw terminal fallback.
 
 [한국어 README](README.ko.md)
 
@@ -12,15 +12,16 @@ Open a real terminal in Obsidian's right sidebar, rooted at the current vault pa
 
 Obst Terminal is designed for workflows where Obsidian holds project notes, indexes, plans, and handoff documents while local CLI tools work against the same folder.
 
-You can keep project notes open in the main Obsidian workspace and run tools such as Claude Code, Codex CLI, git, npm, Python, PowerShell, zsh, or bash from the right sidebar. The terminal starts in the vault path, so agent CLIs can read the same `AGENTS.md`, `CLAUDE.md`, notes, and project files that you are looking at in Obsidian.
+The default pane is **Agent Console**. It starts the official interactive Claude Code or Codex CLI in the current vault path, so existing subscription login is preserved. The transcript pane reads local session logs and renders append-only messages instead of relying on fragile Windows TUI rendering. A **Raw terminal** tab is still available for login, permission prompts, shell commands, and fallback troubleshooting.
 
 ![Obst Terminal running Claude Code in Obsidian's right sidebar](docs/images/vault-terminal-claude-code.png)
 
 ## Features
 
 - Opens automatically in Obsidian's right sidebar.
-- Uses the current vault path as the terminal working directory.
-- Runs a real local shell: PowerShell, zsh, bash, or your configured executable.
+- Uses the current vault path as the agent and terminal working directory.
+- Adds an Agent Console for interactive Claude Code and Codex CLI subscription workflows.
+- Keeps the raw xterm/node-pty terminal as a fallback for shell commands, login, and permissions.
 - Works with local CLI tools such as Claude Code, Codex CLI, Git, Python, and npm.
 - Supports terminal text selection and copy.
 - Inserts file references when files are dropped onto the terminal.
