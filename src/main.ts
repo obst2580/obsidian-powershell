@@ -114,7 +114,7 @@ type WindowsPtyBackend = "winpty" | "conpty";
 type ViewPane = "agent" | "terminal";
 type AgentProvider = "claude" | "codex";
 type AgentTranscriptRole = "user" | "assistant" | "tool" | "system";
-type AgentPromptMode = "auth" | "menu" | "confirmation" | "permission" | "command" | "text";
+type AgentPromptMode = "auth" | "mcp" | "menu" | "confirmation" | "permission" | "command" | "text";
 
 interface PtyHostConfig {
   shell: string;
@@ -1189,7 +1189,8 @@ class VaultPowerShellView extends ItemView {
       role: "user",
       text: visibleText
     });
-    const data = this.agentPromptState
+    const promptMode = this.agentPromptState?.mode;
+    const data = this.agentPromptState && !(promptMode === "mcp" && !text.startsWith("/"))
       ? formatAgentInteractiveInput(text)
       : `${formatTerminalPasteData(text)}\r`;
     this.clearAgentPromptState();
@@ -1354,7 +1355,7 @@ class VaultPowerShellView extends ItemView {
     }
 
     if (actionablePrompt || (!this.agentSessionPath && /login|auth|permission|trust|press|continue|select|choose|not recognized|not found|command not found/i.test(promptSource))) {
-      this.setAgentStatus("Agent prompt needs input");
+      this.setAgentStatus(actionablePrompt?.mode === "mcp" ? "MCP auth available" : "Agent prompt needs input");
     }
 
     if (actionablePrompt || /login|auth|permission|trust|press|continue|select|choose|allow|deny|approve|yes|no|y\/n|not recognized|not found|command not found/i.test(promptSource)) {
@@ -3548,6 +3549,10 @@ function getAgentPromptModeLabel(mode: AgentPromptMode): string {
     return "Authentication";
   }
 
+  if (mode === "mcp") {
+    return "MCP authentication";
+  }
+
   if (mode === "command") {
     return "Command prompt";
   }
@@ -3746,8 +3751,9 @@ function extractAgentActionablePrompt(text: string): AgentPromptState | null {
 
   const deduped = uniqueStrings(promptLines.length > 0 ? promptLines : urls).slice(-16);
   const promptText = deduped.join("\n");
-  const requiresAuth = /\/login|api error|401|mcp servers need auth|need auth|authentication|login/i.test(promptText) ||
-    urls.some((url) => /claude|anthropic|oauth|login|auth/i.test(url));
+  const mcpAuth = isMcpAuthPrompt(promptText);
+  const requiresAuth = !mcpAuth && (/\/login|api error|401|need auth|authentication|login/i.test(promptText) ||
+    urls.some((url) => /claude|anthropic|oauth|login|auth/i.test(url)));
   const mode = getAgentPromptMode(promptText, requiresAuth);
   return {
     text: promptText,
@@ -3760,6 +3766,10 @@ function extractAgentActionablePrompt(text: string): AgentPromptState | null {
 }
 
 function getAgentPromptMode(text: string, requiresAuth: boolean): AgentPromptMode {
+  if (isMcpAuthPrompt(text)) {
+    return "mcp";
+  }
+
   if (/select|choose|method|use .*arrow|arrow keys|↑|↓|❯|navigate/i.test(text)) {
     return "menu";
   }
@@ -3781,7 +3791,7 @@ function getAgentPromptMode(text: string, requiresAuth: boolean): AgentPromptMod
 
 function getAgentPromptActions(mode: AgentPromptMode, text: string, urls: string[]): AgentPromptAction[] {
   const actions: AgentPromptAction[] = [];
-  const mcpAuth = /mcp servers need auth|\/mcp/i.test(text);
+  const mcpAuth = isMcpAuthPrompt(text);
   urls.forEach((url, index) => {
     const label = index === 0 ? "Open login link" : `Open link ${index + 1}`;
     actions.push({
@@ -3923,6 +3933,10 @@ function getTextAfterLastAgentAuthSuccess(text: string): string {
 
 function isAgentAuthCompletionLine(line: string): boolean {
   return hasAgentAuthSuccess(line) || /login interrupted|login cancelled|login canceled/i.test(line);
+}
+
+function isMcpAuthPrompt(text: string): boolean {
+  return /mcp servers need auth|\/mcp/i.test(text);
 }
 
 function extractHttpUrls(text: string): string[] {
