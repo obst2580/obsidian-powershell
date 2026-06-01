@@ -84,7 +84,7 @@ const KILL_LINE_SEQUENCE = "\x15";
 const CODEX_RESIZE_REFLOW_CONFIG = "tui.terminal_resize_reflow=false";
 const TERMINAL_FIT_STABILIZATION_DELAYS_MS = [0, 16, 50, 150, 400, 1000];
 const SETTINGS_SCHEMA_VERSION = 2;
-const AGENT_CONSOLE_COLS = 120;
+const AGENT_CONSOLE_COLS = 300;
 const AGENT_CONSOLE_ROWS = 30;
 const AGENT_READY_DELAY_MS = 2500;
 const AGENT_SESSION_POLL_MS = 1200;
@@ -171,18 +171,35 @@ interface AgentTranscriptEntry {
   text: string;
 }
 
-interface AgentPromptAction {
-  label: string;
-  data: string;
-  description?: string;
-  keepPrompt?: boolean;
-}
+type AgentPromptAction =
+  | {
+    kind?: "input";
+    label: string;
+    data: string;
+    description?: string;
+    keepPrompt?: boolean;
+  }
+  | {
+    kind: "open-url";
+    label: string;
+    url: string;
+    description?: string;
+    keepPrompt?: boolean;
+  }
+  | {
+    kind: "copy-text";
+    label: string;
+    text: string;
+    description?: string;
+    keepPrompt?: boolean;
+  };
 
 interface AgentPromptState {
   text: string;
   requiresAuth: boolean;
   mode: AgentPromptMode;
   allowEmptySubmit: boolean;
+  urls: string[];
   actions: AgentPromptAction[];
 }
 
@@ -1270,7 +1287,32 @@ class VaultPowerShellView extends ItemView {
         button.setAttr("title", action.description);
       }
       button.addEventListener("click", () => {
+        if (action.kind === "open-url") {
+          this.openAgentExternalUrl(action.url);
+          return;
+        }
+
+        if (action.kind === "copy-text") {
+          void writeClipboardText(action.text).then(() => {
+            new Notice("Copied login link.");
+          }).catch((error: Error) => {
+            new Notice(`Could not copy login link: ${error.message}`);
+          });
+          return;
+        }
+
         this.sendAgentControlData(action.data, action.label, action.keepPrompt ?? false);
+      });
+    }
+  }
+
+  private openAgentExternalUrl(url: string) {
+    const popup = window.open(url, "_blank", "noopener,noreferrer");
+    if (!popup) {
+      void writeClipboardText(url).then(() => {
+        new Notice("Could not open the login link, so it was copied instead.");
+      }).catch((error: Error) => {
+        new Notice(`Could not open or copy login link: ${error.message}`);
       });
     }
   }
@@ -1302,7 +1344,7 @@ class VaultPowerShellView extends ItemView {
       this.setAgentPromptState(actionablePrompt);
     }
 
-    if (!this.agentSessionPath && /login|auth|permission|trust|press|continue|select|choose|not recognized|not found|command not found/i.test(plainText)) {
+    if (actionablePrompt || (!this.agentSessionPath && /login|auth|permission|trust|press|continue|select|choose|not recognized|not found|command not found/i.test(plainText))) {
       this.setAgentStatus("Agent prompt needs input");
     }
 
@@ -1383,8 +1425,14 @@ class VaultPowerShellView extends ItemView {
 
     const item = this.agentTranscriptEl.createDiv(`vault-agent-message vault-agent-message-${entry.role}`);
     item.createDiv("vault-agent-message-role").setText(getTranscriptRoleLabel(entry.role));
-    item.createDiv("vault-agent-message-body").setText(entry.text.trim());
+    this.renderAgentMessageBody(item.createDiv("vault-agent-message-body"), entry.text.trim());
     this.agentTranscriptEl.scrollTop = this.agentTranscriptEl.scrollHeight;
+  }
+
+  private renderAgentMessageBody(container: HTMLElement, text: string) {
+    appendTextWithLinks(container, text, (url) => {
+      this.openAgentExternalUrl(url);
+    });
   }
 
   private setAgentStatus(text: string) {
@@ -3660,38 +3708,41 @@ function parseAgentTranscriptEntries(provider: AgentProvider, text: string): Age
 }
 
 function extractAgentActionablePrompt(text: string): AgentPromptState | null {
-  const normalized = text
-    .replace(/\r/g, "\n")
-    .split("\n")
-    .map((line) => line.replace(/[─━═]{3,}/g, "").trim())
-    .filter(Boolean)
-    .join("\n");
-
-  const promptLines = normalized
+  const normalized = normalizeAgentPromptText(text);
+  const rawLines = normalized
     .split("\n")
     .map((line) => line.trim())
-    .filter((line) => {
-      if (!line) {
-        return false;
-      }
+    .filter(Boolean);
+  const urls = extractHttpUrls(normalized);
+  const hasMenuCue = rawLines.some((line) => /select|choose|method|use .*arrow|arrow keys|navigate/i.test(line));
+  const menuCueIndex = rawLines.findIndex((line) => /select|choose|method|login/i.test(line));
+  const contextLines = hasMenuCue && menuCueIndex >= 0
+    ? rawLines.slice(Math.max(0, menuCueIndex - 2), menuCueIndex + 12)
+    : [];
+  const interestingLines = rawLines.filter((line) => {
+    return extractHttpUrls(line).length > 0 ||
+      /\/login|api error|401|mcp servers need auth|need auth|authentication|login|browser|url|link|select|choose|method|permission|trust|allow|deny|approve|yes|no|y\/n|continue|press|not recognized|not found|command not found/i.test(line);
+  });
+  const promptLines = uniqueStrings([...contextLines, ...interestingLines])
+    .filter((line) => !isNoisyAgentPromptLine(line))
+    .slice(-16);
 
-      return /\/login|api error|401|mcp servers need auth|need auth|authentication|login|select|choose|method|permission|trust|allow|deny|approve|yes|no|y\/n|continue|press|not recognized|not found|command not found/i.test(line);
-    });
-
-  if (promptLines.length === 0) {
+  if (promptLines.length === 0 && urls.length === 0) {
     return null;
   }
 
-  const deduped = uniqueStrings(promptLines).slice(-10);
+  const deduped = uniqueStrings(promptLines.length > 0 ? promptLines : urls).slice(-16);
   const promptText = deduped.join("\n");
-  const requiresAuth = /\/login|api error|401|mcp servers need auth|need auth|authentication|login/i.test(promptText);
+  const requiresAuth = /\/login|api error|401|mcp servers need auth|need auth|authentication|login/i.test(promptText) ||
+    urls.some((url) => /claude|anthropic|oauth|login|auth/i.test(url));
   const mode = getAgentPromptMode(promptText, requiresAuth);
   return {
     text: promptText,
     requiresAuth,
     mode,
     allowEmptySubmit: mode === "menu" || /press enter|hit enter|return to continue/i.test(promptText),
-    actions: getAgentPromptActions(mode, promptText)
+    urls,
+    actions: getAgentPromptActions(mode, promptText, urls)
   };
 }
 
@@ -3715,9 +3766,26 @@ function getAgentPromptMode(text: string, requiresAuth: boolean): AgentPromptMod
   return requiresAuth ? "auth" : "text";
 }
 
-function getAgentPromptActions(mode: AgentPromptMode, text: string): AgentPromptAction[] {
+function getAgentPromptActions(mode: AgentPromptMode, text: string, urls: string[]): AgentPromptAction[] {
   const actions: AgentPromptAction[] = [];
   const mcpAuth = /mcp servers need auth|\/mcp/i.test(text);
+  urls.forEach((url, index) => {
+    const label = index === 0 ? "Open login link" : `Open link ${index + 1}`;
+    actions.push({
+      kind: "open-url",
+      label,
+      url,
+      description: url,
+      keepPrompt: true
+    });
+    actions.push({
+      kind: "copy-text",
+      label: index === 0 ? "Copy login link" : `Copy link ${index + 1}`,
+      text: url,
+      description: url,
+      keepPrompt: true
+    });
+  });
 
   if (/\/login|api error|401|authentication|login/i.test(text) || (mode === "auth" && !mcpAuth)) {
     actions.push({ label: "/login", data: "/login\r", description: "Start the agent login flow." });
@@ -3728,13 +3796,12 @@ function getAgentPromptActions(mode: AgentPromptMode, text: string): AgentPrompt
   }
 
   if (mode === "menu") {
+    const optionActions = extractNumberedPromptOptions(text);
     actions.push(
       { label: "Enter", data: "\r", description: "Accept the currently selected menu item." },
       { label: "Down", data: ARROW_DOWN_SEQUENCE, description: "Move the menu selection down.", keepPrompt: true },
       { label: "Up", data: ARROW_UP_SEQUENCE, description: "Move the menu selection up.", keepPrompt: true },
-      { label: "1", data: "1\r", description: "Choose option 1." },
-      { label: "2", data: "2\r", description: "Choose option 2." },
-      { label: "3", data: "3\r", description: "Choose option 3." }
+      ...optionActions
     );
   }
 
@@ -3759,7 +3826,11 @@ function getAgentPromptActions(mode: AgentPromptMode, text: string): AgentPrompt
 function dedupeAgentPromptActions(actions: AgentPromptAction[]): AgentPromptAction[] {
   const seen = new Set<string>();
   return actions.filter((action) => {
-    const key = `${action.label}\u0000${action.data}`;
+    const key = action.kind === "open-url"
+      ? `open-url\u0000${action.url}`
+      : action.kind === "copy-text"
+        ? `copy-text\u0000${action.text}`
+        : `input\u0000${action.label}\u0000${action.data}`;
     if (seen.has(key)) {
       return false;
     }
@@ -3767,6 +3838,107 @@ function dedupeAgentPromptActions(actions: AgentPromptAction[]): AgentPromptActi
     seen.add(key);
     return true;
   });
+}
+
+function extractNumberedPromptOptions(text: string): AgentPromptAction[] {
+  const actions: AgentPromptAction[] = [];
+  for (const line of text.split("\n")) {
+    const match = line.trim().match(/^(?:[>❯›»*+-]\s*)?(?:\(?([1-9])\)?[.)]|([1-9])[:：])\s+(.{1,80})$/);
+    const option = match?.[1] ?? match?.[2];
+    const label = match?.[3]?.trim();
+    if (!option || !label || /https?:\/\//i.test(label)) {
+      continue;
+    }
+
+    actions.push({
+      label: `${option}: ${truncatePromptActionLabel(label)}`,
+      data: `${option}\r`,
+      description: label
+    });
+  }
+
+  return actions;
+}
+
+function truncatePromptActionLabel(value: string): string {
+  return value.length > 24 ? `${value.slice(0, 21)}...` : value;
+}
+
+function normalizeAgentPromptText(text: string): string {
+  return joinWrappedUrls(text)
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[─━═]{3,}/g, "").trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
+function joinWrappedUrls(text: string): string {
+  let result = text.replace(/\r\n|\r/g, "\n");
+  for (let index = 0; index < 5; index += 1) {
+    const next = result.replace(/(https?:\/\/[^\s<>"`]+)\n\s*([A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%-]+)/g, "$1$2");
+    if (next === result) {
+      break;
+    }
+    result = next;
+  }
+
+  return result;
+}
+
+function isNoisyAgentPromptLine(line: string): boolean {
+  return /^[-_*]{2,}$/.test(line) ||
+    /^\? for shortcuts/i.test(line) ||
+    /^esc to /i.test(line);
+}
+
+function extractHttpUrls(text: string): string[] {
+  const joined = joinWrappedUrls(text);
+  const matches = joined.match(/https?:\/\/[^\s<>"`]+/gi) ?? [];
+  return uniqueStrings(matches.map((url) => trimUrlPunctuation(url)).filter(Boolean));
+}
+
+function trimUrlPunctuation(url: string): string {
+  return url.replace(/[)\].,;:!?]+$/g, "");
+}
+
+function appendTextWithLinks(container: HTMLElement, text: string, openUrl: (url: string) => void) {
+  const linkedText = joinWrappedUrls(text);
+  const pattern = /https?:\/\/[^\s<>"`]+/gi;
+  let cursor = 0;
+
+  for (const match of linkedText.matchAll(pattern)) {
+    const index = match.index ?? 0;
+    const rawUrl = match[0];
+    const url = trimUrlPunctuation(rawUrl);
+    if (index > cursor) {
+      container.createSpan({ text: linkedText.slice(cursor, index) });
+    }
+
+    const trailing = rawUrl.slice(url.length);
+    const link = container.createEl("a", {
+      cls: "vault-agent-link",
+      text: url,
+      attr: {
+        href: url,
+        target: "_blank",
+        rel: "noopener"
+      }
+    });
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      openUrl(url);
+    });
+
+    if (trailing) {
+      container.createSpan({ text: trailing });
+    }
+    cursor = index + rawUrl.length;
+  }
+
+  if (cursor < linkedText.length) {
+    container.createSpan({ text: linkedText.slice(cursor) });
+  }
 }
 
 function parseClaudeTranscriptEntry(value: unknown): AgentTranscriptEntry | null {
@@ -3865,11 +4037,27 @@ function getUserHome(): string | null {
 }
 
 function stripTerminalControlSequences(data: string): string {
-  return data
+  return expandTerminalHyperlinks(data)
     .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
     .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
     .replace(/\x1b[()][A-Za-z0-9]/g, "")
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+}
+
+function expandTerminalHyperlinks(data: string): string {
+  return data.replace(/\x1b]8;[^;]*;([^\x07\x1b]*)(?:\x07|\x1b\\)([\s\S]*?)\x1b]8;[^;]*;(?:\x07|\x1b\\)/g, (_match, url: string, label: string) => {
+    const trimmedUrl = trimUrlPunctuation(url.trim());
+    const trimmedLabel = label.trim();
+    if (!trimmedUrl) {
+      return label;
+    }
+
+    if (!trimmedLabel || trimmedLabel.includes(trimmedUrl)) {
+      return trimmedUrl;
+    }
+
+    return `${trimmedLabel} ${trimmedUrl}`;
+  });
 }
 
 function isEnterKey(event: KeyboardEvent): boolean {

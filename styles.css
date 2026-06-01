@@ -159,6 +159,13 @@
   line-height: 1.45;
 }
 
+.vault-agent-link {
+  color: var(--text-accent);
+  text-decoration: underline;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}
+
 .vault-agent-composer {
   flex: 0 0 auto;
   padding: 10px 12px 12px;
