@@ -3791,25 +3791,15 @@ function extractAgentActionablePrompt(text: string): AgentPromptState | null {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
-  const urls = extractHttpUrls(normalized);
-  const hasMenuCue = rawLines.some((line) => /select|choose|method|use .*arrow|arrow keys|navigate/i.test(line));
-  const menuCueIndex = rawLines.findIndex((line) => /select|choose|method|login/i.test(line));
-  const hasAuthCodeCue = rawLines.some((line) => /paste code|code here|authorization code|verification code|browser .*open|browser didn't open|copy\)/i.test(line));
-  const contextLines = hasMenuCue && menuCueIndex >= 0
-    ? rawLines.slice(Math.max(0, menuCueIndex - 2), menuCueIndex + 12)
-    : hasAuthCodeCue
-      ? rawLines.slice(Math.max(0, rawLines.findIndex((line) => /paste code|code here|browser .*open|browser didn't open/i.test(line)) - 6))
+  const controlLines = rawLines.filter((line) => isAgentControlPromptLine(line));
+  const cueIndex = rawLines.findIndex((line) => isAgentPromptContextCue(line));
+  const contextLines = cueIndex >= 0
+    ? rawLines.slice(Math.max(0, cueIndex - 6), cueIndex + 12).filter((line) => isAgentPromptContextLine(line))
     : [];
-  const interestingLines = rawLines.filter((line) => {
-    if (isAgentAuthCompletionLine(line)) {
-      return false;
-    }
-
-    return extractHttpUrls(line).length > 0 ||
-      /\/login|api error|401|mcp servers need auth|need auth|authentication|login|browser|url|link|paste code|code here|authorization code|verification code|select|choose|method|permission|trust|allow|deny|approve|yes|no|y\/n|continue|press|not recognized|not found|command not found/i.test(line);
-  });
-  const promptLines = uniqueStrings([...contextLines, ...interestingLines])
-    .filter((line) => !isNoisyAgentPromptLine(line) && !isAgentAuthCompletionLine(line))
+  const promptTextCandidate = uniqueStrings([...contextLines, ...controlLines]).join("\n");
+  const urls = extractHttpUrls(promptTextCandidate);
+  const promptLines = uniqueStrings([...contextLines, ...controlLines])
+    .filter((line) => !isNoisyAgentPromptLine(line) && !isAgentAuthCompletionLine(line) && !isAgentHookWarningLine(line))
     .slice(-16);
 
   if (promptLines.length === 0 && urls.length === 0) {
@@ -4000,8 +3990,65 @@ function joinWrappedUrls(text: string): string {
 
 function isNoisyAgentPromptLine(line: string): boolean {
   return /^[-_*]{2,}$/.test(line) ||
-    /^\? for shortcuts/i.test(line) ||
-    /^esc to /i.test(line);
+    /^\? for shortcuts/i.test(line);
+}
+
+function isAgentControlPromptLine(line: string): boolean {
+  const value = line.trim();
+  if (!value || isNoisyAgentPromptLine(value) || isAgentAuthCompletionLine(value) || isAgentHookWarningLine(value)) {
+    return false;
+  }
+
+  const urls = extractHttpUrls(value);
+  if (urls.some((url) => isAgentLoginUrl(url))) {
+    return true;
+  }
+
+  return /^>\s*\/login\b/i.test(value) ||
+    /^\/login\b/i.test(value) ||
+    /^login$/i.test(value) ||
+    /^select login method\b/i.test(value) ||
+    /^please run\s+\/login\b/i.test(value) ||
+    /^api error:\s*401\b/i.test(value) ||
+    /\b401 invalid authentication credentials\b/i.test(value) ||
+    /^browser didn't open\b/i.test(value) ||
+    /^paste code here\b/i.test(value) ||
+    /\bpaste code\b/i.test(value) ||
+    /^\s*(?:\d+\s+)?mcp servers? need auth\b/i.test(value) ||
+    /^esc to continue$/i.test(value) ||
+    /^(allow|deny|approve)\b/i.test(value) ||
+    /\b(?:yes\/no|y\/n|\[y\/n\]|\(y\/n\))\b/i.test(value) ||
+    isAgentCliCommandFailureLine(value);
+}
+
+function isAgentPromptContextCue(line: string): boolean {
+  return isAgentControlPromptLine(line) ||
+    /select login method|browser didn't open|paste code here|authorization code|verification code/i.test(line);
+}
+
+function isAgentPromptContextLine(line: string): boolean {
+  const value = line.trim();
+  if (!value || isNoisyAgentPromptLine(value) || isAgentAuthCompletionLine(value) || isAgentHookWarningLine(value)) {
+    return false;
+  }
+
+  return isAgentControlPromptLine(value) ||
+    extractHttpUrls(value).some((url) => isAgentLoginUrl(url)) ||
+    /^(?:\(?[1-9]\)?[.)]|[1-9][:：])\s+/.test(value) ||
+    /^claude code can be used\b/i.test(value) ||
+    /^use the url below\b/i.test(value);
+}
+
+function isAgentCliCommandFailureLine(line: string): boolean {
+  if (isAgentHookWarningLine(line)) {
+    return false;
+  }
+
+  return /(?:claude|codex).*?(?:command not found|not recognized|not found|ENOENT|spawn)/i.test(line);
+}
+
+function isAgentHookWarningLine(line: string): boolean {
+  return /hook error|non-blocking status code|memrosetta-enforce-claude-code/i.test(line);
 }
 
 function hasAgentAuthSuccess(text: string): boolean {
@@ -4025,7 +4072,7 @@ function isAgentAuthCompletionLine(line: string): boolean {
 }
 
 function isMcpAuthPrompt(text: string): boolean {
-  return /mcp servers need auth|\/mcp/i.test(text);
+  return text.split(/\r?\n/).some((line) => /^\s*(?:\d+\s+)?mcp servers? need auth\b/i.test(line.trim()));
 }
 
 function looksLikeAgentAuthCode(text: string): boolean {
