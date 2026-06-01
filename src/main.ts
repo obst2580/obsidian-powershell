@@ -56,6 +56,9 @@ const RUNTIME_UNIX_EXECUTABLE_RELATIVE_FILES = [
 const DEFAULT_PWSH_PATH = "C:\\Program Files\\PowerShell\\7\\pwsh.exe";
 const WINDOWS_POWERSHELL_PATH = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
 const DEFAULT_NODE_PATH = "C:\\Program Files\\nodejs\\node.exe";
+const WINDOWS_CMD_PATH = "C:\\Windows\\System32\\cmd.exe";
+const WINDOWS_WSL_PATH = "C:\\Windows\\System32\\wsl.exe";
+const WINDOWS_GIT_BASH_PATHS = ["C:\\Program Files\\Git\\bin\\bash.exe", "C:\\Program Files (x86)\\Git\\bin\\bash.exe"];
 const MACOS_PWSH_PATHS = ["/opt/homebrew/bin/pwsh", "/usr/local/bin/pwsh", "/opt/local/bin/pwsh"];
 const MACOS_NODE_PATHS = ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/opt/local/bin/node", "/usr/bin/node"];
 const LINUX_PWSH_PATHS = ["/usr/local/bin/pwsh", "/usr/bin/pwsh", "/snap/bin/pwsh"];
@@ -94,6 +97,8 @@ const AGENT_SESSION_MAX_READ_BYTES = 1024 * 1024;
 
 interface PowerShellSettings {
   settingsSchemaVersion: number;
+  shellProfile: ShellProfile;
+  wslDistro: string;
   executable: string;
   args: string;
   nodeExecutable: string;
@@ -111,6 +116,7 @@ interface PowerShellSettings {
 type TerminalColorScheme = "dark" | "light" | "obsidian";
 type ShiftEnterMode = "bracketed-paste" | "claude-backslash" | "xterm-paste" | "modified-enter" | "csi-u" | "line-feed";
 type WindowsPtyBackend = "winpty" | "conpty";
+type ShellProfile = "auto" | "pwsh" | "windows-powershell" | "cmd" | "wsl" | "git-bash" | "zsh" | "bash" | "custom";
 type ViewPane = "agent" | "terminal";
 type AgentProvider = "claude" | "codex";
 type AgentTranscriptRole = "user" | "assistant" | "tool" | "system";
@@ -246,6 +252,8 @@ type ClipboardWithImage = typeof clipboard & {
 
 const DEFAULT_SETTINGS: PowerShellSettings = {
   settingsSchemaVersion: SETTINGS_SCHEMA_VERSION,
+  shellProfile: "auto",
+  wslDistro: "",
   executable: "",
   args: "",
   nodeExecutable: "",
@@ -369,6 +377,8 @@ export default class VaultPowerShellPlugin extends Plugin {
     const needsCodexScrollbackMigration = (saved?.settingsSchemaVersion ?? 0) < 2;
     this.settings = Object.assign({}, DEFAULT_SETTINGS, saved ?? {});
     this.settings.settingsSchemaVersion = SETTINGS_SCHEMA_VERSION;
+    this.settings.shellProfile = normalizeShellProfile(this.settings.shellProfile);
+    this.settings.wslDistro = this.settings.wslDistro?.trim() ?? "";
     this.settings.terminalColorScheme = normalizeTerminalColorScheme(this.settings.terminalColorScheme);
     this.settings.shiftEnterMode = normalizeShiftEnterMode(this.settings.shiftEnterMode);
     this.settings.codexDisableResizeReflow = this.settings.codexDisableResizeReflow !== false;
@@ -396,21 +406,97 @@ export default class VaultPowerShellPlugin extends Plugin {
   }
 
   getShellExecutable(): string {
-    const configured = this.settings.executable.trim();
-    if (!isAutoShellSetting(configured) && !isPlatformIncompatiblePath(configured)) {
-      return configured;
+    const launchConfig = this.getShellLaunchConfig(this.getVaultPath() ?? "");
+    return launchConfig.shell;
+  }
+
+  getShellLaunchConfig(vaultPath: string): ShellLaunchConfig {
+    const profile = normalizeShellProfile(this.settings.shellProfile);
+    const customShell = this.settings.executable.trim();
+
+    if (profile === "custom" && !isAutoShellSetting(customShell) && !isPlatformIncompatiblePath(customShell)) {
+      return {
+        shell: customShell,
+        args: this.getConfiguredShellArgs(customShell)
+      };
     }
 
-    return this.getAutoShellExecutable();
+    const builtIn = this.getBuiltInShellLaunchConfig(profile, vaultPath);
+    if (builtIn) {
+      return builtIn;
+    }
+
+    const configured = this.settings.executable.trim();
+    if (profile === "auto" && !isAutoShellSetting(configured) && !isPlatformIncompatiblePath(configured)) {
+      return {
+        shell: configured,
+        args: this.getConfiguredShellArgs(configured)
+      };
+    }
+
+    const shell = this.getAutoShellExecutable();
+    return {
+      shell,
+      args: this.getAutoShellArgs(shell)
+    };
   }
 
   getShellFallbacks(primaryShell: string): ShellLaunchConfig[] {
+    if (this.settings.shellProfile !== "auto" && this.settings.shellProfile !== "custom") {
+      return [];
+    }
+
     return uniqueStrings(getAutoShellCandidates())
       .filter((shell) => shell !== primaryShell)
       .map((shell) => ({
         shell,
-        args: this.getShellArgs(shell)
+        args: this.getAutoShellArgs(shell)
       }));
+  }
+
+  private getBuiltInShellLaunchConfig(profile: ShellProfile, vaultPath: string): ShellLaunchConfig | null {
+    if (profile === "pwsh") {
+      const shell = firstExistingPath(process.platform === "win32" ? [DEFAULT_PWSH_PATH] : [...MACOS_PWSH_PATHS, ...LINUX_PWSH_PATHS]) ?? "pwsh";
+      return { shell, args: ["-NoLogo"] };
+    }
+
+    if (profile === "windows-powershell" && process.platform === "win32") {
+      return { shell: WINDOWS_POWERSHELL_PATH, args: ["-NoLogo"] };
+    }
+
+    if (profile === "cmd" && process.platform === "win32") {
+      return { shell: WINDOWS_CMD_PATH, args: [] };
+    }
+
+    if (profile === "wsl" && process.platform === "win32") {
+      const distro = this.settings.wslDistro.trim();
+      return {
+        shell: existsSync(WINDOWS_WSL_PATH) ? WINDOWS_WSL_PATH : "wsl.exe",
+        args: [
+          ...(distro ? ["-d", distro] : []),
+          "--cd",
+          toWslPath(vaultPath)
+        ]
+      };
+    }
+
+    if (profile === "git-bash" && process.platform === "win32") {
+      const shell = firstExistingPath(WINDOWS_GIT_BASH_PATHS) ?? "bash.exe";
+      return { shell, args: ["--login"] };
+    }
+
+    if (profile === "zsh" && process.platform !== "win32") {
+      return { shell: firstExistingPath(["/bin/zsh", "/usr/bin/zsh"]) ?? "zsh", args: [] };
+    }
+
+    if (profile === "bash") {
+      const shell = process.platform === "win32"
+        ? firstExistingPath(WINDOWS_GIT_BASH_PATHS) ?? "bash.exe"
+        : firstExistingPath(["/bin/bash", "/usr/bin/bash"]) ?? "bash";
+      return { shell, args: process.platform === "win32" ? ["--login"] : [] };
+    }
+
+    return null;
   }
 
   private getAutoShellExecutable(): string {
@@ -434,11 +520,24 @@ export default class VaultPowerShellPlugin extends Plugin {
   }
 
   getShellArgs(shell: string): string[] {
+    const launchConfig = this.getShellLaunchConfig(this.getVaultPath() ?? "");
+    if (launchConfig.shell === shell) {
+      return launchConfig.args;
+    }
+
+    return this.getAutoShellArgs(shell);
+  }
+
+  private getConfiguredShellArgs(shell: string): string[] {
     const configured = this.settings.args.trim();
     if (!isAutoShellArgsSetting(configured)) {
       return tokenizeArgs(configured);
     }
 
+    return this.getAutoShellArgs(shell);
+  }
+
+  private getAutoShellArgs(shell: string): string[] {
     return isPowerShellExecutable(shell) ? ["-NoLogo"] : [];
   }
 
@@ -698,7 +797,7 @@ export default class VaultPowerShellPlugin extends Plugin {
     view.insertTerminalText(`${text} `);
   }
 
-  private async insertCurrentNoteReference() {
+  async insertCurrentNoteReference() {
     const file = this.app.workspace.getActiveFile();
     if (!file) {
       new Notice("No active note to reference.");
@@ -762,7 +861,7 @@ class VaultPowerShellView extends ItemView {
   private inputLineReliable = true;
   private runtimePromptEl: HTMLElement | null = null;
   private pendingInsertTexts: string[] = [];
-  private activePane: ViewPane = "agent";
+  private activePane: ViewPane = "terminal";
   private paneTabEls: Record<ViewPane, HTMLElement | null> = { agent: null, terminal: null };
   private agentPaneEl: HTMLElement | null = null;
   private terminalPaneEl: HTMLElement | null = null;
@@ -822,15 +921,10 @@ class VaultPowerShellView extends ItemView {
     container.empty();
     container.addClass("vault-powershell-view");
 
-    const tabBar = container.createDiv("vault-terminal-tabbar");
-    this.paneTabEls.agent = this.createPaneTab(tabBar, "Agent console", "agent");
-    this.paneTabEls.terminal = this.createPaneTab(tabBar, "Raw terminal", "terminal");
-
-    this.agentPaneEl = container.createDiv("vault-agent-console");
-    this.createAgentConsole(this.agentPaneEl);
-
-    this.terminalPaneEl = container.createDiv("vault-powershell-terminal vault-terminal-pane-hidden");
-    this.showPane("agent");
+    this.activePane = "terminal";
+    this.createTerminalToolbar(container as HTMLElement);
+    this.terminalPaneEl = container.createDiv("vault-powershell-terminal");
+    this.ensureRawTerminal();
     return Promise.resolve();
   }
 
@@ -889,6 +983,52 @@ class VaultPowerShellView extends ItemView {
     return button;
   }
 
+  private createTerminalToolbar(container: HTMLElement) {
+    const toolbar = container.createDiv("vault-terminal-toolbar");
+    const titleWrap = toolbar.createDiv("vault-terminal-title-wrap");
+    titleWrap.createDiv({ cls: "vault-terminal-title", text: "Terminal" });
+    titleWrap.createDiv({
+      cls: "vault-terminal-subtitle",
+      text: this.plugin.getVaultPath() ?? "No local vault path"
+    });
+
+    const controls = toolbar.createDiv("vault-terminal-controls");
+    const profileSelect = controls.createEl("select", {
+      cls: "vault-terminal-shell-select",
+      attr: {
+        "aria-label": "Shell profile"
+      }
+    });
+    for (const option of getShellProfileOptions()) {
+      profileSelect.createEl("option", {
+        text: option.label,
+        value: option.value
+      });
+    }
+    profileSelect.value = normalizeShellProfile(this.plugin.settings.shellProfile);
+    profileSelect.addEventListener("change", () => {
+      this.plugin.settings.shellProfile = normalizeShellProfile(profileSelect.value);
+      void this.plugin.saveSettings();
+      this.restartShell();
+    });
+
+    const restartButton = controls.createEl("button", { text: "Restart" });
+    restartButton.addEventListener("click", () => {
+      this.restartShell();
+    });
+
+    const clearButton = controls.createEl("button", { text: "Clear" });
+    clearButton.addEventListener("click", () => {
+      this.terminal?.clear();
+      this.terminal?.focus();
+    });
+
+    const noteButton = controls.createEl("button", { text: "Add current note" });
+    noteButton.addEventListener("click", () => {
+      void this.plugin.insertCurrentNoteReference();
+    });
+  }
+
   private showPane(pane: ViewPane) {
     this.activePane = pane;
     this.agentPaneEl?.toggleClass("vault-terminal-pane-hidden", pane !== "agent");
@@ -913,6 +1053,13 @@ class VaultPowerShellView extends ItemView {
     this.terminalStarted = true;
     this.createTerminal(this.terminalPaneEl);
     this.startShell();
+  }
+
+  private restartShell() {
+    this.disposeShell();
+    this.terminal?.clear();
+    this.startShell();
+    this.terminal?.focus();
   }
 
   private createAgentConsole(container: HTMLElement) {
@@ -1571,6 +1718,25 @@ class VaultPowerShellView extends ItemView {
       return;
     }
 
+    const mcpStartupFailure = getMcpStartupFailureText(promptSource);
+    if (mcpStartupFailure) {
+      this.agentMcpAuthInProgress = false;
+      this.clearAgentPromptState();
+      this.markAgentConversationReady();
+      this.setAgentStatus("MCP configuration issue");
+
+      const notice = formatMcpStartupFailureNotice(mcpStartupFailure, getAgentProviderLabel(this.agentProvider));
+      if (notice !== this.agentLastRawNotice) {
+        this.agentLastRawNotice = notice;
+        this.appendAgentTranscript({
+          id: this.nextLocalAgentEntryId("system"),
+          role: "system",
+          text: notice
+        });
+      }
+      return;
+    }
+
     const mcpAuth = isMcpAuthPrompt(promptSource) || isMcpManagementPrompt(promptSource);
     const loginRequired = !mcpAuth && isAgentLoginRequiredText(promptSource);
     const loginFlow = !mcpAuth && isAgentLoginFlowText(promptSource);
@@ -1619,7 +1785,7 @@ class VaultPowerShellView extends ItemView {
         this.appendAgentTranscript({
           id: this.nextLocalAgentEntryId("system"),
           role: "system",
-          text: `Agent prompt:\n${notice}\n\nReply in the message box or use the quick actions below. Claude login prompts and MCP connection screens are handled separately inside this console.`
+          text: `Agent prompt:\n${notice}\n\nReply in the message box or use the quick actions below. ${getAgentProviderLabel(this.agentProvider)} login prompts and MCP connection screens are handled separately inside this console.`
         });
       }
     }
@@ -2381,11 +2547,11 @@ class VaultPowerShellView extends ItemView {
         useSystemCa: this.plugin.settings.useSystemCa,
         extraCaCertPath: this.plugin.getExtraCaCertPath()
       });
-      const shell = this.plugin.getShellExecutable();
+      const shellConfig = this.plugin.getShellLaunchConfig(cwd);
       const host = spawn(this.plugin.getNodeExecutable(), [this.plugin.getPtyHostPath(), encodeConfig({
-        shell,
-        args: this.plugin.getShellArgs(shell),
-        fallbackShells: this.plugin.getShellFallbacks(shell),
+        shell: shellConfig.shell,
+        args: shellConfig.args,
+        fallbackShells: this.plugin.getShellFallbacks(shellConfig.shell),
         cols: clampPtyCols(terminal.cols, 80),
         rows: clampPtyRows(terminal.rows, 24),
         cwd,
@@ -2839,11 +3005,6 @@ class VaultPowerShellView extends ItemView {
   }
 
   insertTerminalText(text: string) {
-    if (this.activePane === "agent") {
-      this.insertAgentInputText(text);
-      return;
-    }
-
     this.ensureRawTerminal();
     this.sendTerminalInput(text);
   }
@@ -2996,8 +3157,41 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
       .setHeading();
 
     new Setting(containerEl)
-      .setName("Shell executable")
-      .setDesc("Leave empty for automatic selection. Uses PowerShell on Windows, zsh/bash on macOS, and the local user shell on Linux.")
+      .setName("Shell profile")
+      .setDesc(process.platform === "win32"
+        ? "Choose the real shell opened in this pane. WSL uses the vault path converted to /mnt/c/..."
+        : "Choose the real shell opened in this pane. macOS usually uses zsh by default.")
+      .addDropdown((dropdown) => {
+        for (const option of getShellProfileOptions()) {
+          dropdown.addOption(option.value, option.label);
+        }
+
+        dropdown
+          .setValue(normalizeShellProfile(this.plugin.settings.shellProfile))
+          .onChange((value) => {
+            this.plugin.settings.shellProfile = normalizeShellProfile(value);
+            void this.plugin.saveSettings();
+          });
+      });
+
+    if (process.platform === "win32") {
+      new Setting(containerEl)
+        .setName("WSL distribution")
+        .setDesc("Optional. Leave empty for the default WSL distribution, or enter a name such as Ubuntu.")
+        .addText((text) =>
+          text
+            .setPlaceholder("default")
+            .setValue(this.plugin.settings.wslDistro)
+            .onChange((value) => {
+              this.plugin.settings.wslDistro = value.trim();
+              void this.plugin.saveSettings();
+            })
+        );
+    }
+
+    new Setting(containerEl)
+      .setName("Custom shell executable")
+      .setDesc("Used only when Shell profile is Custom, or as the legacy Auto override. Leave empty for automatic selection.")
       .addText((text) =>
         text
           .setPlaceholder("auto")
@@ -3009,8 +3203,8 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Shell arguments")
-      .setDesc("Leave empty for automatic arguments. PowerShell gets -NoLogo; zsh/bash get no startup arguments.")
+      .setName("Custom shell arguments")
+      .setDesc("Used with the custom shell executable. Leave empty for automatic arguments.")
       .addText((text) =>
         text
           .setPlaceholder("auto")
@@ -3763,7 +3957,8 @@ function firstExistingPath(candidates: string[]): string | null {
 
 function getAutoShellCandidates(): string[] {
   if (process.platform === "win32") {
-    return [DEFAULT_PWSH_PATH, WINDOWS_POWERSHELL_PATH].filter((candidate) => existsSync(candidate));
+    return [DEFAULT_PWSH_PATH, WINDOWS_POWERSHELL_PATH, WINDOWS_CMD_PATH, WINDOWS_WSL_PATH, ...WINDOWS_GIT_BASH_PATHS]
+      .filter((candidate) => existsSync(candidate));
   }
 
   if (process.platform === "darwin") {
@@ -3804,6 +3999,22 @@ function isPlatformIncompatiblePath(value: string): boolean {
   }
 
   return false;
+}
+
+function toWslPath(windowsPath: string): string {
+  const normalized = windowsPath.replace(/\\/g, "/");
+  const driveMatch = normalized.match(/^([a-zA-Z]):\/?(.*)$/);
+  if (driveMatch) {
+    const drive = driveMatch[1].toLowerCase();
+    const rest = driveMatch[2] ? `/${driveMatch[2].replace(/^\/+/, "")}` : "";
+    return `/mnt/${drive}${rest}`;
+  }
+
+  if (normalized.startsWith("//")) {
+    return normalized;
+  }
+
+  return normalized || ".";
 }
 
 function isAutoShellSetting(value: string): boolean {
@@ -4639,6 +4850,43 @@ function hasAgentMcpAuthSuccess(text: string): boolean {
   return /mcp.*(?:authenticated|authorized|connected|login successful)|(?:authenticated|authorized|connected).*mcp/i.test(text);
 }
 
+function getMcpStartupFailureText(text: string): string | null {
+  const normalized = normalizeAgentPromptText(text);
+  const lines = normalized.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const failureLine = lines.find((line) => isMcpStartupFailureLine(line));
+  if (!failureLine) {
+    return null;
+  }
+
+  return failureLine;
+}
+
+function isMcpStartupFailureLine(line: string): boolean {
+  return /\bmcp\b.*(?:failed to start|startup failed|could not start|exited)/i.test(line) ||
+    /environment variable\s+[A-Z_][A-Z0-9_]*\b.*\bmcp\b.*(?:not set|missing)/i.test(line);
+}
+
+function formatMcpStartupFailureNotice(text: string, providerLabel: string): string {
+  const server = extractMcpServerName(text);
+  const envVar = extractMcpEnvVarName(text);
+  const target = server ? ` for \`${server}\`` : "";
+  const envHelp = envVar
+    ? `Set \`${envVar}\` in the environment that starts Obsidian, or disable that MCP server if you do not need it.`
+    : "Set the missing environment variable in the environment that starts Obsidian, or disable that MCP server if you do not need it.";
+
+  return `MCP configuration issue${target}:\n${text}\n\nThis is not a ${providerLabel} login problem. ${providerLabel} can continue, but that MCP tool is unavailable until its configuration is fixed.\n\n${envHelp}`;
+}
+
+function extractMcpServerName(text: string): string | null {
+  return text.match(/MCP server [`'"]?([^`'"\s]+)[`'"]?/i)?.[1] ??
+    text.match(/MCP client for [`'"]?([^`'"\s]+)[`'"]?/i)?.[1] ??
+    null;
+}
+
+function extractMcpEnvVarName(text: string): string | null {
+  return text.match(/environment variable\s+([A-Z_][A-Z0-9_]*)\b/i)?.[1] ?? null;
+}
+
 function isAgentLoginRequiredText(text: string): boolean {
   return /please run\s+\/login\b|api error:\s*401\b.*invalid authentication credentials|401 invalid authentication credentials/i.test(text);
 }
@@ -5032,6 +5280,54 @@ function applyTerminalThemeVars(container: HTMLElement, theme: ITheme) {
 
 function normalizeTerminalColorScheme(value: string | undefined): TerminalColorScheme {
   return value === "light" || value === "dark" || value === "obsidian" ? value : "obsidian";
+}
+
+function normalizeShellProfile(value: string | undefined): ShellProfile {
+  if (value === "auto" ||
+    value === "pwsh" ||
+    value === "windows-powershell" ||
+    value === "cmd" ||
+    value === "wsl" ||
+    value === "git-bash" ||
+    value === "zsh" ||
+    value === "bash" ||
+    value === "custom") {
+    return value;
+  }
+
+  return "auto";
+}
+
+function getShellProfileOptions(): Array<{ value: ShellProfile; label: string }> {
+  if (process.platform === "win32") {
+    return [
+      { value: "auto", label: "Auto" },
+      { value: "pwsh", label: "PowerShell 7" },
+      { value: "windows-powershell", label: "Windows PowerShell" },
+      { value: "cmd", label: "Command Prompt" },
+      { value: "wsl", label: "WSL" },
+      { value: "git-bash", label: "Git Bash" },
+      { value: "custom", label: "Custom" }
+    ];
+  }
+
+  if (process.platform === "darwin") {
+    return [
+      { value: "auto", label: "Auto" },
+      { value: "zsh", label: "zsh" },
+      { value: "bash", label: "bash" },
+      { value: "pwsh", label: "PowerShell 7" },
+      { value: "custom", label: "Custom" }
+    ];
+  }
+
+  return [
+    { value: "auto", label: "Auto" },
+    { value: "bash", label: "bash" },
+    { value: "zsh", label: "zsh" },
+    { value: "pwsh", label: "PowerShell 7" },
+    { value: "custom", label: "Custom" }
+  ];
 }
 
 function normalizeShiftEnterMode(value: string | undefined): ShiftEnterMode {
