@@ -3953,7 +3953,7 @@ function getAgentPromptModeLabel(mode: AgentPromptMode): string {
   }
 
   if (mode === "auth") {
-    return "Authentication";
+    return "Login required";
   }
 
   if (mode === "auth-code") {
@@ -4354,8 +4354,7 @@ function extractAgentActionablePrompt(text: string): AgentPromptState | null {
   const deduped = uniqueStrings(promptLines.length > 0 ? promptLines : urls).slice(-16);
   const promptText = deduped.join("\n");
   const mcpPrompt = isMcpAuthPrompt(promptText) || isMcpManagementPrompt(promptText);
-  const requiresAuth = !mcpPrompt && (/\/login|api error|401|need auth|authentication|login/i.test(promptText) ||
-    urls.some((url) => isAgentLoginUrl(url)));
+  const requiresAuth = !mcpPrompt && isAgentLoginPromptText(promptText, urls);
   const mode = getAgentPromptMode(promptText, requiresAuth);
   return {
     text: promptText,
@@ -4372,7 +4371,7 @@ function getAgentPromptMode(text: string, requiresAuth: boolean): AgentPromptMod
     return "mcp";
   }
 
-  if (/paste code|code here|authorization code|verification code/i.test(text)) {
+  if (isAgentLoginCodePromptText(text)) {
     return "auth-code";
   }
 
@@ -4404,8 +4403,11 @@ function getAgentPromptActions(mode: AgentPromptMode, text: string, urls: string
   const mcpPrompt = isMcpAuthPrompt(text) || isMcpManagementPrompt(text);
   const mcpNeedsAuth = hasMcpNeedsAuthenticationText(text);
   urls.forEach((url, index) => {
+    const loginUrl = isAgentLoginUrl(url);
     const label = index === 0
-      ? mcpPrompt ? mcpNeedsAuth ? "Open MCP connection link" : "Open MCP link" : "Open login link"
+      ? mcpPrompt
+        ? mcpNeedsAuth ? "Open MCP connection link" : "Open MCP link"
+        : loginUrl ? "Open login link" : "Open link"
       : `Open link ${index + 1}`;
     actions.push({
       kind: "open-url",
@@ -4417,7 +4419,9 @@ function getAgentPromptActions(mode: AgentPromptMode, text: string, urls: string
     actions.push({
       kind: "copy-text",
       label: index === 0
-        ? mcpPrompt ? mcpNeedsAuth ? "Copy MCP connection link" : "Copy MCP link" : "Copy login link"
+        ? mcpPrompt
+          ? mcpNeedsAuth ? "Copy MCP connection link" : "Copy MCP link"
+          : loginUrl ? "Copy login link" : "Copy link"
         : `Copy link ${index + 1}`,
       text: url,
       description: url,
@@ -4433,7 +4437,7 @@ function getAgentPromptActions(mode: AgentPromptMode, text: string, urls: string
     });
   }
 
-  if (mode !== "auth-code" && !mcpPrompt && (/\/login|api error|401|authentication|login/i.test(text) || mode === "auth")) {
+  if (mode !== "auth-code" && !mcpPrompt && (mode === "auth" || isAgentLoginPromptText(text, urls))) {
     actions.push({ label: "/login", data: "/login\r", description: "Start the agent login flow." });
   }
 
@@ -4589,7 +4593,7 @@ function isAgentControlPromptLine(line: string): boolean {
 
 function isAgentPromptContextCue(line: string): boolean {
   return isAgentControlPromptLine(line) ||
-    /select login method|browser didn't open|paste code here|authorization code|verification code/i.test(line);
+    isAgentLoginFlowText(line);
 }
 
 function isAgentPromptContextLine(line: string): boolean {
@@ -4628,7 +4632,7 @@ function isAgentHookWarningLine(line: string): boolean {
 }
 
 function hasAgentAuthSuccess(text: string): boolean {
-  return /logged in|login successful|authentication complete|successfully authenticated|already logged in/i.test(text);
+  return /logged in|login successful|already logged in/i.test(text);
 }
 
 function hasAgentMcpAuthSuccess(text: string): boolean {
@@ -4636,12 +4640,33 @@ function hasAgentMcpAuthSuccess(text: string): boolean {
 }
 
 function isAgentLoginRequiredText(text: string): boolean {
-  return /please run\s+\/login\b|api error:.*(?:\b401\b|invalid authentication credentials)|401 invalid authentication credentials|invalid authentication credentials/i.test(text);
+  return /please run\s+\/login\b|api error:\s*401\b.*invalid authentication credentials|401 invalid authentication credentials/i.test(text);
 }
 
 function isAgentLoginFlowText(text: string): boolean {
-  return /select login method|browser didn't open|use the url below|paste code here|paste code|authorization code|verification code/i.test(text) ||
-    extractHttpUrls(text).some((url) => isAgentLoginUrl(url));
+  const urls = extractHttpUrls(text);
+  return urls.some((url) => isAgentLoginUrl(url)) ||
+    /^>\s*\/login\b/im.test(text) ||
+    /^\/login\b/im.test(text) ||
+    /^login$/im.test(text) ||
+    /select login method|please run\s+\/login\b/i.test(text) ||
+    /browser didn't open.*sign in|use the url below to sign in/i.test(text) ||
+    (isAgentLoginCodePromptText(text) && /login|sign in/i.test(text));
+}
+
+function isAgentLoginPromptText(text: string, urls = extractHttpUrls(text)): boolean {
+  return urls.some((url) => isAgentLoginUrl(url)) ||
+    /^>\s*\/login\b/im.test(text) ||
+    /^\/login\b/im.test(text) ||
+    /^login$/im.test(text) ||
+    /select login method|please run\s+\/login\b/i.test(text) ||
+    /api error:\s*401\b.*invalid authentication credentials|401 invalid authentication credentials/i.test(text) ||
+    /browser didn't open.*sign in|use the url below to sign in/i.test(text);
+}
+
+function isAgentLoginCodePromptText(text: string): boolean {
+  return /paste code here|paste code|authorization code|verification code/i.test(text) &&
+    /login|sign in|browser|claude\.com|claude\.ai|anthropic\.com|oauth|authorize/i.test(text);
 }
 
 function isAgentConversationReadyText(text: string): boolean {
@@ -4687,6 +4712,7 @@ function isMcpManagementPrompt(text: string): boolean {
       /^capabilities\s*[:：]/i.test(value) ||
       /^tools\s*[:：]\s*\d+\s+tools?\b/i.test(value) ||
       /^(?:view tools|re-authenticate|clear authentication|reconnect|disable)\b/i.test(value) ||
+      extractHttpUrls(value).some((url) => isMcpHelpUrl(url)) ||
       /^(?:plugin:[\w.-]+:[\w.-]+|claude\.ai\b.*)\s+[-:·]?\s*.*needs authentication\b/i.test(value) ||
       /\bmcp\b.*needs authentication\b/i.test(value);
   });
@@ -4710,12 +4736,56 @@ function looksLikeAgentAuthCode(text: string): boolean {
 }
 
 function isAgentLoginUrl(url: string): boolean {
-  return /(?:^|\/\/)(?:[^/]+\.)?(?:claude\.ai|claude\.com|anthropic\.com)\b/i.test(url) ||
-    /platform\.claude\.com\/oauth|console\.anthropic\.com\/oauth/i.test(url);
+  const parsed = parseHttpUrl(url);
+  if (!parsed) {
+    return false;
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  const path = parsed.pathname.toLowerCase();
+  if ((host === "platform.claude.com" || host === "console.anthropic.com") && isAuthPath(path)) {
+    return true;
+  }
+
+  return isClaudeHost(host) && isAuthPath(path);
 }
 
 function isAgentAuthUrl(url: string): boolean {
-  return /oauth|authorize|authorization|login|auth|consent|callback/i.test(url);
+  const parsed = parseHttpUrl(url);
+  return parsed ? isAuthPath(parsed.pathname.toLowerCase()) : false;
+}
+
+function isMcpHelpUrl(url: string): boolean {
+  const parsed = parseHttpUrl(url);
+  if (!parsed) {
+    return false;
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  const path = parsed.pathname.toLowerCase();
+  return isClaudeHost(host) && /\/docs\/[^?#]*\/mcp(?:\/|$)/i.test(path);
+}
+
+function isClaudeHost(host: string): boolean {
+  return host === "claude.ai" ||
+    host.endsWith(".claude.ai") ||
+    host === "claude.com" ||
+    host.endsWith(".claude.com") ||
+    host === "anthropic.com" ||
+    host.endsWith(".anthropic.com");
+}
+
+function isAuthPath(path: string): boolean {
+  return /(?:^|\/)(?:api\/)?(?:oauth|login|authorize|authorization|auth|callback|consent)(?:\/|$)/i.test(path);
+}
+
+function parseHttpUrl(url: string): URL | null {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 function extractHttpUrls(text: string): string[] {
