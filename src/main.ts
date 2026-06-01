@@ -1377,8 +1377,8 @@ class VaultPowerShellView extends ItemView {
 
   private setAgentPromptState(prompt: AgentPromptState) {
     if (prompt.mode === "mcp") {
-      this.markAgentConversationReady("Claude Code is signed in. MCP server authentication is separate and will be opened automatically.");
-      this.agentMcpAuthInProgress = true;
+      this.markAgentConversationReady("Claude Code is signed in. MCP server authentication is separate from Claude login.");
+      this.agentMcpAuthInProgress = hasMcpNeedsAuthenticationText(prompt.text);
     } else if (prompt.requiresAuth || prompt.mode === "auth" || prompt.mode === "auth-code") {
       this.agentConversationReady = false;
       this.agentAuthState = prompt.mode === "auth-code" || prompt.urls.some((url) => isAgentLoginUrl(url))
@@ -1414,7 +1414,9 @@ class VaultPowerShellView extends ItemView {
         this.openAgentExternalUrl(authUrl);
       }
 
-      this.startAgentMcpFlow("Claude Code reports MCP servers that need authentication.");
+      if (isMcpAuthPrompt(prompt.text)) {
+        this.startAgentMcpFlow("Claude Code reports MCP servers that need authentication.");
+      }
       this.refreshAgentAuthStatus();
       return;
     }
@@ -1547,6 +1549,11 @@ class VaultPowerShellView extends ItemView {
     const mcpAuth = isMcpAuthPrompt(promptSource) || isMcpManagementPrompt(promptSource);
     const loginRequired = !mcpAuth && isAgentLoginRequiredText(promptSource);
     const loginFlow = !mcpAuth && isAgentLoginFlowText(promptSource);
+    if (mcpAuth) {
+      this.agentMcpAuthInProgress = hasMcpNeedsAuthenticationText(promptSource);
+      this.markAgentConversationReady("Claude Code is signed in. MCP status is being handled separately.");
+    }
+
     if (!loginRequired && !loginFlow && isAgentConversationReadyText(promptSource)) {
       this.markAgentConversationReady();
     }
@@ -1569,8 +1576,11 @@ class VaultPowerShellView extends ItemView {
     }
 
     if (!actionablePrompt && mcpAuth && !loginRequired) {
-      this.markAgentConversationReady("Claude Code is signed in. MCP server authentication is separate and will be opened automatically.");
-      this.startAgentMcpFlow("Claude Code reports MCP servers that need authentication.");
+      if (isMcpAuthPrompt(promptSource)) {
+        this.startAgentMcpFlow("Claude Code reports MCP servers that need authentication.");
+      } else {
+        this.refreshAgentAuthStatus();
+      }
     }
 
     if (actionablePrompt || (!this.agentSessionPath && /login|auth|permission|trust|press|continue|select|choose|not recognized|not found|command not found/i.test(promptSource))) {
@@ -1707,6 +1717,12 @@ class VaultPowerShellView extends ItemView {
 
   private noteAgentControlFlow(text: string) {
     if (/\/login\b/i.test(text)) {
+      if (this.agentPromptState?.mode === "mcp") {
+        this.agentMcpAuthInProgress = false;
+        this.refreshAgentAuthStatus();
+        return;
+      }
+
       this.agentAutoLoginAttempted = true;
       this.agentConversationReady = false;
       this.agentAuthState = "login-in-progress";
@@ -1737,7 +1753,7 @@ class VaultPowerShellView extends ItemView {
 
   private refreshAgentAuthStatus(fallback?: string) {
     if (this.agentPromptState?.mode === "mcp") {
-      this.setAgentStatus("Signed in; MCP auth waiting");
+      this.setAgentStatus(this.agentMcpAuthInProgress ? "Signed in; MCP auth waiting" : "Signed in; MCP menu waiting");
       return;
     }
 
@@ -4361,9 +4377,10 @@ function getAgentPromptMode(text: string, requiresAuth: boolean): AgentPromptMod
 function getAgentPromptActions(mode: AgentPromptMode, text: string, urls: string[]): AgentPromptAction[] {
   const actions: AgentPromptAction[] = [];
   const mcpPrompt = isMcpAuthPrompt(text) || isMcpManagementPrompt(text);
+  const mcpNeedsAuth = hasMcpNeedsAuthenticationText(text);
   urls.forEach((url, index) => {
     const label = index === 0
-      ? mcpPrompt ? "Open auth link" : "Open login link"
+      ? mcpPrompt ? mcpNeedsAuth ? "Open auth link" : "Open MCP link" : "Open login link"
       : `Open link ${index + 1}`;
     actions.push({
       kind: "open-url",
@@ -4375,7 +4392,7 @@ function getAgentPromptActions(mode: AgentPromptMode, text: string, urls: string
     actions.push({
       kind: "copy-text",
       label: index === 0
-        ? mcpPrompt ? "Copy auth link" : "Copy login link"
+        ? mcpPrompt ? mcpNeedsAuth ? "Copy auth link" : "Copy MCP link" : "Copy login link"
         : `Copy link ${index + 1}`,
       text: url,
       description: url,
@@ -4534,6 +4551,11 @@ function isAgentControlPromptLine(line: string): boolean {
     /\bpaste code\b/i.test(value) ||
     /^\s*(?:\d+\s+)?mcp servers? need auth\b/i.test(value) ||
     isMcpManagementPrompt(value) ||
+    /^status\s*[:：].*\bconnected\b/i.test(value) ||
+    /^auth\s*[:：].*\b(?:authenticated|unauthenticated)\b/i.test(value) ||
+    /^url\s*[:：].*\/mcp\b/i.test(value) ||
+    /^capabilities\s*[:：]/i.test(value) ||
+    /^tools\s*[:：]\s*\d+\s+tools?\b/i.test(value) ||
     /^esc to continue$/i.test(value) ||
     /^(allow|deny|approve)\b/i.test(value) ||
     /\b(?:yes\/no|y\/n|\[y\/n\]|\(y\/n\))\b/i.test(value) ||
@@ -4555,7 +4577,14 @@ function isAgentPromptContextLine(line: string): boolean {
     extractHttpUrls(value).some((url) => isAgentLoginUrl(url) || isAgentAuthUrl(url)) ||
     /^(?:\(?[1-9]\)?[.)]|[1-9][:：])\s+/.test(value) ||
     /^manage mcp servers\b/i.test(value) ||
+    /\bmcp server\b/i.test(value) ||
     /^user mcps\b/i.test(value) ||
+    /^status\s*[:：].*\bconnected\b/i.test(value) ||
+    /^auth\s*[:：].*\b(?:authenticated|unauthenticated)\b/i.test(value) ||
+    /^url\s*[:：].*\/mcp\b/i.test(value) ||
+    /^capabilities\s*[:：]/i.test(value) ||
+    /^tools\s*[:：]\s*\d+\s+tools?\b/i.test(value) ||
+    /^(?:view tools|re-authenticate|clear authentication|reconnect|disable)\b/i.test(value) ||
     /^claude\.ai\b/i.test(value) ||
     /^claude code can be used\b/i.test(value) ||
     /^use the url below\b/i.test(value);
@@ -4624,11 +4653,27 @@ function isMcpManagementPrompt(text: string): boolean {
   return text.split(/\r?\n/).some((line) => {
     const value = line.trim();
     return /^manage mcp servers\b/i.test(value) ||
+      /\bmcp server\b/i.test(value) ||
       /^user mcps\b/i.test(value) ||
       /^>\s+.*connected\s+.*tools\b/i.test(value) ||
+      /^status\s*[:：].*\bconnected\b/i.test(value) ||
+      /^auth\s*[:：].*\b(?:authenticated|unauthenticated)\b/i.test(value) ||
+      /^url\s*[:：].*\/mcp\b/i.test(value) ||
+      /^capabilities\s*[:：]/i.test(value) ||
+      /^tools\s*[:：]\s*\d+\s+tools?\b/i.test(value) ||
+      /^(?:view tools|re-authenticate|clear authentication|reconnect|disable)\b/i.test(value) ||
       /^(?:plugin:[\w.-]+:[\w.-]+|claude\.ai\b.*)\s+[-:·]?\s*.*needs authentication\b/i.test(value) ||
       /\bmcp\b.*needs authentication\b/i.test(value);
   });
+}
+
+function hasMcpNeedsAuthenticationText(text: string): boolean {
+  return isMcpAuthPrompt(text) ||
+    text.split(/\r?\n/).some((line) => {
+      const value = line.trim();
+      return /^auth\s*[:：].*\bunauthenticated\b/i.test(value) ||
+        /needs authentication\b/i.test(value);
+    });
 }
 
 function looksLikeAgentAuthCode(text: string): boolean {
