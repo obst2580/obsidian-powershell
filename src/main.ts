@@ -777,6 +777,7 @@ class VaultPowerShellView extends ItemView {
   private agentLoadingEl: HTMLElement | null = null;
   private agentLoadingTextEl: HTMLElement | null = null;
   private agentPromptActionsEl: HTMLElement | null = null;
+  private agentLoginButton: HTMLButtonElement | null = null;
   private agentInputEl: HTMLTextAreaElement | null = null;
   private agentProviderButtons: Record<AgentProvider, HTMLElement | null> = { claude: null, codex: null };
   private agentSessionPollTimer: number | null = null;
@@ -797,7 +798,7 @@ class VaultPowerShellView extends ItemView {
   private agentMcpAuthInProgress = false;
   private agentNeedsAuth = false;
   private agentPromptState: AgentPromptState | null = null;
-  private agentOpenedLoginUrls = new Set<string>();
+  private agentOpenedExternalUrls = new Set<string>();
 
   constructor(leaf: WorkspaceLeaf, plugin: VaultPowerShellPlugin) {
     super(leaf);
@@ -870,6 +871,7 @@ class VaultPowerShellView extends ItemView {
     this.agentLoadingEl = null;
     this.agentLoadingTextEl = null;
     this.agentPromptActionsEl = null;
+    this.agentLoginButton = null;
     this.agentInputEl = null;
     this.paneTabEls = { agent: null, terminal: null };
     this.agentProviderButtons = { claude: null, codex: null };
@@ -951,10 +953,16 @@ class VaultPowerShellView extends ItemView {
     rawButton.addEventListener("click", () => {
       this.showPane("terminal");
     });
-    const loginButton = actions.createEl("button", { text: "Login" });
-    loginButton.addEventListener("click", () => {
+    this.agentLoginButton = actions.createEl("button", { text: "Login" });
+    this.agentLoginButton.addEventListener("click", () => {
+      if (this.agentPromptState?.mode === "mcp") {
+        new Notice("MCP connection is separate from Claude login. Use the MCP actions or press Esc.");
+        return;
+      }
+
       this.sendAgentControlInput("/login");
     });
+    this.refreshAgentLoginButton();
 
     this.agentTranscriptEl = container.createDiv("vault-agent-transcript");
     this.appendAgentTranscript({
@@ -1050,7 +1058,7 @@ class VaultPowerShellView extends ItemView {
     this.agentMcpAuthInProgress = false;
     this.agentNeedsAuth = false;
     this.agentPromptState = null;
-    this.agentOpenedLoginUrls.clear();
+    this.agentOpenedExternalUrls.clear();
     this.refreshAgentPromptActions();
     this.agentReadyForInput = false;
     this.setAgentStatus(`Checking ${getAgentProviderLabel(provider)} login...`);
@@ -1220,7 +1228,7 @@ class VaultPowerShellView extends ItemView {
       this.appendAgentTranscript({
         id: this.nextLocalAgentEntryId("system"),
         role: "system",
-        text: `${getAgentProviderLabel(this.agentProvider)} is running. This console will detect login prompts and start the login flow automatically when required. MCP authentication is handled separately with /mcp when the CLI reports it.`
+        text: `${getAgentProviderLabel(this.agentProvider)} is running. This console will detect login prompts and start the login flow automatically when required. MCP connection screens are handled separately with /mcp when the CLI reports them.`
       });
     }, AGENT_READY_DELAY_MS);
   }
@@ -1242,14 +1250,14 @@ class VaultPowerShellView extends ItemView {
     }
 
     if (this.agentNeedsAuth && !this.isAgentInteractiveReplyAllowed(text)) {
-      const loginStarted = this.startAgentLoginFlow("Authentication is required before normal messages can be sent.");
-      new Notice(loginStarted ? "Starting Claude login." : "The agent is asking for authentication.");
+      const loginStarted = this.startAgentLoginFlow(`${getAgentProviderLabel(this.agentProvider)} login is required before normal messages can be sent.`);
+      new Notice(loginStarted ? "Starting Claude login." : "The agent is asking for login.");
       this.appendAgentTranscript({
         id: this.nextLocalAgentEntryId("system"),
         role: "system",
         text: loginStarted
-          ? "Authentication is required before normal messages can be sent. Starting the Claude login flow automatically."
-          : "Authentication is required before normal messages can be sent. Answer the active login prompt in this console."
+          ? `${getAgentProviderLabel(this.agentProvider)} login is required before normal messages can be sent. Starting the login flow automatically.`
+          : `${getAgentProviderLabel(this.agentProvider)} login is required before normal messages can be sent. Answer the active login prompt in this console.`
       });
       return;
     }
@@ -1377,7 +1385,7 @@ class VaultPowerShellView extends ItemView {
 
   private setAgentPromptState(prompt: AgentPromptState) {
     if (prompt.mode === "mcp") {
-      this.markAgentConversationReady("Claude Code is signed in. MCP server authentication is separate from Claude login.");
+      this.markAgentConversationReady("Claude Code is signed in. MCP tool connections are separate from Claude login.");
       this.agentMcpAuthInProgress = hasMcpNeedsAuthenticationText(prompt.text);
     } else if (prompt.requiresAuth || prompt.mode === "auth" || prompt.mode === "auth-code") {
       this.agentConversationReady = false;
@@ -1394,8 +1402,8 @@ class VaultPowerShellView extends ItemView {
 
     if (prompt.mode === "auth" || prompt.mode === "auth-code") {
       const loginUrl = prompt.urls.find((url) => isAgentLoginUrl(url));
-      if (loginUrl && !this.agentOpenedLoginUrls.has(loginUrl)) {
-        this.agentOpenedLoginUrls.add(loginUrl);
+      if (loginUrl && !this.agentOpenedExternalUrls.has(loginUrl)) {
+        this.agentOpenedExternalUrls.add(loginUrl);
         this.openAgentExternalUrl(loginUrl);
       }
 
@@ -1409,13 +1417,13 @@ class VaultPowerShellView extends ItemView {
 
     if (prompt.mode === "mcp") {
       const authUrl = prompt.urls.find((url) => isAgentAuthUrl(url));
-      if (authUrl && !this.agentOpenedLoginUrls.has(authUrl)) {
-        this.agentOpenedLoginUrls.add(authUrl);
+      if (authUrl && !this.agentOpenedExternalUrls.has(authUrl)) {
+        this.agentOpenedExternalUrls.add(authUrl);
         this.openAgentExternalUrl(authUrl);
       }
 
       if (isMcpAuthPrompt(prompt.text)) {
-        this.startAgentMcpFlow("Claude Code reports MCP servers that need authentication.");
+        this.startAgentMcpFlow("Claude Code reports MCP tools that need connection.");
       }
       this.refreshAgentAuthStatus();
       return;
@@ -1444,6 +1452,7 @@ class VaultPowerShellView extends ItemView {
     container.empty();
     const prompt = this.agentPromptState;
     container.toggleClass("is-hidden", !prompt);
+    this.refreshAgentLoginButton();
     if (!prompt) {
       return;
     }
@@ -1467,9 +1476,9 @@ class VaultPowerShellView extends ItemView {
 
         if (action.kind === "copy-text") {
           void writeClipboardText(action.text).then(() => {
-            new Notice("Copied login link.");
+            new Notice(action.label.toLowerCase().includes("mcp") ? "Copied MCP link." : "Copied login link.");
           }).catch((error: Error) => {
-            new Notice(`Could not copy login link: ${error.message}`);
+            new Notice(`Could not copy link: ${error.message}`);
           });
           return;
         }
@@ -1484,6 +1493,22 @@ class VaultPowerShellView extends ItemView {
     }
   }
 
+  private refreshAgentLoginButton() {
+    const button = this.agentLoginButton;
+    if (!button) {
+      return;
+    }
+
+    const mcpPromptActive = this.agentPromptState?.mode === "mcp";
+    button.toggleAttribute("disabled", mcpPromptActive);
+    button.setAttr("aria-disabled", mcpPromptActive ? "true" : "false");
+    if (mcpPromptActive) {
+      button.setAttr("title", "MCP connection screens are separate from Claude login.");
+    } else {
+      button.removeAttribute("title");
+    }
+  }
+
   private openAgentExternalUrl(url: string) {
     if (!openExternalUrlWithSystemBrowser(url)) {
       const popup = window.open(url, "_blank", "noopener,noreferrer");
@@ -1492,9 +1517,9 @@ class VaultPowerShellView extends ItemView {
       }
 
       void writeClipboardText(url).then(() => {
-        new Notice("Could not open the login link, so it was copied instead.");
+        new Notice("Could not open the link, so it was copied instead.");
       }).catch((error: Error) => {
-        new Notice(`Could not open or copy login link: ${error.message}`);
+        new Notice(`Could not open or copy link: ${error.message}`);
       });
     }
   }
@@ -1551,7 +1576,7 @@ class VaultPowerShellView extends ItemView {
     const loginFlow = !mcpAuth && isAgentLoginFlowText(promptSource);
     if (mcpAuth) {
       this.agentMcpAuthInProgress = hasMcpNeedsAuthenticationText(promptSource);
-      this.markAgentConversationReady("Claude Code is signed in. MCP status is being handled separately.");
+      this.markAgentConversationReady("Claude Code is signed in. MCP tool connections are being handled separately.");
     }
 
     if (!loginRequired && !loginFlow && isAgentConversationReadyText(promptSource)) {
@@ -1577,14 +1602,14 @@ class VaultPowerShellView extends ItemView {
 
     if (!actionablePrompt && mcpAuth && !loginRequired) {
       if (isMcpAuthPrompt(promptSource)) {
-        this.startAgentMcpFlow("Claude Code reports MCP servers that need authentication.");
+        this.startAgentMcpFlow("Claude Code reports MCP tools that need connection.");
       } else {
         this.refreshAgentAuthStatus();
       }
     }
 
     if (actionablePrompt || (!this.agentSessionPath && /login|auth|permission|trust|press|continue|select|choose|not recognized|not found|command not found/i.test(promptSource))) {
-      this.refreshAgentAuthStatus(actionablePrompt?.mode === "mcp" ? "MCP auth in progress" : "Agent prompt needs input");
+      this.refreshAgentAuthStatus(actionablePrompt?.mode === "mcp" ? "MCP connection in progress" : "Agent prompt needs input");
     }
 
     if (actionablePrompt || /login|auth|permission|trust|press|continue|select|choose|allow|deny|approve|yes|no|y\/n|not recognized|not found|command not found/i.test(promptSource)) {
@@ -1594,7 +1619,7 @@ class VaultPowerShellView extends ItemView {
         this.appendAgentTranscript({
           id: this.nextLocalAgentEntryId("system"),
           role: "system",
-          text: `Agent prompt:\n${notice}\n\nReply in the message box or use the quick actions below. Login and MCP auth prompts are handled inside this console.`
+          text: `Agent prompt:\n${notice}\n\nReply in the message box or use the quick actions below. Claude login prompts and MCP connection screens are handled separately inside this console.`
         });
       }
     }
@@ -1705,11 +1730,11 @@ class VaultPowerShellView extends ItemView {
 
     this.agentAutoMcpAttempted = true;
     this.agentMcpAuthInProgress = true;
-    this.setAgentStatus("MCP auth in progress");
+    this.setAgentStatus("MCP connection in progress");
     this.appendAgentTranscript({
       id: this.nextLocalAgentEntryId("system"),
       role: "system",
-      text: `${reason} Opening /mcp automatically.`
+      text: `${reason} Opening the MCP connection screen automatically.`
     });
     this.sendAgentHostMessage({ type: "data", data: "/mcp\r" });
     return true;
@@ -1742,7 +1767,7 @@ class VaultPowerShellView extends ItemView {
     }
 
     if (this.agentAuthState === "ready" || this.agentAuthState === "authenticated") {
-      this.setAgentStatus(this.agentMcpAuthInProgress ? "MCP auth receiving output..." : "Receiving output...");
+      this.setAgentStatus(this.agentMcpAuthInProgress ? "MCP connection receiving output..." : "Receiving output...");
     }
 
     this.agentOutputIdleTimer = window.setTimeout(() => {
@@ -1753,7 +1778,7 @@ class VaultPowerShellView extends ItemView {
 
   private refreshAgentAuthStatus(fallback?: string) {
     if (this.agentPromptState?.mode === "mcp") {
-      this.setAgentStatus(this.agentMcpAuthInProgress ? "Signed in; MCP auth waiting" : "Signed in; MCP menu waiting");
+      this.setAgentStatus(this.agentMcpAuthInProgress ? "Signed in; MCP connection waiting" : "Signed in; MCP menu waiting");
       return;
     }
 
@@ -1763,7 +1788,7 @@ class VaultPowerShellView extends ItemView {
     }
 
     if (this.agentAuthState === "ready") {
-      this.setAgentStatus(this.agentMcpAuthInProgress ? "Signed in; MCP auth running" : "Signed in; ready for message");
+      this.setAgentStatus(this.agentMcpAuthInProgress ? "Signed in; MCP connection running" : "Signed in; ready for message");
       return;
     }
 
@@ -2899,7 +2924,7 @@ class VaultPowerShellView extends ItemView {
     this.agentMcpAuthInProgress = false;
     this.agentNeedsAuth = false;
     this.agentPromptState = null;
-    this.agentOpenedLoginUrls.clear();
+    this.agentOpenedExternalUrls.clear();
     this.refreshAgentPromptActions();
     this.setAgentStatus("Idle");
   }
@@ -3936,7 +3961,7 @@ function getAgentPromptModeLabel(mode: AgentPromptMode): string {
   }
 
   if (mode === "mcp") {
-    return "MCP authentication";
+    return "MCP connection";
   }
 
   if (mode === "continue") {
@@ -4380,7 +4405,7 @@ function getAgentPromptActions(mode: AgentPromptMode, text: string, urls: string
   const mcpNeedsAuth = hasMcpNeedsAuthenticationText(text);
   urls.forEach((url, index) => {
     const label = index === 0
-      ? mcpPrompt ? mcpNeedsAuth ? "Open auth link" : "Open MCP link" : "Open login link"
+      ? mcpPrompt ? mcpNeedsAuth ? "Open MCP connection link" : "Open MCP link" : "Open login link"
       : `Open link ${index + 1}`;
     actions.push({
       kind: "open-url",
@@ -4392,7 +4417,7 @@ function getAgentPromptActions(mode: AgentPromptMode, text: string, urls: string
     actions.push({
       kind: "copy-text",
       label: index === 0
-        ? mcpPrompt ? mcpNeedsAuth ? "Copy auth link" : "Copy MCP link" : "Copy login link"
+        ? mcpPrompt ? mcpNeedsAuth ? "Copy MCP connection link" : "Copy MCP link" : "Copy login link"
         : `Copy link ${index + 1}`,
       text: url,
       description: url,
@@ -4414,16 +4439,16 @@ function getAgentPromptActions(mode: AgentPromptMode, text: string, urls: string
 
   if (mcpPrompt) {
     if (isMcpAuthPrompt(text)) {
-      actions.push({ label: "/mcp", data: "/mcp\r", description: "Open MCP authentication inside the agent." });
+      actions.push({ label: "/mcp", data: "/mcp\r", description: "Open the MCP connection screen inside the agent." });
     }
     actions.push(
-      { label: "Enter", data: "\r", description: "Open or accept the selected MCP authentication item." },
+      { label: "Enter", data: "\r", description: "Open or accept the selected MCP connection item." },
       { label: "Down", data: ARROW_DOWN_SEQUENCE, description: "Move the MCP selection down.", keepPrompt: true },
       { label: "Up", data: ARROW_UP_SEQUENCE, description: "Move the MCP selection up.", keepPrompt: true },
       { label: "Esc", data: ESCAPE_SEQUENCE, description: "Close or cancel the MCP prompt if the CLI supports it." }
     );
   } else if (isMcpAuthPrompt(text)) {
-    actions.push({ label: "/mcp", data: "/mcp\r", description: "Open MCP authentication inside the agent." });
+    actions.push({ label: "/mcp", data: "/mcp\r", description: "Open the MCP connection screen inside the agent." });
   }
 
   if (mode === "menu") {
