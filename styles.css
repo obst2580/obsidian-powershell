@@ -166,6 +166,33 @@
   background: var(--background-secondary);
 }
 
+.vault-agent-prompt-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.vault-agent-prompt-actions.is-hidden {
+  display: none;
+}
+
+.vault-agent-prompt-actions-label {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-weight: 700;
+}
+
+.vault-agent-prompt-action {
+  min-height: 26px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: var(--font-ui-smaller);
+}
+
 .vault-agent-input {
   width: 100%;
   min-height: 82px;

@@ -77,6 +77,9 @@ const WHEEL_PIXELS_PER_LINE = 18;
 const ALTERNATE_WHEEL_LINES_PER_PAGE_KEY = 4;
 const PAGE_UP_SEQUENCE = "\x1b[5~";
 const PAGE_DOWN_SEQUENCE = "\x1b[6~";
+const ARROW_UP_SEQUENCE = "\x1b[A";
+const ARROW_DOWN_SEQUENCE = "\x1b[B";
+const ESCAPE_SEQUENCE = "\x1b";
 const KILL_LINE_SEQUENCE = "\x15";
 const CODEX_RESIZE_REFLOW_CONFIG = "tui.terminal_resize_reflow=false";
 const TERMINAL_FIT_STABILIZATION_DELAYS_MS = [0, 16, 50, 150, 400, 1000];
@@ -111,6 +114,7 @@ type WindowsPtyBackend = "winpty" | "conpty";
 type ViewPane = "agent" | "terminal";
 type AgentProvider = "claude" | "codex";
 type AgentTranscriptRole = "user" | "assistant" | "tool" | "system";
+type AgentPromptMode = "auth" | "menu" | "confirmation" | "permission" | "command" | "text";
 
 interface PtyHostConfig {
   shell: string;
@@ -165,6 +169,21 @@ interface AgentTranscriptEntry {
   id: string;
   role: AgentTranscriptRole;
   text: string;
+}
+
+interface AgentPromptAction {
+  label: string;
+  data: string;
+  description?: string;
+  keepPrompt?: boolean;
+}
+
+interface AgentPromptState {
+  text: string;
+  requiresAuth: boolean;
+  mode: AgentPromptMode;
+  allowEmptySubmit: boolean;
+  actions: AgentPromptAction[];
 }
 
 interface ClipboardNativeImage {
@@ -716,6 +735,7 @@ class VaultPowerShellView extends ItemView {
   private agentStdoutBuffer = "";
   private agentStatusEl: HTMLElement | null = null;
   private agentTranscriptEl: HTMLElement | null = null;
+  private agentPromptActionsEl: HTMLElement | null = null;
   private agentInputEl: HTMLTextAreaElement | null = null;
   private agentProviderButtons: Record<AgentProvider, HTMLElement | null> = { claude: null, codex: null };
   private agentSessionPollTimer: number | null = null;
@@ -727,6 +747,7 @@ class VaultPowerShellView extends ItemView {
   private agentLocalMessageCounter = 0;
   private agentLastRawNotice = "";
   private agentNeedsAuth = false;
+  private agentPromptState: AgentPromptState | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: VaultPowerShellPlugin) {
     super(leaf);
@@ -796,6 +817,7 @@ class VaultPowerShellView extends ItemView {
     this.terminalPaneEl = null;
     this.agentStatusEl = null;
     this.agentTranscriptEl = null;
+    this.agentPromptActionsEl = null;
     this.agentInputEl = null;
     this.paneTabEls = { agent: null, terminal: null };
     this.agentProviderButtons = { claude: null, codex: null };
@@ -890,6 +912,8 @@ class VaultPowerShellView extends ItemView {
     });
 
     const composer = container.createDiv("vault-agent-composer");
+    this.agentPromptActionsEl = composer.createDiv("vault-agent-prompt-actions");
+    this.refreshAgentPromptActions();
     this.agentInputEl = composer.createEl("textarea", {
       cls: "vault-agent-input",
       attr: {
@@ -956,6 +980,8 @@ class VaultPowerShellView extends ItemView {
     this.agentSessionOffset = 0;
     this.agentSeenEntries.clear();
     this.agentNeedsAuth = false;
+    this.agentPromptState = null;
+    this.refreshAgentPromptActions();
     this.agentReadyForInput = false;
     this.setAgentStatus(`Starting ${getAgentProviderLabel(provider)}...`);
     this.appendAgentTranscript({
@@ -1120,7 +1146,7 @@ class VaultPowerShellView extends ItemView {
     }
 
     const text = inputEl.value.trim();
-    if (!text) {
+    if (!text && !this.agentPromptState?.allowEmptySubmit) {
       return;
     }
 
@@ -1129,23 +1155,28 @@ class VaultPowerShellView extends ItemView {
       return;
     }
 
-    if (this.agentNeedsAuth && !text.startsWith("/")) {
+    if (this.agentNeedsAuth && !this.isAgentInteractiveReplyAllowed(text)) {
       new Notice("The agent is asking for authentication. Send /login first.");
       this.appendAgentTranscript({
         id: this.nextLocalAgentEntryId("system"),
         role: "system",
-        text: "Authentication is required before normal messages can be sent. Click Login or type /login."
+        text: "Authentication is required before normal messages can be sent. Click Login, type /login, or answer the active login prompt."
       });
       return;
     }
 
     inputEl.value = "";
+    const visibleText = text || "[Enter]";
     this.appendAgentTranscript({
       id: this.nextLocalAgentEntryId("user"),
       role: "user",
-      text
+      text: visibleText
     });
-    this.sendAgentHostMessage({ type: "data", data: `${formatTerminalPasteData(text)}\r` });
+    const data = this.agentPromptState
+      ? formatAgentInteractiveInput(text)
+      : `${formatTerminalPasteData(text)}\r`;
+    this.clearAgentPromptState();
+    this.sendAgentHostMessage({ type: "data", data });
     this.setAgentStatus(`${getAgentProviderLabel(this.agentProvider)} working...`);
   }
 
@@ -1161,7 +1192,87 @@ class VaultPowerShellView extends ItemView {
       text
     });
     this.sendAgentHostMessage({ type: "data", data: `${text}\r` });
+    this.clearAgentPromptState();
     this.setAgentStatus(`${getAgentProviderLabel(this.agentProvider)} waiting`);
+  }
+
+  private sendAgentControlData(data: string, label: string, keepPrompt = false) {
+    if (!this.agentHost || !this.agentHostReady || !this.agentReadyForInput) {
+      new Notice("Start the selected agent first.");
+      return;
+    }
+
+    this.appendAgentTranscript({
+      id: this.nextLocalAgentEntryId("user"),
+      role: "user",
+      text: label
+    });
+    this.sendAgentHostMessage({ type: "data", data });
+    if (!keepPrompt) {
+      this.clearAgentPromptState();
+    }
+    this.setAgentStatus(`${getAgentProviderLabel(this.agentProvider)} waiting`);
+  }
+
+  private isAgentInteractiveReplyAllowed(text: string): boolean {
+    if (text.startsWith("/")) {
+      return true;
+    }
+
+    if (!this.agentPromptState) {
+      return false;
+    }
+
+    if (this.agentPromptState.mode === "auth") {
+      return /^\d+$/.test(text) || /^login$/i.test(text);
+    }
+
+    return true;
+  }
+
+  private setAgentPromptState(prompt: AgentPromptState) {
+    this.agentPromptState = prompt;
+    this.agentNeedsAuth = this.agentNeedsAuth || prompt.requiresAuth;
+    this.refreshAgentPromptActions();
+    this.agentInputEl?.focus();
+  }
+
+  private clearAgentPromptState(clearAuth = false) {
+    this.agentPromptState = null;
+    if (clearAuth) {
+      this.agentNeedsAuth = false;
+    }
+    this.refreshAgentPromptActions();
+  }
+
+  private refreshAgentPromptActions() {
+    const container = this.agentPromptActionsEl;
+    if (!container) {
+      return;
+    }
+
+    container.empty();
+    const prompt = this.agentPromptState;
+    container.toggleClass("is-hidden", !prompt);
+    if (!prompt) {
+      return;
+    }
+
+    const label = container.createDiv("vault-agent-prompt-actions-label");
+    label.setText(getAgentPromptModeLabel(prompt.mode));
+    for (const action of prompt.actions) {
+      const button = container.createEl("button", {
+        cls: "vault-agent-prompt-action",
+        text: action.label
+      });
+      if (action.description) {
+        button.setAttr("aria-label", action.description);
+        button.setAttr("title", action.description);
+      }
+      button.addEventListener("click", () => {
+        this.sendAgentControlData(action.data, action.label, action.keepPrompt ?? false);
+      });
+    }
   }
 
   private sendAgentHostMessage(message: HostInputMessage) {
@@ -1182,23 +1293,27 @@ class VaultPowerShellView extends ItemView {
       return;
     }
 
-    const actionablePrompt = extractAgentActionablePrompt(plainText);
-    if (actionablePrompt?.requiresAuth) {
-      this.agentNeedsAuth = true;
+    if (/logged in|login successful|authentication complete|successfully authenticated/i.test(plainText)) {
+      this.clearAgentPromptState(true);
     }
 
-    if (!this.agentSessionPath && /login|auth|permission|trust|press|continue|not recognized|not found|command not found/i.test(plainText)) {
+    const actionablePrompt = extractAgentActionablePrompt(plainText);
+    if (actionablePrompt) {
+      this.setAgentPromptState(actionablePrompt);
+    }
+
+    if (!this.agentSessionPath && /login|auth|permission|trust|press|continue|select|choose|not recognized|not found|command not found/i.test(plainText)) {
       this.setAgentStatus("Agent prompt needs input");
     }
 
-    if (actionablePrompt || /login|auth|permission|trust|press|continue|allow|deny|approve|yes|no|y\/n|not recognized|not found|command not found/i.test(plainText)) {
+    if (actionablePrompt || /login|auth|permission|trust|press|continue|select|choose|allow|deny|approve|yes|no|y\/n|not recognized|not found|command not found/i.test(plainText)) {
       const notice = actionablePrompt?.text ?? plainText.slice(-1200);
       if (notice !== this.agentLastRawNotice) {
         this.agentLastRawNotice = notice;
         this.appendAgentTranscript({
           id: this.nextLocalAgentEntryId("system"),
           role: "system",
-          text: `Agent prompt:\n${notice}\n\nReply in the message box if the prompt expects a short answer. For Claude login, click Login or send /login here. The top Raw terminal tab is a separate fallback shell.`
+          text: `Agent prompt:\n${notice}\n\nReply in the message box or use the quick actions below. Login menus and yes/no prompts are handled inside this console.`
         });
       }
     }
@@ -1256,6 +1371,7 @@ class VaultPowerShellView extends ItemView {
       }
 
       this.appendAgentTranscript(entry);
+      this.clearAgentPromptState(true);
       this.setAgentStatus(`${getAgentProviderLabel(this.agentProvider)} running`);
     }
   }
@@ -2343,6 +2459,8 @@ class VaultPowerShellView extends ItemView {
     this.agentSeenEntries.clear();
     this.agentLastRawNotice = "";
     this.agentNeedsAuth = false;
+    this.agentPromptState = null;
+    this.refreshAgentPromptActions();
     this.setAgentStatus("Idle");
   }
 
@@ -2999,6 +3117,11 @@ function formatTerminalPasteData(text: string): string {
     : normalized;
 }
 
+function formatAgentInteractiveInput(text: string): string {
+  const normalized = text.replace(/\r\n|\n|\r/g, "\r");
+  return normalized.endsWith("\r") ? normalized : `${normalized}\r`;
+}
+
 function hasLineBreak(text: string): boolean {
   return /\r|\n/.test(text);
 }
@@ -3351,6 +3474,30 @@ function getTranscriptRoleLabel(role: AgentTranscriptRole): string {
   return "System";
 }
 
+function getAgentPromptModeLabel(mode: AgentPromptMode): string {
+  if (mode === "menu") {
+    return "Menu input";
+  }
+
+  if (mode === "confirmation") {
+    return "Confirmation";
+  }
+
+  if (mode === "permission") {
+    return "Permission prompt";
+  }
+
+  if (mode === "auth") {
+    return "Authentication";
+  }
+
+  if (mode === "command") {
+    return "Command prompt";
+  }
+
+  return "Agent prompt";
+}
+
 function getAgentLaunchCommand(provider: AgentProvider, settings: PowerShellSettings): string {
   if (provider === "claude") {
     return "claude";
@@ -3512,7 +3659,7 @@ function parseAgentTranscriptEntries(provider: AgentProvider, text: string): Age
   return entries;
 }
 
-function extractAgentActionablePrompt(text: string): { text: string; requiresAuth: boolean } | null {
+function extractAgentActionablePrompt(text: string): AgentPromptState | null {
   const normalized = text
     .replace(/\r/g, "\n")
     .split("\n")
@@ -3520,7 +3667,7 @@ function extractAgentActionablePrompt(text: string): { text: string; requiresAut
     .filter(Boolean)
     .join("\n");
 
-  const lines = normalized
+  const promptLines = normalized
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => {
@@ -3528,19 +3675,98 @@ function extractAgentActionablePrompt(text: string): { text: string; requiresAut
         return false;
       }
 
-      return /\/login|api error|401|mcp servers need auth|need auth|authentication|login|permission|trust|allow|deny|approve|not recognized|not found|command not found/i.test(line);
+      return /\/login|api error|401|mcp servers need auth|need auth|authentication|login|select|choose|method|permission|trust|allow|deny|approve|yes|no|y\/n|continue|press|not recognized|not found|command not found/i.test(line);
     });
 
-  if (lines.length === 0) {
+  if (promptLines.length === 0) {
     return null;
   }
 
-  const deduped = uniqueStrings(lines).slice(-8);
-  const requiresAuth = deduped.some((line) => /\/login|api error|401|mcp servers need auth|need auth|authentication|login/i.test(line));
+  const deduped = uniqueStrings(promptLines).slice(-10);
+  const promptText = deduped.join("\n");
+  const requiresAuth = /\/login|api error|401|mcp servers need auth|need auth|authentication|login/i.test(promptText);
+  const mode = getAgentPromptMode(promptText, requiresAuth);
   return {
-    text: deduped.join("\n"),
-    requiresAuth
+    text: promptText,
+    requiresAuth,
+    mode,
+    allowEmptySubmit: mode === "menu" || /press enter|hit enter|return to continue/i.test(promptText),
+    actions: getAgentPromptActions(mode, promptText)
   };
+}
+
+function getAgentPromptMode(text: string, requiresAuth: boolean): AgentPromptMode {
+  if (/select|choose|method|use .*arrow|arrow keys|↑|↓|❯|navigate/i.test(text)) {
+    return "menu";
+  }
+
+  if (/allow|deny|approve|permission|trust/i.test(text)) {
+    return "permission";
+  }
+
+  if (/yes\/no|y\/n|\[y\/n\]|\(y\/n\)|continue\?/i.test(text)) {
+    return "confirmation";
+  }
+
+  if (/not recognized|not found|command not found/i.test(text)) {
+    return "command";
+  }
+
+  return requiresAuth ? "auth" : "text";
+}
+
+function getAgentPromptActions(mode: AgentPromptMode, text: string): AgentPromptAction[] {
+  const actions: AgentPromptAction[] = [];
+  const mcpAuth = /mcp servers need auth|\/mcp/i.test(text);
+
+  if (/\/login|api error|401|authentication|login/i.test(text) || (mode === "auth" && !mcpAuth)) {
+    actions.push({ label: "/login", data: "/login\r", description: "Start the agent login flow." });
+  }
+
+  if (mcpAuth) {
+    actions.push({ label: "/mcp", data: "/mcp\r", description: "Open MCP authentication inside the agent." });
+  }
+
+  if (mode === "menu") {
+    actions.push(
+      { label: "Enter", data: "\r", description: "Accept the currently selected menu item." },
+      { label: "Down", data: ARROW_DOWN_SEQUENCE, description: "Move the menu selection down.", keepPrompt: true },
+      { label: "Up", data: ARROW_UP_SEQUENCE, description: "Move the menu selection up.", keepPrompt: true },
+      { label: "1", data: "1\r", description: "Choose option 1." },
+      { label: "2", data: "2\r", description: "Choose option 2." },
+      { label: "3", data: "3\r", description: "Choose option 3." }
+    );
+  }
+
+  if (mode === "confirmation" || mode === "permission") {
+    actions.push(
+      { label: "Yes", data: "y\r", description: "Answer yes." },
+      { label: "No", data: "n\r", description: "Answer no." }
+    );
+  }
+
+  if (/press enter|hit enter|return to continue/i.test(text) && !actions.some((action) => action.label === "Enter")) {
+    actions.push({ label: "Enter", data: "\r", description: "Continue." });
+  }
+
+  if (mode === "menu" || mode === "permission" || mode === "confirmation") {
+    actions.push({ label: "Esc", data: ESCAPE_SEQUENCE, description: "Cancel the active prompt if the CLI supports it." });
+  }
+
+  return dedupeAgentPromptActions(actions);
+}
+
+function dedupeAgentPromptActions(actions: AgentPromptAction[]): AgentPromptAction[] {
+  const seen = new Set<string>();
+  return actions.filter((action) => {
+    const key = `${action.label}\u0000${action.data}`;
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
 }
 
 function parseClaudeTranscriptEntry(value: unknown): AgentTranscriptEntry | null {
