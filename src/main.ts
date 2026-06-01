@@ -1335,21 +1335,30 @@ class VaultPowerShellView extends ItemView {
       return;
     }
 
-    if (/logged in|login successful|authentication complete|successfully authenticated/i.test(plainText)) {
+    const authCompleted = hasAgentAuthSuccess(plainText);
+    if (authCompleted) {
       this.clearAgentPromptState(true);
+      this.setAgentStatus(`${getAgentProviderLabel(this.agentProvider)} running`);
     }
 
-    const actionablePrompt = extractAgentActionablePrompt(plainText);
+    const promptSource = authCompleted
+      ? getTextAfterLastAgentAuthSuccess(plainText)
+      : plainText;
+    if (!promptSource.trim()) {
+      return;
+    }
+
+    const actionablePrompt = extractAgentActionablePrompt(promptSource);
     if (actionablePrompt) {
       this.setAgentPromptState(actionablePrompt);
     }
 
-    if (actionablePrompt || (!this.agentSessionPath && /login|auth|permission|trust|press|continue|select|choose|not recognized|not found|command not found/i.test(plainText))) {
+    if (actionablePrompt || (!this.agentSessionPath && /login|auth|permission|trust|press|continue|select|choose|not recognized|not found|command not found/i.test(promptSource))) {
       this.setAgentStatus("Agent prompt needs input");
     }
 
-    if (actionablePrompt || /login|auth|permission|trust|press|continue|select|choose|allow|deny|approve|yes|no|y\/n|not recognized|not found|command not found/i.test(plainText)) {
-      const notice = actionablePrompt?.text ?? plainText.slice(-1200);
+    if (actionablePrompt || /login|auth|permission|trust|press|continue|select|choose|allow|deny|approve|yes|no|y\/n|not recognized|not found|command not found/i.test(promptSource)) {
+      const notice = actionablePrompt?.text ?? promptSource.slice(-1200);
       if (notice !== this.agentLastRawNotice) {
         this.agentLastRawNotice = notice;
         this.appendAgentTranscript({
@@ -3720,11 +3729,15 @@ function extractAgentActionablePrompt(text: string): AgentPromptState | null {
     ? rawLines.slice(Math.max(0, menuCueIndex - 2), menuCueIndex + 12)
     : [];
   const interestingLines = rawLines.filter((line) => {
+    if (isAgentAuthCompletionLine(line)) {
+      return false;
+    }
+
     return extractHttpUrls(line).length > 0 ||
       /\/login|api error|401|mcp servers need auth|need auth|authentication|login|browser|url|link|select|choose|method|permission|trust|allow|deny|approve|yes|no|y\/n|continue|press|not recognized|not found|command not found/i.test(line);
   });
   const promptLines = uniqueStrings([...contextLines, ...interestingLines])
-    .filter((line) => !isNoisyAgentPromptLine(line))
+    .filter((line) => !isNoisyAgentPromptLine(line) && !isAgentAuthCompletionLine(line))
     .slice(-16);
 
   if (promptLines.length === 0 && urls.length === 0) {
@@ -3890,6 +3903,26 @@ function isNoisyAgentPromptLine(line: string): boolean {
   return /^[-_*]{2,}$/.test(line) ||
     /^\? for shortcuts/i.test(line) ||
     /^esc to /i.test(line);
+}
+
+function hasAgentAuthSuccess(text: string): boolean {
+  return /logged in|login successful|authentication complete|successfully authenticated|already logged in/i.test(text);
+}
+
+function getTextAfterLastAgentAuthSuccess(text: string): string {
+  const lines = text.split(/\r?\n/);
+  let lastSuccessIndex = -1;
+  lines.forEach((line, index) => {
+    if (hasAgentAuthSuccess(line)) {
+      lastSuccessIndex = index;
+    }
+  });
+
+  return lastSuccessIndex >= 0 ? lines.slice(lastSuccessIndex + 1).join("\n") : text;
+}
+
+function isAgentAuthCompletionLine(line: string): boolean {
+  return hasAgentAuthSuccess(line) || /login interrupted|login cancelled|login canceled/i.test(line);
 }
 
 function extractHttpUrls(text: string): string[] {
