@@ -774,6 +774,8 @@ class VaultPowerShellView extends ItemView {
   private agentStdoutBuffer = "";
   private agentStatusEl: HTMLElement | null = null;
   private agentTranscriptEl: HTMLElement | null = null;
+  private agentLoadingEl: HTMLElement | null = null;
+  private agentLoadingTextEl: HTMLElement | null = null;
   private agentPromptActionsEl: HTMLElement | null = null;
   private agentInputEl: HTMLTextAreaElement | null = null;
   private agentProviderButtons: Record<AgentProvider, HTMLElement | null> = { claude: null, codex: null };
@@ -865,6 +867,8 @@ class VaultPowerShellView extends ItemView {
     this.terminalPaneEl = null;
     this.agentStatusEl = null;
     this.agentTranscriptEl = null;
+    this.agentLoadingEl = null;
+    this.agentLoadingTextEl = null;
     this.agentPromptActionsEl = null;
     this.agentInputEl = null;
     this.paneTabEls = { agent: null, terminal: null };
@@ -957,6 +961,16 @@ class VaultPowerShellView extends ItemView {
       id: this.nextLocalAgentEntryId("system"),
       role: "system",
       text: "Start Claude or Codex. The CLI runs in interactive subscription mode behind this pane; the transcript is rendered from local session logs when available."
+    });
+
+    this.agentLoadingEl = container.createDiv("vault-agent-loading is-hidden");
+    const loadingDots = this.agentLoadingEl.createSpan("vault-agent-loading-dots");
+    loadingDots.createSpan();
+    loadingDots.createSpan();
+    loadingDots.createSpan();
+    this.agentLoadingTextEl = this.agentLoadingEl.createSpan({
+      cls: "vault-agent-loading-text",
+      text: "Preparing agent..."
     });
 
     const composer = container.createDiv("vault-agent-composer");
@@ -1780,7 +1794,13 @@ class VaultPowerShellView extends ItemView {
   }
 
   private setAgentStatus(text: string) {
+    const loading = isAgentLoadingStatus(text);
     this.agentStatusEl?.setText(text);
+    this.agentStatusEl?.toggleClass("is-loading", loading);
+    this.agentLoadingEl?.toggleClass("is-hidden", !loading);
+    if (this.agentLoadingTextEl) {
+      this.agentLoadingTextEl.setText(text);
+    }
   }
 
   private nextLocalAgentEntryId(role: AgentTranscriptRole): string {
@@ -3912,6 +3932,10 @@ function getAgentPromptModeLabel(mode: AgentPromptMode): string {
   }
 
   return "Agent prompt";
+}
+
+function isAgentLoadingStatus(text: string): boolean {
+  return /checking|starting|fetching|downloading|installing|launching|in progress|waiting for response|receiving output/i.test(text);
 }
 
 function getAgentLaunchCommand(provider: AgentProvider, settings: PowerShellSettings): string {
