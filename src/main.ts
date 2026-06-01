@@ -114,7 +114,7 @@ type WindowsPtyBackend = "winpty" | "conpty";
 type ViewPane = "agent" | "terminal";
 type AgentProvider = "claude" | "codex";
 type AgentTranscriptRole = "user" | "assistant" | "tool" | "system";
-type AgentPromptMode = "auth" | "mcp" | "menu" | "confirmation" | "permission" | "command" | "text";
+type AgentPromptMode = "auth" | "auth-code" | "mcp" | "menu" | "confirmation" | "permission" | "continue" | "command" | "text";
 
 interface PtyHostConfig {
   shell: string;
@@ -190,6 +190,12 @@ type AgentPromptAction =
     kind: "copy-text";
     label: string;
     text: string;
+    description?: string;
+    keepPrompt?: boolean;
+  }
+  | {
+    kind: "submit-clipboard";
+    label: string;
     description?: string;
     keepPrompt?: boolean;
   };
@@ -765,6 +771,7 @@ class VaultPowerShellView extends ItemView {
   private agentLastRawNotice = "";
   private agentNeedsAuth = false;
   private agentPromptState: AgentPromptState | null = null;
+  private agentOpenedLoginUrls = new Set<string>();
 
   constructor(leaf: WorkspaceLeaf, plugin: VaultPowerShellPlugin) {
     super(leaf);
@@ -998,6 +1005,7 @@ class VaultPowerShellView extends ItemView {
     this.agentSeenEntries.clear();
     this.agentNeedsAuth = false;
     this.agentPromptState = null;
+    this.agentOpenedLoginUrls.clear();
     this.refreshAgentPromptActions();
     this.agentReadyForInput = false;
     this.setAgentStatus(`Starting ${getAgentProviderLabel(provider)}...`);
@@ -1182,6 +1190,17 @@ class VaultPowerShellView extends ItemView {
       return;
     }
 
+    const promptMode = this.agentPromptState?.mode;
+    if (promptMode === "auth-code" && !text.startsWith("/") && !looksLikeAgentAuthCode(text)) {
+      new Notice("Claude is waiting for the login code. Open the login link, copy the code, then paste only the code here.");
+      this.appendAgentTranscript({
+        id: this.nextLocalAgentEntryId("system"),
+        role: "system",
+        text: "Claude is waiting for a browser login code. Use Open login link, then paste only the returned code into this box."
+      });
+      return;
+    }
+
     inputEl.value = "";
     const visibleText = text || "[Enter]";
     this.appendAgentTranscript({
@@ -1189,7 +1208,16 @@ class VaultPowerShellView extends ItemView {
       role: "user",
       text: visibleText
     });
-    const promptMode = this.agentPromptState?.mode;
+    if (promptMode === "continue" && !text.startsWith("/")) {
+      this.clearAgentPromptState();
+      this.sendAgentHostMessage({ type: "data", data: ESCAPE_SEQUENCE });
+      window.setTimeout(() => {
+        this.sendAgentHostMessage({ type: "data", data: `${formatTerminalPasteData(text)}\r` });
+      }, 100);
+      this.setAgentStatus(`${getAgentProviderLabel(this.agentProvider)} working...`);
+      return;
+    }
+
     const data = this.agentPromptState && !(promptMode === "mcp" && !text.startsWith("/"))
       ? formatAgentInteractiveInput(text)
       : `${formatTerminalPasteData(text)}\r`;
@@ -1253,6 +1281,14 @@ class VaultPowerShellView extends ItemView {
     this.agentNeedsAuth = this.agentNeedsAuth || prompt.requiresAuth;
     this.refreshAgentPromptActions();
     this.agentInputEl?.focus();
+
+    if (prompt.mode === "auth" || prompt.mode === "auth-code") {
+      const loginUrl = prompt.urls.find((url) => isAgentLoginUrl(url));
+      if (loginUrl && !this.agentOpenedLoginUrls.has(loginUrl)) {
+        this.agentOpenedLoginUrls.add(loginUrl);
+        this.openAgentExternalUrl(loginUrl);
+      }
+    }
   }
 
   private clearAgentPromptState(clearAuth = false) {
@@ -1302,20 +1338,39 @@ class VaultPowerShellView extends ItemView {
           return;
         }
 
+        if (action.kind === "submit-clipboard") {
+          this.submitAgentAuthCodeFromClipboard();
+          return;
+        }
+
         this.sendAgentControlData(action.data, action.label, action.keepPrompt ?? false);
       });
     }
   }
 
   private openAgentExternalUrl(url: string) {
-    const popup = window.open(url, "_blank", "noopener,noreferrer");
-    if (!popup) {
+    if (!openExternalUrlWithSystemBrowser(url)) {
+      const popup = window.open(url, "_blank", "noopener,noreferrer");
+      if (popup) {
+        return;
+      }
+
       void writeClipboardText(url).then(() => {
         new Notice("Could not open the login link, so it was copied instead.");
       }).catch((error: Error) => {
         new Notice(`Could not open or copy login link: ${error.message}`);
       });
     }
+  }
+
+  private submitAgentAuthCodeFromClipboard() {
+    const code = clipboard.readText().trim();
+    if (!looksLikeAgentAuthCode(code)) {
+      new Notice("Clipboard does not look like a login code.");
+      return;
+    }
+
+    this.sendAgentControlData(formatAgentInteractiveInput(code), "Submit copied code");
   }
 
   private sendAgentHostMessage(message: HostInputMessage) {
@@ -2518,6 +2573,7 @@ class VaultPowerShellView extends ItemView {
     this.agentLastRawNotice = "";
     this.agentNeedsAuth = false;
     this.agentPromptState = null;
+    this.agentOpenedLoginUrls.clear();
     this.refreshAgentPromptActions();
     this.setAgentStatus("Idle");
   }
@@ -3549,8 +3605,16 @@ function getAgentPromptModeLabel(mode: AgentPromptMode): string {
     return "Authentication";
   }
 
+  if (mode === "auth-code") {
+    return "Login code required";
+  }
+
   if (mode === "mcp") {
     return "MCP authentication";
+  }
+
+  if (mode === "continue") {
+    return "Continue";
   }
 
   if (mode === "command") {
@@ -3730,8 +3794,11 @@ function extractAgentActionablePrompt(text: string): AgentPromptState | null {
   const urls = extractHttpUrls(normalized);
   const hasMenuCue = rawLines.some((line) => /select|choose|method|use .*arrow|arrow keys|navigate/i.test(line));
   const menuCueIndex = rawLines.findIndex((line) => /select|choose|method|login/i.test(line));
+  const hasAuthCodeCue = rawLines.some((line) => /paste code|code here|authorization code|verification code|browser .*open|browser didn't open|copy\)/i.test(line));
   const contextLines = hasMenuCue && menuCueIndex >= 0
     ? rawLines.slice(Math.max(0, menuCueIndex - 2), menuCueIndex + 12)
+    : hasAuthCodeCue
+      ? rawLines.slice(Math.max(0, rawLines.findIndex((line) => /paste code|code here|browser .*open|browser didn't open/i.test(line)) - 6))
     : [];
   const interestingLines = rawLines.filter((line) => {
     if (isAgentAuthCompletionLine(line)) {
@@ -3739,7 +3806,7 @@ function extractAgentActionablePrompt(text: string): AgentPromptState | null {
     }
 
     return extractHttpUrls(line).length > 0 ||
-      /\/login|api error|401|mcp servers need auth|need auth|authentication|login|browser|url|link|select|choose|method|permission|trust|allow|deny|approve|yes|no|y\/n|continue|press|not recognized|not found|command not found/i.test(line);
+      /\/login|api error|401|mcp servers need auth|need auth|authentication|login|browser|url|link|paste code|code here|authorization code|verification code|select|choose|method|permission|trust|allow|deny|approve|yes|no|y\/n|continue|press|not recognized|not found|command not found/i.test(line);
   });
   const promptLines = uniqueStrings([...contextLines, ...interestingLines])
     .filter((line) => !isNoisyAgentPromptLine(line) && !isAgentAuthCompletionLine(line))
@@ -3766,8 +3833,16 @@ function extractAgentActionablePrompt(text: string): AgentPromptState | null {
 }
 
 function getAgentPromptMode(text: string, requiresAuth: boolean): AgentPromptMode {
+  if (/paste code|code here|authorization code|verification code/i.test(text)) {
+    return "auth-code";
+  }
+
   if (isMcpAuthPrompt(text)) {
     return "mcp";
+  }
+
+  if (/esc to continue|press esc|hit esc/i.test(text)) {
+    return "continue";
   }
 
   if (/select|choose|method|use .*arrow|arrow keys|↑|↓|❯|navigate/i.test(text)) {
@@ -3810,7 +3885,15 @@ function getAgentPromptActions(mode: AgentPromptMode, text: string, urls: string
     });
   });
 
-  if (/\/login|api error|401|authentication|login/i.test(text) || (mode === "auth" && !mcpAuth)) {
+  if (mode === "auth-code") {
+    actions.push({
+      kind: "submit-clipboard",
+      label: "Submit copied code",
+      description: "Paste the browser login code from the clipboard into Claude."
+    });
+  }
+
+  if (mode !== "auth-code" && (/\/login|api error|401|authentication|login/i.test(text) || (mode === "auth" && !mcpAuth))) {
     actions.push({ label: "/login", data: "/login\r", description: "Start the agent login flow." });
   }
 
@@ -3839,8 +3922,12 @@ function getAgentPromptActions(mode: AgentPromptMode, text: string, urls: string
     actions.push({ label: "Enter", data: "\r", description: "Continue." });
   }
 
-  if (mode === "menu" || mode === "permission" || mode === "confirmation") {
-    actions.push({ label: "Esc", data: ESCAPE_SEQUENCE, description: "Cancel the active prompt if the CLI supports it." });
+  if (mode === "continue") {
+    actions.push({ label: "Continue", data: ESCAPE_SEQUENCE, description: "Continue past the current agent notice." });
+  }
+
+  if (mode === "menu" || mode === "permission" || mode === "confirmation" || mode === "auth-code" || mode === "continue") {
+    actions.push({ label: "Esc", data: ESCAPE_SEQUENCE, description: "Cancel or continue the active prompt if the CLI supports it." });
   }
 
   return dedupeAgentPromptActions(actions);
@@ -3853,7 +3940,9 @@ function dedupeAgentPromptActions(actions: AgentPromptAction[]): AgentPromptActi
       ? `open-url\u0000${action.url}`
       : action.kind === "copy-text"
         ? `copy-text\u0000${action.text}`
-        : `input\u0000${action.label}\u0000${action.data}`;
+        : action.kind === "submit-clipboard"
+          ? "submit-clipboard"
+          : `input\u0000${action.label}\u0000${action.data}`;
     if (seen.has(key)) {
       return false;
     }
@@ -3939,6 +4028,18 @@ function isMcpAuthPrompt(text: string): boolean {
   return /mcp servers need auth|\/mcp/i.test(text);
 }
 
+function looksLikeAgentAuthCode(text: string): boolean {
+  const value = text.trim();
+  return value.length >= 8 &&
+    value.length <= 4096 &&
+    !/^https?:\/\//i.test(value) &&
+    /^[A-Za-z0-9._~+/=-]+$/.test(value);
+}
+
+function isAgentLoginUrl(url: string): boolean {
+  return /claude\.com|anthropic\.com|oauth|authorize|login|auth/i.test(url);
+}
+
 function extractHttpUrls(text: string): string[] {
   const joined = joinWrappedUrls(text);
   const matches = joined.match(/https?:\/\/[^\s<>"`]+/gi) ?? [];
@@ -3986,6 +4087,41 @@ function appendTextWithLinks(container: HTMLElement, text: string, openUrl: (url
   if (cursor < linkedText.length) {
     container.createSpan({ text: linkedText.slice(cursor) });
   }
+}
+
+function openExternalUrlWithSystemBrowser(url: string): boolean {
+  try {
+    const command = getExternalUrlOpenCommand(url);
+    if (!command) {
+      return false;
+    }
+
+    const child = spawn(command.command, command.args, {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true
+    });
+    child.unref();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getExternalUrlOpenCommand(url: string): { command: string; args: string[] } | null {
+  if (process.platform === "win32") {
+    return { command: "rundll32.exe", args: ["url.dll,FileProtocolHandler", url] };
+  }
+
+  if (process.platform === "darwin") {
+    return { command: "open", args: [url] };
+  }
+
+  if (process.platform === "linux") {
+    return { command: "xdg-open", args: [url] };
+  }
+
+  return null;
 }
 
 function parseClaudeTranscriptEntry(value: unknown): AgentTranscriptEntry | null {
