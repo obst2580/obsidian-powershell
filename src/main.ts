@@ -17,7 +17,7 @@ import { clipboard } from "electron";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { unzipSync } from "fflate";
-import { ChildProcessWithoutNullStreams, spawn } from "child_process";
+import { ChildProcessWithoutNullStreams, spawn, spawnSync } from "child_process";
 import { createHash } from "crypto";
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from "fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
@@ -89,6 +89,7 @@ const TERMINAL_FIT_STABILIZATION_DELAYS_MS = [0, 16, 50, 150, 400, 1000];
 const SETTINGS_SCHEMA_VERSION = 2;
 const AGENT_CONSOLE_COLS = 300;
 const AGENT_CONSOLE_ROWS = 30;
+const WSL_CHECK_TIMEOUT_MS = 3000;
 const AGENT_READY_DELAY_MS = 2500;
 const AGENT_SESSION_POLL_MS = 1200;
 const AGENT_SESSION_LOOKBACK_MS = 30000;
@@ -469,15 +470,7 @@ export default class VaultPowerShellPlugin extends Plugin {
     }
 
     if (profile === "wsl" && process.platform === "win32") {
-      const distro = this.settings.wslDistro.trim();
-      return {
-        shell: existsSync(WINDOWS_WSL_PATH) ? WINDOWS_WSL_PATH : "wsl.exe",
-        args: [
-          ...(distro ? ["-d", distro] : []),
-          "--cd",
-          toWslPath(vaultPath)
-        ]
-      };
+      return getWslLaunchConfig(vaultPath, this.settings.wslDistro.trim());
     }
 
     if (profile === "git-bash" && process.platform === "win32") {
@@ -3159,7 +3152,7 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Shell profile")
       .setDesc(process.platform === "win32"
-        ? "Choose the real shell opened in this pane. WSL uses the vault path converted to /mnt/c/..."
+        ? "Choose the real shell opened in this pane. WSL requires an installed Linux distribution and starts at the vault path when supported."
         : "Choose the real shell opened in this pane. macOS usually uses zsh by default.")
       .addDropdown((dropdown) => {
         for (const option of getShellProfileOptions()) {
@@ -3999,6 +3992,95 @@ function isPlatformIncompatiblePath(value: string): boolean {
   }
 
   return false;
+}
+
+function getWslLaunchConfig(vaultPath: string, distro: string): ShellLaunchConfig {
+  const shell = existsSync(WINDOWS_WSL_PATH) ? WINDOWS_WSL_PATH : "wsl.exe";
+  const status = getWslStatus(shell);
+  if (!status.canLaunch) {
+    throw new Error(status.message);
+  }
+
+  const distroArgs = distro ? ["-d", distro] : [];
+  if (status.supportsCd) {
+    return {
+      shell,
+      args: [...distroArgs, "--cd", toWslPath(vaultPath)]
+    };
+  }
+
+  return {
+    shell,
+    args: [
+      ...distroArgs,
+      "sh",
+      "-lc",
+      `cd ${quoteShellArg(toWslPath(vaultPath))} && exec "\${SHELL:-/bin/bash}" -l`
+    ]
+  };
+}
+
+function getWslStatus(shell: string): { canLaunch: boolean; supportsCd: boolean; message: string } {
+  const listResult = spawnSync(shell, ["--list", "--quiet"], {
+    encoding: "buffer",
+    timeout: WSL_CHECK_TIMEOUT_MS,
+    windowsHide: true
+  });
+  const listOutput = decodeCommandOutput(listResult.stdout) || decodeCommandOutput(listResult.stderr);
+
+  if (listResult.error) {
+    return {
+      canLaunch: false,
+      supportsCd: false,
+      message: `WSL could not be checked: ${listResult.error.message}. Install WSL and a Linux distribution first.`
+    };
+  }
+
+  if (listResult.status !== 0) {
+    return {
+      canLaunch: false,
+      supportsCd: false,
+      message: "WSL is not ready to launch a Linux shell. Run `wsl --install -d Ubuntu`, restart Windows if requested, finish the Linux distribution setup, then select WSL again."
+    };
+  }
+
+  const distroLines = listOutput
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\0/g, "").trim())
+    .filter((line) => line.length > 0);
+  if (distroLines.length === 0) {
+    return {
+      canLaunch: false,
+      supportsCd: false,
+      message: "WSL is installed, but no Linux distribution is registered. Run `wsl --install -d Ubuntu`, finish the first-run setup, then select WSL again."
+    };
+  }
+
+  const helpResult = spawnSync(shell, ["--help"], {
+    encoding: "buffer",
+    timeout: WSL_CHECK_TIMEOUT_MS,
+    windowsHide: true
+  });
+  const helpOutput = `${decodeCommandOutput(helpResult.stdout)}\n${decodeCommandOutput(helpResult.stderr)}`;
+  return {
+    canLaunch: true,
+    supportsCd: helpOutput.includes("--cd"),
+    message: ""
+  };
+}
+
+function decodeCommandOutput(output: Buffer | string | null | undefined): string {
+  if (!output) {
+    return "";
+  }
+
+  const buffer = Buffer.isBuffer(output) ? output : Buffer.from(output);
+  const hasNullBytes = buffer.some((byte) => byte === 0);
+  return (hasNullBytes ? buffer.toString("utf16le") : buffer.toString("utf8")).replace(/\0/g, "");
+}
+
+function quoteShellArg(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 function toWslPath(windowsPath: string): string {
