@@ -115,7 +115,7 @@ type ViewPane = "agent" | "terminal";
 type AgentProvider = "claude" | "codex";
 type AgentTranscriptRole = "user" | "assistant" | "tool" | "system";
 type AgentPromptMode = "auth" | "auth-code" | "mcp" | "menu" | "confirmation" | "permission" | "continue" | "command" | "text";
-type AgentAuthState = "idle" | "checking" | "ready" | "login-required" | "login-in-progress";
+type AgentAuthState = "idle" | "checking" | "authenticated" | "ready" | "login-required" | "login-in-progress";
 
 interface PtyHostConfig {
   shell: string;
@@ -208,6 +208,21 @@ interface AgentPromptState {
   allowEmptySubmit: boolean;
   urls: string[];
   actions: AgentPromptAction[];
+}
+
+interface AgentAuthCheck {
+  checked: boolean;
+  loggedIn: boolean | null;
+  summary: string;
+  detail?: string;
+}
+
+interface CapturedCommandResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+  timedOut: boolean;
+  error?: string;
 }
 
 interface ClipboardNativeImage {
@@ -774,6 +789,7 @@ class VaultPowerShellView extends ItemView {
   private agentConversationReady = false;
   private agentReadyNoticeShown = false;
   private agentAutoLoginAttempted = false;
+  private agentAutoLoginPending = false;
   private agentAutoMcpAttempted = false;
   private agentMcpAuthInProgress = false;
   private agentNeedsAuth = false;
@@ -1014,6 +1030,7 @@ class VaultPowerShellView extends ItemView {
     this.agentConversationReady = false;
     this.agentReadyNoticeShown = false;
     this.agentAutoLoginAttempted = false;
+    this.agentAutoLoginPending = false;
     this.agentAutoMcpAttempted = false;
     this.agentMcpAuthInProgress = false;
     this.agentNeedsAuth = false;
@@ -1044,6 +1061,8 @@ class VaultPowerShellView extends ItemView {
         useSystemCa: this.plugin.settings.useSystemCa,
         extraCaCertPath: this.plugin.getExtraCaCertPath()
       });
+      await this.checkAgentLoginStatus(provider, cwd, env);
+
       const shell = this.plugin.getShellExecutable();
       const host = spawn(this.plugin.getNodeExecutable(), [this.plugin.getPtyHostPath(), encodeConfig({
         shell,
@@ -1168,6 +1187,16 @@ class VaultPowerShellView extends ItemView {
       }
 
       this.agentReadyForInput = true;
+      if (this.agentAutoLoginPending && this.agentAuthState === "login-required") {
+        this.startAgentLoginFlow(`${getAgentProviderLabel(this.agentProvider)} login status reports not signed in.`);
+        return;
+      }
+
+      if (this.agentAuthState === "authenticated" || this.agentAuthState === "ready") {
+        this.markAgentConversationReady(`${getAgentProviderLabel(this.agentProvider)} login is confirmed. Conversation is ready.`);
+        return;
+      }
+
       if (this.agentAuthState === "checking") {
         this.setAgentStatus(`Checking ${getAgentProviderLabel(this.agentProvider)} login...`);
       } else {
@@ -1296,6 +1325,39 @@ class VaultPowerShellView extends ItemView {
     }
 
     return true;
+  }
+
+  private async checkAgentLoginStatus(provider: AgentProvider, cwd: string, env: { [key: string]: string | undefined }) {
+    this.setAgentStatus(`Checking ${getAgentProviderLabel(provider)} login...`);
+    const status = await getAgentAuthCheck(provider, cwd, env);
+    this.appendAgentTranscript({
+      id: this.nextLocalAgentEntryId("system"),
+      role: "system",
+      text: status.summary
+    });
+
+    if (status.loggedIn === true) {
+      this.agentAuthState = "authenticated";
+      this.agentConversationReady = false;
+      this.agentNeedsAuth = false;
+      this.agentAutoLoginPending = false;
+      this.setAgentStatus(`${getAgentProviderLabel(provider)} login confirmed`);
+      return;
+    }
+
+    if (status.loggedIn === false) {
+      this.agentAuthState = "login-required";
+      this.agentConversationReady = false;
+      this.agentNeedsAuth = provider === "claude";
+      this.agentAutoLoginPending = provider === "claude";
+      this.refreshAgentAuthStatus();
+      return;
+    }
+
+    this.agentAuthState = "checking";
+    this.agentConversationReady = false;
+    this.agentAutoLoginPending = false;
+    this.refreshAgentAuthStatus();
   }
 
   private setAgentPromptState(prompt: AgentPromptState) {
@@ -1589,6 +1651,7 @@ class VaultPowerShellView extends ItemView {
     this.agentAutoLoginAttempted = true;
     this.agentConversationReady = false;
     this.agentAuthState = "login-in-progress";
+    this.agentAutoLoginPending = false;
     this.agentNeedsAuth = true;
     this.setAgentStatus("Claude Code login in progress");
     this.appendAgentTranscript({
@@ -1635,6 +1698,11 @@ class VaultPowerShellView extends ItemView {
   private refreshAgentAuthStatus(fallback?: string) {
     if (this.agentAuthState === "ready") {
       this.setAgentStatus(this.agentMcpAuthInProgress ? "Claude signed in; MCP auth in progress" : `${getAgentProviderLabel(this.agentProvider)} signed in`);
+      return;
+    }
+
+    if (this.agentAuthState === "authenticated") {
+      this.setAgentStatus(`${getAgentProviderLabel(this.agentProvider)} login confirmed`);
       return;
     }
 
@@ -2750,6 +2818,7 @@ class VaultPowerShellView extends ItemView {
     this.agentConversationReady = false;
     this.agentReadyNoticeShown = false;
     this.agentAutoLoginAttempted = false;
+    this.agentAutoLoginPending = false;
     this.agentAutoMcpAttempted = false;
     this.agentMcpAuthInProgress = false;
     this.agentNeedsAuth = false;
@@ -3814,6 +3883,196 @@ function getAgentLaunchCommand(provider: AgentProvider, settings: PowerShellSett
     disableResizeReflow: settings.codexDisableResizeReflow,
     noAltScreen: settings.codexNoAltScreen
   }) ?? "codex";
+}
+
+async function getAgentAuthCheck(provider: AgentProvider, cwd: string, env: { [key: string]: string | undefined }): Promise<AgentAuthCheck> {
+  if (provider === "claude") {
+    const result = await runCapturedCommand("claude", ["auth", "status", "--json"], cwd, env, 8000);
+    return parseClaudeAuthCheck(result);
+  }
+
+  const result = await runCapturedCommand("codex", ["login", "status"], cwd, env, 8000);
+  return parseCodexAuthCheck(result);
+}
+
+function parseClaudeAuthCheck(result: CapturedCommandResult): AgentAuthCheck {
+  const output = `${result.stdout}\n${result.stderr}`.trim();
+  const failure = getCapturedCommandFailure(result);
+  const parsed = parseJsonObject(result.stdout) as {
+    loggedIn?: boolean;
+    authMethod?: string;
+    email?: string;
+    orgName?: string;
+    subscriptionType?: string;
+  } | null;
+
+  if (parsed && parsed.loggedIn === true) {
+    const pieces = [
+      parsed.email ? `account ${parsed.email}` : "an authenticated account",
+      parsed.subscriptionType ? `${parsed.subscriptionType} subscription` : "",
+      parsed.orgName ? `org ${parsed.orgName}` : "",
+      parsed.authMethod ? `method ${parsed.authMethod}` : ""
+    ].filter(Boolean);
+    return {
+      checked: true,
+      loggedIn: true,
+      summary: `Claude Code login confirmed: ${pieces.join(", ")}. Conversation will be available after Claude finishes opening.`
+    };
+  }
+
+  if (parsed && parsed.loggedIn === false) {
+    return {
+      checked: true,
+      loggedIn: false,
+      summary: "Claude Code is not signed in. The agent console will open Claude and start /login automatically."
+    };
+  }
+
+  if (/not logged in|login required|please run\s+\/login|invalid authentication/i.test(output)) {
+    return {
+      checked: true,
+      loggedIn: false,
+      summary: "Claude Code is not signed in. The agent console will open Claude and start /login automatically."
+    };
+  }
+
+  return {
+    checked: false,
+    loggedIn: null,
+    summary: `Claude Code login status could not be confirmed before launch.${failure ? ` ${failure}` : ""} The console will watch Claude output and start login if required.`,
+    detail: output
+  };
+}
+
+function parseCodexAuthCheck(result: CapturedCommandResult): AgentAuthCheck {
+  const output = `${result.stdout}\n${result.stderr}`.trim();
+  const failure = getCapturedCommandFailure(result);
+  if (/logged in/i.test(output)) {
+    return {
+      checked: true,
+      loggedIn: true,
+      summary: `Codex login confirmed: ${output.replace(/\s+/g, " ")}. Conversation will be available after Codex finishes opening.`
+    };
+  }
+
+  if (/not logged in|login required|not authenticated|unauthorized/i.test(output) || result.exitCode === 1) {
+    return {
+      checked: true,
+      loggedIn: false,
+      summary: "Codex is not signed in. Start Codex login from the Raw terminal or run codex login, then restart the agent console."
+    };
+  }
+
+  return {
+    checked: false,
+    loggedIn: null,
+    summary: `Codex login status could not be confirmed before launch.${failure ? ` ${failure}` : ""} The console will watch Codex output for login prompts.`,
+    detail: output
+  };
+}
+
+function getCapturedCommandFailure(result: CapturedCommandResult): string {
+  if (result.timedOut) {
+    return "The status command timed out.";
+  }
+
+  if (result.error) {
+    return `The status command failed: ${result.error}.`;
+  }
+
+  if (result.exitCode !== 0 && result.exitCode !== null) {
+    const output = `${result.stderr || result.stdout}`.trim();
+    return `The status command exited with code ${result.exitCode}${output ? `: ${truncateStatusOutput(output)}` : "."}`;
+  }
+
+  return "";
+}
+
+function parseJsonObject(text: string): unknown | null {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    const start = trimmed.indexOf("{");
+    const end = trimmed.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(trimmed.slice(start, end + 1)) as unknown;
+      } catch {
+        return null;
+      }
+    }
+  }
+
+  return null;
+}
+
+function truncateStatusOutput(text: string): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  return normalized.length > 240 ? `${normalized.slice(0, 237)}...` : normalized;
+}
+
+function runCapturedCommand(command: string, args: string[], cwd: string, env: { [key: string]: string | undefined }, timeoutMs: number): Promise<CapturedCommandResult> {
+  return new Promise((resolvePromise) => {
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let child: ChildProcessWithoutNullStreams | null = null;
+
+    const finish = (result: Partial<CapturedCommandResult>) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      window.clearTimeout(timeout);
+      resolvePromise({
+        stdout,
+        stderr,
+        exitCode: result.exitCode ?? null,
+        timedOut: result.timedOut ?? false,
+        error: result.error
+      });
+    };
+
+    const timeout = window.setTimeout(() => {
+      try {
+        child?.kill();
+      } catch {
+        // The command may already have exited.
+      }
+      finish({ timedOut: true });
+    }, timeoutMs);
+
+    try {
+      child = spawn(command, args, {
+        cwd,
+        env,
+        shell: process.platform === "win32",
+        windowsHide: true
+      });
+    } catch (error) {
+      finish({ error: error instanceof Error ? error.message : String(error) });
+      return;
+    }
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", (error: Error) => {
+      finish({ error: error.message });
+    });
+    child.on("close", (code: number | null) => {
+      finish({ exitCode: code });
+    });
+  });
 }
 
 function findLatestAgentSessionFile(provider: AgentProvider, cwd: string, startedAt: number): string | null {
