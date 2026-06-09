@@ -1,6 +1,6 @@
 {
   "name": "vault-terminal",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Obsidian right-sidebar terminal rooted at the current vault.",
   "main": "main.js",
   "scripts": {

@@ -107,6 +107,7 @@ interface PowerShellSettings {
   shiftEnterMode: ShiftEnterMode;
   codexDisableResizeReflow: boolean;
   codexNoAltScreen: boolean;
+  codexPreserveScrollback: boolean;
   windowsPtyBackend: WindowsPtyBackend;
   autoInstallRuntime: boolean;
   useSystemCa: boolean;
@@ -262,6 +263,7 @@ const DEFAULT_SETTINGS: PowerShellSettings = {
   shiftEnterMode: "claude-backslash",
   codexDisableResizeReflow: true,
   codexNoAltScreen: true,
+  codexPreserveScrollback: true,
   windowsPtyBackend: "conpty",
   autoInstallRuntime: true,
   useSystemCa: false,
@@ -386,6 +388,7 @@ export default class VaultPowerShellPlugin extends Plugin {
     this.settings.codexNoAltScreen = needsCodexScrollbackMigration
       ? true
       : this.settings.codexNoAltScreen !== false;
+    this.settings.codexPreserveScrollback = this.settings.codexPreserveScrollback !== false;
     this.settings.windowsPtyBackend = normalizeWindowsPtyBackend(this.settings.windowsPtyBackend);
     this.settings.autoInstallRuntime = this.settings.autoInstallRuntime === true;
     if (needsCodexScrollbackMigration) {
@@ -2743,8 +2746,9 @@ class VaultPowerShellView extends ItemView {
       return;
     }
 
+    const sanitized = this.plugin.settings.codexPreserveScrollback ? stripScrollbackClear(data) : data;
     const shouldFollowOutput = isTerminalScrolledToBottom(terminal);
-    terminal.write(data, () => {
+    terminal.write(sanitized, () => {
       if (!this.terminal) {
         return;
       }
@@ -3327,6 +3331,18 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.codexDisableResizeReflow)
           .onChange((value) => {
             this.plugin.settings.codexDisableResizeReflow = value;
+            void this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Preserve Codex scrollback")
+      .setDesc("On by default. Strips the scrollback-clearing escape (CSI 3J) that Codex emits on every redraw, so earlier conversation stays scrollable in this xterm.js terminal. Turn off if you want clear/cls to also wipe scrollback.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.codexPreserveScrollback)
+          .onChange((value) => {
+            this.plugin.settings.codexPreserveScrollback = value;
             void this.plugin.saveSettings();
           })
       );
@@ -4212,6 +4228,15 @@ function isTerminalScrolledToBottom(terminal: Terminal): boolean {
   return buffer.viewportY >= buffer.baseY;
 }
 
+function stripScrollbackClear(data: string): string {
+  // CSI 3J (ED parameter 3) erases the scrollback buffer, not the visible screen.
+  // Codex repaints its inline TUI with ...[2J[3J... on every frame, so xterm.js wipes
+  // earlier conversation each redraw. Removing only 3J leaves the visible output
+  // byte-for-byte identical while letting scrollOnEraseInDisplay keep what [2J pushes
+  // into scrollback. See openai/codex#14277 and #10331.
+  return data.replace(/\x1b\[3J/g, "");
+}
+
 function getAgentProviderLabel(provider: AgentProvider): string {
   return provider === "claude" ? "Claude Code" : "Codex";
 }
@@ -4583,21 +4608,47 @@ function readFileTextFromOffset(filePath: string, offset: number): { text: strin
     return { text: "", nextOffset: stats.size };
   }
 
-  const start = Math.max(offset, stats.size - AGENT_SESSION_MAX_READ_BYTES);
-  const length = stats.size - start;
+  // Always read FORWARD from offset (never rewind to the file tail). Cap each poll to
+  // one chunk so a large backlog is caught up over several polls instead of dropping
+  // its head. This removes the old `stats.size - MAX_READ_BYTES` sliding window that
+  // silently skipped the start of big Codex/Claude session logs.
+  const start = offset;
+  const length = Math.min(stats.size - start, AGENT_SESSION_MAX_READ_BYTES);
+  const reachedEof = start + length >= stats.size;
   const fd = openSync(filePath, "r");
   try {
     const buffer = Buffer.alloc(length);
     const bytesRead = readSync(fd, buffer, 0, length, start);
+    const chunk = buffer.subarray(0, bytesRead);
+    const consumed = computeConsumedBytes(chunk, reachedEof);
+
     return {
-      text: buffer.subarray(0, bytesRead).toString("utf8"),
-      nextOffset: stats.size
+      text: chunk.subarray(0, consumed).toString("utf8"),
+      nextOffset: start + consumed
     };
   } catch {
     return null;
   } finally {
     closeSync(fd);
   }
+}
+
+function computeConsumedBytes(chunk: Buffer, reachedEof: boolean): number {
+  // At EOF the chunk ends on a complete line, so consume all of it.
+  if (reachedEof) {
+    return chunk.length;
+  }
+
+  // Otherwise the chunk may end mid-line. Stop after the last complete line so the
+  // partial tail is re-read on the next poll instead of being parsed as broken JSON.
+  const lastNewline = chunk.lastIndexOf(0x0a);
+  if (lastNewline === -1) {
+    // No newline at all: a single line is larger than the read cap. Consume everything
+    // to keep making forward progress; that one oversized line may fail to parse.
+    return chunk.length;
+  }
+
+  return lastNewline + 1;
 }
 
 function parseAgentTranscriptEntries(provider: AgentProvider, text: string): AgentTranscriptEntry[] {
