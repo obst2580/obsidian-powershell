@@ -2067,6 +2067,7 @@ class VaultPowerShellView extends ItemView {
     terminal.focus();
 
     terminal.onData((data) => {
+      console.log("[obst-debug] xterm onData", JSON.stringify(data));
       this.clearCachedClaudeSuggestion(true);
       this.sendHostMessage({ type: "data", data: this.rewriteTerminalInput(data) });
     });
@@ -2078,6 +2079,8 @@ class VaultPowerShellView extends ItemView {
       if (event.type !== "keydown") {
         return true;
       }
+
+      console.log("[obst-debug] keydown reached xterm:", event.key, "meta:", event.metaKey, "ctrl:", event.ctrlKey, "alt:", event.altKey);
 
       if (this.handleCopyPasteShortcut(event, terminal)) {
         return false;
@@ -2096,6 +2099,10 @@ class VaultPowerShellView extends ItemView {
       }
 
       return true;
+    });
+
+    container.addEventListener("mousedown", () => {
+      this.terminal?.focus();
     });
 
     container.addEventListener("wheel", (event) => {
@@ -3088,6 +3095,9 @@ class VaultPowerShellView extends ItemView {
   }
 
   private sendHostMessage(message: HostInputMessage) {
+    if (message.type === "data") {
+      console.log("[obst-debug] sendHostMessage data", JSON.stringify(message.data), "host:", !!this.host, "writable:", this.host?.stdin.writable, "hostReady:", this.hostReady);
+    }
     if (!this.host || !this.host.stdin.writable) {
       return;
     }
