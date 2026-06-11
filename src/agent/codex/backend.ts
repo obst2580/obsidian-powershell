@@ -254,6 +254,15 @@ export class CodexAppServerBackend implements AgentBackend {
     if (!this.proc) {
       throw new Error("codex app-server is not running");
     }
+
+    // Resume the most recent thread for this folder so a reload/restart continues
+    // the previous conversation instead of starting blank.
+    const resumedId = await this.tryResumeRecentThread();
+    if (resumedId) {
+      this.threadId = resumedId;
+      return resumedId;
+    }
+
     const params: Record<string, unknown> = { cwd: this.cwd };
     if (this.deps.approvalPolicy) {
       params.approvalPolicy = this.deps.approvalPolicy;
@@ -261,6 +270,32 @@ export class CodexAppServerBackend implements AgentBackend {
     const res = await this.proc.rpc.request<{ thread: { id: string } }>("thread/start", params);
     this.threadId = res.thread.id;
     return this.threadId;
+  }
+
+  private async tryResumeRecentThread(): Promise<string | null> {
+    if (!this.proc) {
+      return null;
+    }
+    try {
+      // thread/list defaults to newest-first; filter to this cwd and take one.
+      const list = await this.proc.rpc.request<{ data?: Array<{ id?: string }> }>("thread/list", {
+        cwd: this.cwd,
+        limit: 1
+      });
+      const recentId = list.data?.[0]?.id;
+      if (!recentId) {
+        return null;
+      }
+      const params: Record<string, unknown> = { threadId: recentId, cwd: this.cwd };
+      if (this.deps.approvalPolicy) {
+        params.approvalPolicy = this.deps.approvalPolicy;
+      }
+      const res = await this.proc.rpc.request<{ thread?: { id?: string } }>("thread/resume", params);
+      return res.thread?.id ?? recentId;
+    } catch {
+      // No resumable thread, or list/resume unsupported — caller starts fresh.
+      return null;
+    }
   }
 
   private async refreshAccount(): Promise<void> {

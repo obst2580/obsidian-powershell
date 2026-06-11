@@ -19,7 +19,7 @@ import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { unzipSync } from "fflate";
 import { ChildProcessWithoutNullStreams, spawn, spawnSync } from "child_process";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from "fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
 import { tmpdir } from "os";
@@ -892,6 +892,9 @@ class VaultPowerShellView extends ItemView {
   private codexCurrentTurnEl: HTMLElement | null = null;
   private codexCurrentAnswerEl: HTMLElement | null = null;
   private codexTurnLoadingEl: HTMLElement | null = null;
+  private codexTurnActive = false;
+  private codexQueuedInputs: { text: string; attachments: AgentAttachment[] }[] = [];
+  private agentSendButton: HTMLButtonElement | null = null;
   private codexContextEl: HTMLElement | null = null;
   private codexContextFillEl: HTMLElement | null = null;
   private codexContextLabelEl: HTMLElement | null = null;
@@ -920,6 +923,7 @@ class VaultPowerShellView extends ItemView {
   private agentStartedAt = 0;
   private agentSessionPath: string | null = null;
   private agentSessionOffset = 0;
+  private agentClaudeSessionId: string | null = null;
   private agentSeenEntries = new Set<string>();
   private agentLocalMessageCounter = 0;
   private agentLastRawNotice = "";
@@ -1249,8 +1253,14 @@ class VaultPowerShellView extends ItemView {
       cls: "mod-cta",
       text: "Send"
     });
+    this.agentSendButton = sendButton;
     sendButton.addEventListener("click", () => {
-      void this.sendAgentInput();
+      // While Codex is answering, Send acts as Stop (interrupt the current turn).
+      if (this.agentBackend && this.codexTurnActive) {
+        void this.agentBackend.interrupt();
+      } else {
+        void this.sendAgentInput();
+      }
     });
   }
 
@@ -1372,10 +1382,13 @@ class VaultPowerShellView extends ItemView {
         break;
       case "turn-complete":
         this.setAgentStatus("Codex ready");
+        this.codexTurnActive = false;
+        this.updateSendButtonMode();
         this.codexTurnLoadingEl?.remove();
         this.codexTurnLoadingEl = null;
         this.codexCurrentTurnEl = null;
         this.codexCurrentAnswerEl = null;
+        this.flushQueuedInput();
         break;
       case "context-usage":
         this.updateContextUsage(event.usedTokens, event.contextWindow);
@@ -1400,6 +1413,10 @@ class VaultPowerShellView extends ItemView {
     if (!this.agentTranscriptEl) {
       return null;
     }
+    // Claude has no explicit turn-complete signal, so opening a new turn closes
+    // the previous one: clear any leftover thinking indicator first.
+    this.codexTurnLoadingEl?.remove();
+    this.codexTurnLoadingEl = null;
     const turn = this.agentTranscriptEl.createDiv("vault-agent-turn");
     if (question.trim()) {
       const q = turn.createDiv("vault-agent-turn-question");
@@ -1427,6 +1444,39 @@ class VaultPowerShellView extends ItemView {
     if (this.agentTranscriptEl) {
       this.agentTranscriptEl.scrollTop = this.agentTranscriptEl.scrollHeight;
     }
+  }
+
+  // Start one Codex turn and mark it active so further input queues instead of
+  // opening a second concurrent turn.
+  private beginCodexTurn(text: string, attachments: AgentAttachment[]) {
+    if (!this.agentBackend) {
+      return;
+    }
+    this.codexTurnActive = true;
+    this.updateSendButtonMode();
+    const noteSuffix = attachments.length ? `\n\n[${attachments.length} file(s) attached]` : "";
+    this.startCodexTurn((text || "(attachments)") + noteSuffix);
+    void this.agentBackend.sendUserMessage({ text, attachments });
+  }
+
+  private flushQueuedInput() {
+    if (this.codexTurnActive || !this.agentBackend) {
+      return;
+    }
+    const next = this.codexQueuedInputs.shift();
+    if (next) {
+      this.beginCodexTurn(next.text, next.attachments);
+    }
+  }
+
+  private updateSendButtonMode() {
+    if (!this.agentSendButton) {
+      return;
+    }
+    const active = this.codexTurnActive;
+    this.agentSendButton.setText(active ? "Stop" : "Send");
+    this.agentSendButton.toggleClass("mod-warning", active);
+    this.agentSendButton.toggleClass("mod-cta", !active);
   }
 
   // In-chat "thinking" indicator pinned to the bottom of the active answer.
@@ -1757,6 +1807,12 @@ class VaultPowerShellView extends ItemView {
       });
 
       host.on("close", (code: number | null) => {
+        // Flush any answer already written to the session log before teardown,
+        // so a response that landed right before the PTY died still appears.
+        this.pollAgentSessionLog();
+        // Host is gone — clear the "thinking" spinner so the turn isn't stuck.
+        this.codexTurnLoadingEl?.remove();
+        this.codexTurnLoadingEl = null;
         this.setAgentStatus(`Exited ${code ?? "unknown"}`);
         this.appendAgentTranscript({
           id: this.nextLocalAgentEntryId("system"),
@@ -1823,7 +1879,13 @@ class VaultPowerShellView extends ItemView {
   }
 
   private launchAgentCli() {
-    const command = getAgentLaunchCommand(this.agentProvider, this.plugin.settings);
+    let command = getAgentLaunchCommand(this.agentProvider, this.plugin.settings);
+    if (this.agentProvider === "claude") {
+      // Pin an explicit session id so our polling reads ONLY this conversation,
+      // never a Claude desktop-app session that shares the same vault folder.
+      this.agentClaudeSessionId = randomUUID();
+      command += ` --session-id ${this.agentClaudeSessionId}`;
+    }
     this.sendAgentHostMessage({ type: "data", data: `${command}\r` });
     this.setAgentStatus(`Launching ${getAgentProviderLabel(this.agentProvider)}...`);
 
@@ -1880,9 +1942,14 @@ class VaultPowerShellView extends ItemView {
       inputEl.value = "";
       this.codexPendingAttachments = [];
       this.renderAttachmentChips();
-      const noteSuffix = attachments.length ? `\n\n[${attachments.length} file(s) attached]` : "";
-      this.startCodexTurn((text || "(attachments)") + noteSuffix);
-      void this.agentBackend.sendUserMessage({ text, attachments });
+      if (this.codexTurnActive) {
+        // Still answering — queue this message (Codex-app behavior), don't open
+        // a second concurrent turn. It sends when the current turn ends/stops.
+        this.codexQueuedInputs.push({ text, attachments });
+        new Notice(`응답 중 — 메시지를 큐에 추가했습니다 (${this.codexQueuedInputs.length}개 대기). Stop을 누르면 즉시 넘어갑니다.`);
+        return;
+      }
+      this.beginCodexTurn(text, attachments);
       return;
     }
 
@@ -2244,7 +2311,10 @@ class VaultPowerShellView extends ItemView {
       this.markAgentConversationReady();
     }
 
-    const actionablePrompt = extractAgentActionablePrompt(promptSource);
+    // Once the conversation is live, claude's streamed answer (markdown such as
+    // "Normalization", "select", "- item") must not be mistaken for an
+    // interactive prompt — the session log drives the transcript instead.
+    const actionablePrompt = this.agentConversationReady ? null : extractAgentActionablePrompt(promptSource);
     if (actionablePrompt) {
       this.setAgentPromptState(actionablePrompt);
     }
@@ -2273,7 +2343,7 @@ class VaultPowerShellView extends ItemView {
       this.refreshAgentAuthStatus(actionablePrompt?.mode === "mcp" ? "MCP connection in progress" : "Agent prompt needs input");
     }
 
-    if (actionablePrompt || /login|auth|permission|trust|press|continue|select|choose|allow|deny|approve|yes|no|y\/n|not recognized|not found|command not found/i.test(promptSource)) {
+    if (actionablePrompt || (!this.agentConversationReady && /\b(login|sign[- ]?in|authenticate|permission|trust|press enter|\(y\/n\)|not recognized|command not found)\b/i.test(promptSource))) {
       const notice = actionablePrompt?.text ?? promptSource.slice(-1200);
       if (notice !== this.agentLastRawNotice) {
         this.agentLastRawNotice = notice;
@@ -2307,7 +2377,7 @@ class VaultPowerShellView extends ItemView {
     }
 
     if (!this.agentSessionPath) {
-      const sessionPath = findLatestAgentSessionFile(this.agentProvider, cwd, this.agentStartedAt);
+      const sessionPath = findLatestAgentSessionFile(this.agentProvider, cwd, this.agentStartedAt, this.agentClaudeSessionId);
       if (!sessionPath) {
         return;
       }
@@ -2483,9 +2553,31 @@ class VaultPowerShellView extends ItemView {
       return;
     }
 
+    const text = entry.text.trim();
+    // Conversation entries (Claude session-log polling) flow into the same
+    // turn-card UI as Codex. system/other entries stay as flat notices.
+    if (entry.role === "user") {
+      this.startCodexTurn(text);
+      return;
+    }
+    if (entry.role === "assistant") {
+      const answer = this.ensureCodexAnswerEl();
+      if (!answer) {
+        return;
+      }
+      // The visible answer arrived — drop the thinking indicator.
+      this.codexTurnLoadingEl?.remove();
+      this.codexTurnLoadingEl = null;
+      // Same block class as Codex so the theme markdown + spacing apply identically.
+      const block = answer.createDiv("vault-agent-block vault-agent-block-agentMessage");
+      void this.renderCodexMarkdown(block.createDiv("vault-agent-block-body"), text);
+      this.scrollCodexAnswer();
+      return;
+    }
+
     const item = this.agentTranscriptEl.createDiv(`vault-agent-message vault-agent-message-${entry.role}`);
     item.createDiv("vault-agent-message-role").setText(getTranscriptRoleLabel(entry.role));
-    this.renderAgentMessageBody(item.createDiv("vault-agent-message-body"), entry.text.trim());
+    this.renderAgentMessageBody(item.createDiv("vault-agent-message-body"), text);
     this.agentTranscriptEl.scrollTop = this.agentTranscriptEl.scrollHeight;
   }
 
@@ -3580,6 +3672,9 @@ class VaultPowerShellView extends ItemView {
     this.codexCurrentTurnEl = null;
     this.codexCurrentAnswerEl = null;
     this.codexTurnLoadingEl = null;
+    this.codexTurnActive = false;
+    this.codexQueuedInputs = [];
+    this.updateSendButtonMode();
     this.codexContextEl?.addClass("is-hidden");
     this.codexOptionsRow?.addClass("is-hidden");
     this.codexModels = [];
@@ -3587,7 +3682,18 @@ class VaultPowerShellView extends ItemView {
     this.renderAttachmentChips();
 
     if (this.agentHost && kill) {
+      const pid = this.agentHost.pid;
       this.sendAgentHostMessage({ type: "kill" });
+      // The PTY children (shell + claude/codex CLI) survive a plain node kill on
+      // Windows — that is why claude processes piled up across reloads. Kill the
+      // whole process tree so nothing is left behind.
+      if (pid !== undefined && process.platform === "win32") {
+        try {
+          spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true });
+        } catch {
+          // best-effort cleanup
+        }
+      }
       this.agentHost.kill();
     }
 
@@ -4880,13 +4986,18 @@ function formatBackendStatus(state: AgentStatus, detail?: string): string {
 
 function getAgentLaunchCommand(provider: AgentProvider, settings: PowerShellSettings): string {
   if (provider === "claude") {
-    return "claude";
+    // claude's global env is heavy (MCP servers + 50+ plugins). With no
+    // --mcp-config, --strict-mcp-config makes claude ignore ALL global MCP
+    // servers, so startup/response isn't blocked waiting on them (firebase 30s
+    // timeout etc). --continue is left off for now while diagnosing the stall.
+    return "claude --strict-mcp-config";
   }
 
-  return rewriteCodexCommand("codex", {
+  // codex resume --last reopens the most recent interactive session (PTY path).
+  return rewriteCodexCommand("codex resume --last", {
     disableResizeReflow: settings.codexDisableResizeReflow,
     noAltScreen: settings.codexNoAltScreen
-  }) ?? "codex";
+  }) ?? "codex resume --last";
 }
 
 async function getAgentAuthCheck(provider: AgentProvider, cwd: string, env: { [key: string]: string | undefined }): Promise<AgentAuthCheck> {
@@ -5079,13 +5190,21 @@ function runCapturedCommand(command: string, args: string[], cwd: string, env: {
   });
 }
 
-function findLatestAgentSessionFile(provider: AgentProvider, cwd: string, startedAt: number): string | null {
+function findLatestAgentSessionFile(provider: AgentProvider, cwd: string, startedAt: number, sessionId?: string | null): string | null {
   const root = getAgentSessionRoot(provider);
   if (!root || !existsSync(root)) {
     return null;
   }
 
   const files = getRecentJsonlFiles(root, startedAt - AGENT_SESSION_LOOKBACK_MS);
+
+  // If we launched with an explicit --session-id, read ONLY that file. Otherwise
+  // a Claude desktop-app session in the same folder could be picked as "latest".
+  if (sessionId) {
+    const suffix = `${sessionId.toLowerCase()}.jsonl`;
+    return files.find((file) => file.toLowerCase().endsWith(suffix)) ?? null;
+  }
+
   for (const file of files) {
     if (agentSessionFileMatches(file, cwd)) {
       return file;
@@ -5901,16 +6020,11 @@ function extractClaudeContentText(content: unknown): string {
 
   const pieces: string[] = [];
   for (const item of content) {
-    const typed = item as { type?: string; text?: string; name?: string; input?: unknown; content?: unknown };
+    const typed = item as { type?: string; text?: string };
+    // Only the visible assistant prose. tool_use / tool_result are transient
+    // execution noise (like Codex command blocks), so drop them entirely.
     if (typed.type === "text" && typed.text) {
       pieces.push(typed.text);
-    } else if (typed.type === "tool_use" && typed.name) {
-      pieces.push(`[tool] ${typed.name}`);
-    } else if (typed.type === "tool_result") {
-      const resultText = typeof typed.content === "string" ? typed.content : "";
-      if (resultText) {
-        pieces.push(`[tool result]\n${resultText}`);
-      }
     }
   }
 
