@@ -34,16 +34,27 @@ export function mapCodexNotification(method: string, params: unknown): AgentUiEv
         : null;
     }
 
-    case "thread/tokenUsage/updated":
-      return { type: "status", state: "running", detail: tokenDetail(p.tokenUsage) };
+    case "thread/tokenUsage/updated": {
+      const usage = p.tokenUsage as { total?: { totalTokens?: number }; modelContextWindow?: number | null } | undefined;
+      const used = usage?.total?.totalTokens;
+      if (typeof used !== "number") {
+        return null;
+      }
+      return { type: "context-usage", usedTokens: used, contextWindow: usage?.modelContextWindow ?? null };
+    }
 
     case "turn/completed": {
       const turn = p.turn as Record<string, unknown> | undefined;
       return { type: "turn-complete", status: turnStatus(turn?.status) };
     }
 
-    case "warning":
-      return typeof p.message === "string" ? { type: "system-message", text: p.message } : null;
+    case "warning": {
+      const message = typeof p.message === "string" ? p.message : "";
+      if (!message || isTransportFallbackNoise(message)) {
+        return null;
+      }
+      return { type: "system-message", text: message };
+    }
 
     case "error": {
       // Suppress transient "Reconnecting... N/5" retries; surface only final errors.
@@ -51,7 +62,11 @@ export function mapCodexNotification(method: string, params: unknown): AgentUiEv
         return null;
       }
       const err = p.error as { message?: string } | undefined;
-      return err?.message ? { type: "system-message", text: `Codex error: ${err.message}` } : null;
+      const message = err?.message;
+      if (!message || isTransportFallbackNoise(message)) {
+        return null;
+      }
+      return { type: "system-message", text: `Codex error: ${message}` };
     }
 
     default:
@@ -140,11 +155,10 @@ function turnStatus(status: unknown): "completed" | "interrupted" | "failed" {
   return "completed";
 }
 
-function tokenDetail(usage: unknown): string | undefined {
-  if (!usage || typeof usage !== "object") {
-    return undefined;
-  }
-  const total = (usage as Record<string, unknown>).total as Record<string, unknown> | undefined;
-  const totalTokens = total?.totalTokens;
-  return typeof totalTokens === "number" ? `${totalTokens.toLocaleString()} tokens` : undefined;
+// The WebSocket -> HTTPS fallback (and its "invalid peer certificate" cause behind
+// a corporate CA) is normal: codex still completes the turn over HTTPS. Surfacing
+// it as a SYSTEM message only confuses the user, so swallow that specific noise.
+function isTransportFallbackNoise(message: string): boolean {
+  const m = message.toLowerCase();
+  return m.includes("falling back from websockets") || m.includes("invalid peer certificate");
 }

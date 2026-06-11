@@ -87,7 +87,7 @@
 .vault-agent-options {
   display: flex;
   gap: 6px;
-  padding: 0 10px 8px;
+  margin-top: 8px;
   flex-wrap: wrap;
 }
 
@@ -135,6 +135,187 @@
   border: none;
   cursor: pointer;
   color: var(--text-muted);
+}
+
+/* === Codex turn cards: one question + its blog-style answer === */
+.vault-agent-turn {
+  margin: 0 0 16px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--background-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.vault-agent-turn-question {
+  padding: 11px 14px;
+  background: var(--background-secondary-alt);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.vault-agent-turn-question::before {
+  content: "You";
+  display: block;
+  font-size: var(--font-ui-smaller);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-accent);
+  margin-bottom: 4px;
+}
+
+.vault-agent-turn-question-text {
+  font-weight: 600;
+  color: var(--text-normal);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.vault-agent-turn-answer {
+  padding: 14px 16px;
+  max-height: 65vh;
+  overflow-y: auto;
+  line-height: 1.62;
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+}
+
+/* Items flow inside the answer with no per-item box. */
+.vault-agent-block {
+  margin: 0 0 12px;
+}
+
+.vault-agent-block:last-child {
+  margin-bottom: 0;
+}
+
+.vault-agent-block-label {
+  font-size: var(--font-ui-smaller);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 3px;
+}
+
+/* reasoning: muted aside */
+.vault-agent-block-reasoning .vault-agent-block-body {
+  color: var(--text-muted);
+  font-style: italic;
+  border-left: 2px solid var(--background-modifier-border);
+  padding-left: 10px;
+  white-space: pre-wrap;
+}
+
+/* commandExecution: terminal-style monospace */
+.vault-agent-block-commandExecution .vault-agent-block-body {
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--background-secondary);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+/* agentMessage is rendered with Obsidian's own theme via .markdown-rendered,
+   so answers look exactly like the user's notes. We only trim the outer
+   margins; all typography (headings, code, lists, tables) comes from the theme
+   and any CSS snippets the user has enabled. */
+.vault-agent-block-agentMessage .vault-agent-block-body.markdown-rendered > :first-child {
+  margin-top: 0;
+}
+
+.vault-agent-block-agentMessage .vault-agent-block-body.markdown-rendered > :last-child {
+  margin-bottom: 0;
+}
+
+/* === Context usage bar (sits just above the composer input) === */
+.vault-agent-context {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 8px;
+}
+
+.vault-agent-context.is-hidden {
+  display: none;
+}
+
+.vault-agent-context-bar {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--background-modifier-border);
+  overflow: hidden;
+}
+
+.vault-agent-context-fill {
+  height: 100%;
+  width: 0;
+  background: var(--interactive-accent);
+  border-radius: 2px;
+  transition: width 0.4s ease, background 0.3s ease;
+}
+
+.vault-agent-context.is-mid .vault-agent-context-fill {
+  background: var(--color-orange, #d98c30);
+}
+
+.vault-agent-context.is-high .vault-agent-context-fill {
+  background: var(--color-red, #d64545);
+}
+
+.vault-agent-context-label {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* === In-chat "thinking" indicator, pinned to the active answer === */
+.vault-agent-thinking {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 2px;
+  color: var(--text-muted);
+}
+
+.vault-agent-thinking-dots {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.vault-agent-thinking-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--interactive-accent);
+  animation: vault-agent-think 1.2s infinite ease-in-out both;
+}
+
+.vault-agent-thinking-dots span:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.vault-agent-thinking-dots span:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+.vault-agent-thinking-text {
+  font-size: var(--font-ui-smaller);
+}
+
+@keyframes vault-agent-think {
+  0%, 80%, 100% {
+    opacity: 0.25;
+    transform: scale(0.7);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .vault-terminal-toolbar {

@@ -3,6 +3,7 @@ import {
   App,
   FileSystemAdapter,
   ItemView,
+  MarkdownRenderer,
   Menu,
   Notice,
   normalizePath,
@@ -21,6 +22,7 @@ import { ChildProcessWithoutNullStreams, spawn, spawnSync } from "child_process"
 import { createHash } from "crypto";
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from "fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
+import { tmpdir } from "os";
 import { CodexAppServerBackend } from "./agent/codex/backend";
 import type { AgentAccessLevel, AgentAttachment, AgentBackend, AgentModelInfo, AgentStatus, AgentUiEvent, ApprovalRequest, TranscriptItem, TranscriptItemKind } from "./agent/types";
 
@@ -887,6 +889,12 @@ class VaultPowerShellView extends ItemView {
   private agentBackendUnsubscribe: (() => void) | null = null;
   private codexItemEls = new Map<string, HTMLElement>();
   private codexApprovalEls = new Map<string, HTMLElement>();
+  private codexCurrentTurnEl: HTMLElement | null = null;
+  private codexCurrentAnswerEl: HTMLElement | null = null;
+  private codexTurnLoadingEl: HTMLElement | null = null;
+  private codexContextEl: HTMLElement | null = null;
+  private codexContextFillEl: HTMLElement | null = null;
+  private codexContextLabelEl: HTMLElement | null = null;
   private codexOptionsRow: HTMLElement | null = null;
   private codexModelSelect: HTMLSelectElement | null = null;
   private codexEffortSelect: HTMLSelectElement | null = null;
@@ -1155,21 +1163,6 @@ class VaultPowerShellView extends ItemView {
     });
     this.refreshAgentLoginButton();
 
-    // Codex turn-options row (model / effort / access). Hidden until Codex starts
-    // and listModels populates it.
-    const optionsRow = container.createDiv("vault-agent-options is-hidden");
-    this.codexOptionsRow = optionsRow;
-    this.codexModelSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Model" } });
-    this.codexEffortSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Reasoning effort" } });
-    this.codexAccessSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Access level" } });
-    for (const opt of [{ v: "read-only", t: "Read-only" }, { v: "auto", t: "Auto (write)" }, { v: "full", t: "Full access" }]) {
-      this.codexAccessSelect.createEl("option", { value: opt.v, text: opt.t });
-    }
-    this.codexAccessSelect.value = "auto";
-    this.codexModelSelect.addEventListener("change", () => this.onCodexModelChange());
-    this.codexEffortSelect.addEventListener("change", () => this.applyCodexTurnOptions());
-    this.codexAccessSelect.addEventListener("change", () => this.applyCodexTurnOptions());
-
     this.agentTranscriptEl = container.createDiv("vault-agent-transcript");
     this.appendAgentTranscript({
       id: this.nextLocalAgentEntryId("system"),
@@ -1188,6 +1181,10 @@ class VaultPowerShellView extends ItemView {
     });
 
     const composer = container.createDiv("vault-agent-composer");
+    this.codexContextEl = composer.createDiv("vault-agent-context is-hidden");
+    const contextBar = this.codexContextEl.createDiv("vault-agent-context-bar");
+    this.codexContextFillEl = contextBar.createDiv("vault-agent-context-fill");
+    this.codexContextLabelEl = this.codexContextEl.createSpan({ cls: "vault-agent-context-label" });
     this.agentPromptActionsEl = composer.createDiv("vault-agent-prompt-actions");
     this.refreshAgentPromptActions();
     this.agentInputEl = composer.createEl("textarea", {
@@ -1198,13 +1195,31 @@ class VaultPowerShellView extends ItemView {
       }
     });
     this.agentInputEl.addEventListener("keydown", (event) => {
-      if (isEnterKey(event) && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+      // event.isComposing guards Korean/IME input: the Enter that confirms a
+      // Hangul block must not also submit, otherwise the message double-sends.
+      if (isEnterKey(event) && !event.isComposing && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
         event.preventDefault();
         void this.sendAgentInput();
       }
     });
+    this.agentInputEl.addEventListener("paste", (event) => this.handleAgentPaste(event));
 
     this.codexAttachmentsEl = composer.createDiv("vault-agent-attachments is-hidden");
+
+    // Codex turn-options row (model / effort / access), Codex-app style: directly
+    // under the input box. Hidden until Codex starts and listModels populates it.
+    const optionsRow = composer.createDiv("vault-agent-options is-hidden");
+    this.codexOptionsRow = optionsRow;
+    this.codexModelSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Model" } });
+    this.codexEffortSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Reasoning effort" } });
+    this.codexAccessSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Access level" } });
+    for (const opt of [{ v: "read-only", t: "Read-only" }, { v: "auto", t: "Auto (write)" }, { v: "full", t: "Full access" }]) {
+      this.codexAccessSelect.createEl("option", { value: opt.v, text: opt.t });
+    }
+    this.codexAccessSelect.value = "auto";
+    this.codexModelSelect.addEventListener("change", () => this.onCodexModelChange());
+    this.codexEffortSelect.addEventListener("change", () => this.applyCodexTurnOptions());
+    this.codexAccessSelect.addEventListener("change", () => this.applyCodexTurnOptions());
 
     const composerActions = composer.createDiv("vault-agent-composer-actions");
     const fileInput = composerActions.createEl("input", { cls: "vault-agent-file-input", attr: { type: "file", multiple: "true" } });
@@ -1357,6 +1372,13 @@ class VaultPowerShellView extends ItemView {
         break;
       case "turn-complete":
         this.setAgentStatus("Codex ready");
+        this.codexTurnLoadingEl?.remove();
+        this.codexTurnLoadingEl = null;
+        this.codexCurrentTurnEl = null;
+        this.codexCurrentAnswerEl = null;
+        break;
+      case "context-usage":
+        this.updateContextUsage(event.usedTokens, event.contextWindow);
         break;
       case "thread-ready":
         break;
@@ -1371,19 +1393,101 @@ class VaultPowerShellView extends ItemView {
     }
   }
 
-  private renderCodexItemStart(item: TranscriptItem) {
+  // Codex-app style: each user turn is one card (question on top, answer below).
+  // Items (reasoning / command / message) flow inside the current answer rather
+  // than each becoming its own top-level box.
+  private startCodexTurn(question: string): HTMLElement | null {
     if (!this.agentTranscriptEl) {
+      return null;
+    }
+    const turn = this.agentTranscriptEl.createDiv("vault-agent-turn");
+    if (question.trim()) {
+      const q = turn.createDiv("vault-agent-turn-question");
+      this.renderAgentMessageBody(q.createDiv("vault-agent-turn-question-text"), question.trim());
+    }
+    const answer = turn.createDiv("vault-agent-turn-answer");
+    this.codexCurrentTurnEl = turn;
+    this.codexCurrentAnswerEl = answer;
+    this.showTurnThinking(answer);
+    this.agentTranscriptEl.scrollTop = this.agentTranscriptEl.scrollHeight;
+    return answer;
+  }
+
+  private ensureCodexAnswerEl(): HTMLElement | null {
+    if (this.codexCurrentAnswerEl) {
+      return this.codexCurrentAnswerEl;
+    }
+    return this.startCodexTurn("");
+  }
+
+  private scrollCodexAnswer() {
+    if (this.codexCurrentAnswerEl) {
+      this.codexCurrentAnswerEl.scrollTop = this.codexCurrentAnswerEl.scrollHeight;
+    }
+    if (this.agentTranscriptEl) {
+      this.agentTranscriptEl.scrollTop = this.agentTranscriptEl.scrollHeight;
+    }
+  }
+
+  // In-chat "thinking" indicator pinned to the bottom of the active answer.
+  private showTurnThinking(answer: HTMLElement) {
+    const thinking = answer.createDiv("vault-agent-thinking");
+    const dots = thinking.createDiv("vault-agent-thinking-dots");
+    dots.createSpan();
+    dots.createSpan();
+    dots.createSpan();
+    thinking.createSpan({ cls: "vault-agent-thinking-text", text: "생각 중" });
+    this.codexTurnLoadingEl = thinking;
+  }
+
+  private updateContextUsage(used: number, window: number | null) {
+    if (!this.codexContextEl || !this.codexContextFillEl || !this.codexContextLabelEl) {
       return;
     }
-    const wrap = this.agentTranscriptEl.createDiv(`vault-agent-message vault-agent-message-${backendKindRole(item.kind)}`);
-    wrap.createDiv("vault-agent-message-role").setText(backendKindLabel(item.kind));
-    const body = wrap.createDiv("vault-agent-message-body");
+    if (!window || window <= 0) {
+      this.codexContextEl.addClass("is-hidden");
+      return;
+    }
+    const pct = Math.min(100, Math.max(0, Math.round((used / window) * 100)));
+    this.codexContextEl.removeClass("is-hidden");
+    this.codexContextFillEl.style.width = `${pct}%`;
+    this.codexContextLabelEl.setText(`컨텍스트 ${pct}%`);
+    this.codexContextEl.toggleClass("is-mid", pct >= 50 && pct < 80);
+    this.codexContextEl.toggleClass("is-high", pct >= 80);
+  }
+
+  private async renderCodexMarkdown(el: HTMLElement, markdown: string) {
+    el.empty();
+    // Render with Obsidian's own theme styling so answers match the user's notes.
+    el.addClass("markdown-rendered");
+    try {
+      await MarkdownRenderer.render(this.app, markdown, el, "", this);
+    } catch {
+      el.removeClass("markdown-rendered");
+      this.renderAgentMessageBody(el, markdown);
+    }
+  }
+
+  private renderCodexItemStart(item: TranscriptItem) {
+    const answer = this.ensureCodexAnswerEl();
+    if (!answer) {
+      return;
+    }
+    const block = answer.createDiv(`vault-agent-block vault-agent-block-${item.kind} vault-agent-block-role-${backendKindRole(item.kind)}`);
+    if (item.kind !== "agentMessage" && item.kind !== "plan") {
+      block.createDiv("vault-agent-block-label").setText(backendKindLabel(item.kind));
+    }
+    const body = block.createDiv("vault-agent-block-body");
     if (item.text.trim()) {
-      // Plain text during streaming; item-complete re-renders with links.
+      // Plain text during streaming; item-complete re-renders as markdown.
       body.textContent = item.text;
     }
     this.codexItemEls.set(item.id, body);
-    this.agentTranscriptEl.scrollTop = this.agentTranscriptEl.scrollHeight;
+    // Keep the thinking indicator pinned below the latest content.
+    if (this.codexTurnLoadingEl && this.codexTurnLoadingEl.parentElement === answer) {
+      answer.appendChild(this.codexTurnLoadingEl);
+    }
+    this.scrollCodexAnswer();
   }
 
   private renderCodexItemDelta(itemId: string, delta: string) {
@@ -1392,14 +1496,15 @@ class VaultPowerShellView extends ItemView {
       return;
     }
     body.textContent = (body.textContent ?? "") + delta;
-    this.agentTranscriptEl.scrollTop = this.agentTranscriptEl.scrollHeight;
+    this.scrollCodexAnswer();
   }
 
   private renderCodexApproval(req: ApprovalRequest) {
-    if (!this.agentTranscriptEl) {
+    const answer = this.ensureCodexAnswerEl();
+    if (!answer) {
       return;
     }
-    const card = this.agentTranscriptEl.createDiv("vault-agent-approval");
+    const card = answer.createDiv("vault-agent-approval");
     card.createDiv({
       cls: "vault-agent-approval-title",
       text: req.kind === "commandExecution" ? "Run this command?" : "Apply this file change?"
@@ -1413,7 +1518,7 @@ class VaultPowerShellView extends ItemView {
     acceptSession.addEventListener("click", () => void this.agentBackend?.respondToApproval(req.id, "acceptForSession"));
     decline.addEventListener("click", () => void this.agentBackend?.respondToApproval(req.id, "decline"));
     this.codexApprovalEls.set(req.id, card);
-    this.agentTranscriptEl.scrollTo({ top: this.agentTranscriptEl.scrollHeight });
+    this.scrollCodexAnswer();
   }
 
   private resolveCodexApproval(requestId: string) {
@@ -1485,6 +1590,40 @@ class VaultPowerShellView extends ItemView {
     });
   }
 
+  // Paste an image from the clipboard (Ctrl/Cmd+V) as a Codex attachment.
+  private handleAgentPaste(event: ClipboardEvent) {
+    if (!this.agentBackend) {
+      return;
+    }
+    // Obsidian's bundled clipboard typing only exposes readText; the Electron
+    // runtime has readImage. Assert the real shape.
+    const electronClipboard = clipboard as unknown as { readImage(): { isEmpty(): boolean; toPNG(): Buffer } };
+    const image = electronClipboard.readImage();
+    if (image.isEmpty()) {
+      return; // not an image — let the textarea paste text normally
+    }
+    event.preventDefault();
+    const path = this.writeClipboardImage(image.toPNG());
+    if (!path) {
+      new Notice("Could not save the pasted image.");
+      return;
+    }
+    this.codexPendingAttachments.push({ kind: "localImage", path, name: "Pasted image" });
+    this.renderAttachmentChips();
+  }
+
+  private writeClipboardImage(data: Buffer): string | null {
+    try {
+      const dir = join(tmpdir(), "obsidian-codex-paste");
+      mkdirSync(dir, { recursive: true });
+      const file = join(dir, `paste-${Date.now()}-${this.codexPendingAttachments.length}.png`);
+      writeFileSync(file, data);
+      return file;
+    } catch {
+      return null;
+    }
+  }
+
   private renderCodexItemComplete(item: TranscriptItem) {
     const body = this.codexItemEls.get(item.id);
     if (!body) {
@@ -1493,14 +1632,12 @@ class VaultPowerShellView extends ItemView {
       }
       return;
     }
-    // commandExecution streamed its output via outputDelta into body — keep that
-    // text and just append an exit-code badge.
+    // Codex-app style: command execution is transient progress. Once it
+    // finishes, drop the whole block so only the final answer remains.
     if (item.kind === "commandExecution") {
-      const exitCode = item.meta?.exitCode;
-      if (typeof exitCode === "number") {
-        body.createSpan({ cls: "vault-agent-exit", text: ` [exit ${exitCode}]` });
-      }
-      this.agentTranscriptEl?.scrollTo({ top: this.agentTranscriptEl.scrollHeight });
+      body.parentElement?.remove();
+      this.codexItemEls.delete(item.id);
+      this.scrollCodexAnswer();
       return;
     }
     const finalText = item.text.trim() || (body.textContent ?? "").trim();
@@ -1510,8 +1647,14 @@ class VaultPowerShellView extends ItemView {
       return;
     }
     body.empty();
-    this.renderAgentMessageBody(body, finalText);
-    this.agentTranscriptEl?.scrollTo({ top: this.agentTranscriptEl.scrollHeight });
+    if (item.kind === "agentMessage" || item.kind === "plan") {
+      // The visible answer: render as markdown for blog-style typography.
+      void this.renderCodexMarkdown(body, finalText);
+    } else {
+      this.renderAgentMessageBody(body, finalText);
+    }
+    this.codexItemEls.delete(item.id);
+    this.scrollCodexAnswer();
   }
 
   private async startAgent(provider: AgentProvider) {
@@ -1738,11 +1881,7 @@ class VaultPowerShellView extends ItemView {
       this.codexPendingAttachments = [];
       this.renderAttachmentChips();
       const noteSuffix = attachments.length ? `\n\n[${attachments.length} file(s) attached]` : "";
-      this.appendAgentTranscript({
-        id: this.nextLocalAgentEntryId("user"),
-        role: "user",
-        text: (text || "(attachments)") + noteSuffix
-      });
+      this.startCodexTurn((text || "(attachments)") + noteSuffix);
       void this.agentBackend.sendUserMessage({ text, attachments });
       return;
     }
@@ -2659,6 +2798,12 @@ class VaultPowerShellView extends ItemView {
   }
 
   private handleGlobalTerminalKeydown(event: KeyboardEvent) {
+    // The Agent composer textarea has its own Enter / Shift+Enter handling.
+    // Never let the terminal-global capture handler intercept its keys, or
+    // Shift+Enter gets consumed instead of inserting a newline.
+    if (this.agentInputEl && event.target === this.agentInputEl) {
+      return;
+    }
     if (this.isTerminalEventTarget(event)) {
       if (this.handleShiftEnter(event)) {
         return;
@@ -3432,6 +3577,10 @@ class VaultPowerShellView extends ItemView {
     }
     this.codexItemEls.clear();
     this.codexApprovalEls.clear();
+    this.codexCurrentTurnEl = null;
+    this.codexCurrentAnswerEl = null;
+    this.codexTurnLoadingEl = null;
+    this.codexContextEl?.addClass("is-hidden");
     this.codexOptionsRow?.addClass("is-hidden");
     this.codexModels = [];
     this.codexPendingAttachments = [];
