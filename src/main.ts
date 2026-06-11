@@ -21,6 +21,8 @@ import { ChildProcessWithoutNullStreams, spawn, spawnSync } from "child_process"
 import { createHash } from "crypto";
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from "fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
+import { CodexAppServerBackend } from "./agent/codex/backend";
+import type { AgentAccessLevel, AgentAttachment, AgentBackend, AgentModelInfo, AgentStatus, AgentUiEvent, ApprovalRequest, TranscriptItem, TranscriptItemKind } from "./agent/types";
 
 const VIEW_TYPE_POWERSHELL = "vault-powershell";
 const GITHUB_REPOSITORY = "obst2580/obsidian-powershell";
@@ -108,6 +110,11 @@ interface PowerShellSettings {
   codexDisableResizeReflow: boolean;
   codexNoAltScreen: boolean;
   codexPreserveScrollback: boolean;
+  codexUseAppServer: boolean;
+  codexExecutable: string;
+  codexApprovalPolicy: CodexApprovalPolicy;
+  codexLoginMethod: CodexLoginMethod;
+  codexModel: string;
   windowsPtyBackend: WindowsPtyBackend;
   autoInstallRuntime: boolean;
   useSystemCa: boolean;
@@ -118,6 +125,8 @@ interface PowerShellSettings {
 type TerminalColorScheme = "dark" | "light" | "obsidian";
 type ShiftEnterMode = "bracketed-paste" | "claude-backslash" | "xterm-paste" | "modified-enter" | "csi-u" | "line-feed";
 type WindowsPtyBackend = "winpty" | "conpty";
+type CodexApprovalPolicy = "untrusted" | "on-failure" | "on-request" | "never";
+type CodexLoginMethod = "browser" | "device-code";
 type ShellProfile = "auto" | "pwsh" | "windows-powershell" | "cmd" | "wsl" | "git-bash" | "zsh" | "bash" | "custom";
 type ViewPane = "agent" | "terminal";
 type AgentProvider = "claude" | "codex";
@@ -264,6 +273,11 @@ const DEFAULT_SETTINGS: PowerShellSettings = {
   codexDisableResizeReflow: true,
   codexNoAltScreen: true,
   codexPreserveScrollback: true,
+  codexUseAppServer: true,
+  codexExecutable: "",
+  codexApprovalPolicy: "on-request",
+  codexLoginMethod: "browser",
+  codexModel: "",
   windowsPtyBackend: "conpty",
   autoInstallRuntime: true,
   useSystemCa: false,
@@ -389,6 +403,11 @@ export default class VaultPowerShellPlugin extends Plugin {
       ? true
       : this.settings.codexNoAltScreen !== false;
     this.settings.codexPreserveScrollback = this.settings.codexPreserveScrollback !== false;
+    this.settings.codexUseAppServer = this.settings.codexUseAppServer !== false;
+    this.settings.codexExecutable = this.settings.codexExecutable?.trim() ?? "";
+    this.settings.codexApprovalPolicy = normalizeCodexApprovalPolicy(this.settings.codexApprovalPolicy);
+    this.settings.codexLoginMethod = normalizeCodexLoginMethod(this.settings.codexLoginMethod);
+    this.settings.codexModel = this.settings.codexModel?.trim() ?? "";
     this.settings.windowsPtyBackend = normalizeWindowsPtyBackend(this.settings.windowsPtyBackend);
     this.settings.autoInstallRuntime = this.settings.autoInstallRuntime === true;
     if (needsCodexScrollbackMigration) {
@@ -861,8 +880,20 @@ class VaultPowerShellView extends ItemView {
   private paneTabEls: Record<ViewPane, HTMLElement | null> = { agent: null, terminal: null };
   private agentPaneEl: HTMLElement | null = null;
   private terminalPaneEl: HTMLElement | null = null;
+  private terminalHostEl: HTMLElement | null = null;
   private terminalStarted = false;
   private agentProvider: AgentProvider = "claude";
+  private agentBackend: AgentBackend | null = null;
+  private agentBackendUnsubscribe: (() => void) | null = null;
+  private codexItemEls = new Map<string, HTMLElement>();
+  private codexApprovalEls = new Map<string, HTMLElement>();
+  private codexOptionsRow: HTMLElement | null = null;
+  private codexModelSelect: HTMLSelectElement | null = null;
+  private codexEffortSelect: HTMLSelectElement | null = null;
+  private codexAccessSelect: HTMLSelectElement | null = null;
+  private codexModels: AgentModelInfo[] = [];
+  private codexPendingAttachments: AgentAttachment[] = [];
+  private codexAttachmentsEl: HTMLElement | null = null;
   private agentHost: ChildProcessWithoutNullStreams | null = null;
   private agentHostReady = false;
   private agentReadyForInput = false;
@@ -913,14 +944,22 @@ class VaultPowerShellView extends ItemView {
   }
 
   onOpen(): Promise<void> {
-    const container = this.containerEl.children[1];
+    const container = this.containerEl.children[1] as HTMLElement;
     container.empty();
     container.addClass("vault-powershell-view");
 
-    this.activePane = "terminal";
-    this.createTerminalToolbar(container as HTMLElement);
-    this.terminalPaneEl = container.createDiv("vault-powershell-terminal");
-    this.ensureRawTerminal();
+    const tabbar = container.createDiv("vault-terminal-tabbar");
+    this.paneTabEls.agent = this.createPaneTab(tabbar, "Agent", "agent");
+    this.paneTabEls.terminal = this.createPaneTab(tabbar, "Terminal", "terminal");
+
+    this.agentPaneEl = container.createDiv("vault-agent-pane");
+    this.createAgentConsole(this.agentPaneEl);
+
+    this.terminalPaneEl = container.createDiv("vault-terminal-pane");
+    this.createTerminalToolbar(this.terminalPaneEl);
+    this.terminalHostEl = this.terminalPaneEl.createDiv("vault-powershell-terminal");
+
+    this.showPane("terminal");
     return Promise.resolve();
   }
 
@@ -956,6 +995,7 @@ class VaultPowerShellView extends ItemView {
     this.terminalStarted = false;
     this.agentPaneEl = null;
     this.terminalPaneEl = null;
+    this.terminalHostEl = null;
     this.agentStatusEl = null;
     this.agentTranscriptEl = null;
     this.agentLoadingEl = null;
@@ -1042,12 +1082,12 @@ class VaultPowerShellView extends ItemView {
   }
 
   private ensureRawTerminal() {
-    if (this.terminalStarted || !this.terminalPaneEl) {
+    if (this.terminalStarted || !this.terminalHostEl) {
       return;
     }
 
     this.terminalStarted = true;
-    this.createTerminal(this.terminalPaneEl);
+    this.createTerminal(this.terminalHostEl);
     this.startShell();
   }
 
@@ -1098,6 +1138,14 @@ class VaultPowerShellView extends ItemView {
     });
     this.agentLoginButton = actions.createEl("button", { text: "Login" });
     this.agentLoginButton.addEventListener("click", () => {
+      if (this.agentBackend) {
+        const method = this.plugin.settings.codexLoginMethod === "device-code"
+          ? "chatgpt-device-code"
+          : "chatgpt";
+        void this.agentBackend.beginLogin(method);
+        return;
+      }
+
       if (this.agentPromptState?.mode === "mcp") {
         new Notice("MCP connection is separate from Claude login. Use the MCP actions or press Esc.");
         return;
@@ -1106,6 +1154,21 @@ class VaultPowerShellView extends ItemView {
       this.sendAgentControlInput("/login");
     });
     this.refreshAgentLoginButton();
+
+    // Codex turn-options row (model / effort / access). Hidden until Codex starts
+    // and listModels populates it.
+    const optionsRow = container.createDiv("vault-agent-options is-hidden");
+    this.codexOptionsRow = optionsRow;
+    this.codexModelSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Model" } });
+    this.codexEffortSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Reasoning effort" } });
+    this.codexAccessSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Access level" } });
+    for (const opt of [{ v: "read-only", t: "Read-only" }, { v: "auto", t: "Auto (write)" }, { v: "full", t: "Full access" }]) {
+      this.codexAccessSelect.createEl("option", { value: opt.v, text: opt.t });
+    }
+    this.codexAccessSelect.value = "auto";
+    this.codexModelSelect.addEventListener("change", () => this.onCodexModelChange());
+    this.codexEffortSelect.addEventListener("change", () => this.applyCodexTurnOptions());
+    this.codexAccessSelect.addEventListener("change", () => this.applyCodexTurnOptions());
 
     this.agentTranscriptEl = container.createDiv("vault-agent-transcript");
     this.appendAgentTranscript({
@@ -1141,7 +1204,28 @@ class VaultPowerShellView extends ItemView {
       }
     });
 
+    this.codexAttachmentsEl = composer.createDiv("vault-agent-attachments is-hidden");
+
     const composerActions = composer.createDiv("vault-agent-composer-actions");
+    const fileInput = composerActions.createEl("input", { cls: "vault-agent-file-input", attr: { type: "file", multiple: "true" } });
+    const attachButton = composerActions.createEl("button", { text: "Attach" });
+    attachButton.addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", () => {
+      for (const file of Array.from(fileInput.files ?? [])) {
+        // Electron exposes the absolute path on File; codex needs it for localImage/mention.
+        const path = (file as unknown as { path?: string }).path;
+        if (!path) {
+          continue;
+        }
+        this.codexPendingAttachments.push({
+          kind: file.type.startsWith("image/") ? "localImage" : "mention",
+          path,
+          name: file.name
+        });
+      }
+      fileInput.value = "";
+      this.renderAttachmentChips();
+    });
     const noteButton = composerActions.createEl("button", { text: "Add current note" });
     noteButton.addEventListener("click", () => {
       void this.insertCurrentNoteReferenceIntoAgent();
@@ -1178,6 +1262,258 @@ class VaultPowerShellView extends ItemView {
     this.agentProviderButtons.codex?.toggleClass("is-active", this.agentProvider === "codex");
   }
 
+  private async startCodexBackend(cwd: string) {
+    const env = buildProcessEnv({
+      useSystemCa: this.plugin.settings.useSystemCa,
+      extraCaCertPath: this.plugin.getExtraCaCertPath()
+    });
+    // codex is a Rust/rustls binary; it ignores NODE_EXTRA_CA_CERTS / SSL_CERT_FILE
+    // on its WebSocket path. CODEX_CA_CERTIFICATE is its own CA channel (login +
+    // HTTPS + WebSocket). Without it, turns wait ~19s on WebSocket retries before
+    // the HTTPS fallback succeeds via SSL_CERT_FILE.
+    const codexCaCert = this.plugin.getExtraCaCertPath();
+    if (codexCaCert) {
+      env.CODEX_CA_CERTIFICATE = codexCaCert;
+    }
+    const backend = new CodexAppServerBackend({
+      configuredExecutable: this.plugin.settings.codexExecutable,
+      env,
+      clientVersion: this.plugin.manifest.version,
+      approvalPolicy: this.plugin.settings.codexApprovalPolicy
+    });
+    this.agentBackend = backend;
+    this.agentBackendUnsubscribe = backend.on((event) => this.handleBackendEvent(event));
+    this.appendAgentTranscript({
+      id: this.nextLocalAgentEntryId("system"),
+      role: "system",
+      text: `Starting Codex (app-server) in ${cwd}`
+    });
+
+    try {
+      await backend.start({
+        cwd,
+        model: this.plugin.settings.codexModel || undefined
+      });
+      await this.populateCodexModels();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.setAgentStatus("Failed");
+      this.appendAgentTranscript({
+        id: this.nextLocalAgentEntryId("system"),
+        role: "system",
+        text: `Failed to start Codex app-server: ${message}`
+      });
+    }
+  }
+
+  private handleBackendEvent(event: AgentUiEvent) {
+    switch (event.type) {
+      case "status":
+        this.setAgentStatus(formatBackendStatus(event.state, event.detail));
+        if (event.state === "ready") {
+          this.agentReadyForInput = true;
+        }
+        break;
+      case "auth-required":
+        this.appendAgentTranscript({
+          id: this.nextLocalAgentEntryId("system"),
+          role: "system",
+          text: "Codex is not signed in. Click Login to sign in with ChatGPT."
+        });
+        break;
+      case "auth-url":
+        openExternalUrlWithSystemBrowser(event.url);
+        this.appendAgentTranscript({
+          id: this.nextLocalAgentEntryId("system"),
+          role: "system",
+          text: event.userCode
+            ? `Open ${event.url} and enter code: ${event.userCode}`
+            : `Opening browser to sign in: ${event.url}`
+        });
+        break;
+      case "system-message":
+        this.appendAgentTranscript({
+          id: this.nextLocalAgentEntryId("system"),
+          role: "system",
+          text: event.text
+        });
+        break;
+      case "fatal":
+        this.setAgentStatus("Failed");
+        this.appendAgentTranscript({
+          id: this.nextLocalAgentEntryId("system"),
+          role: "system",
+          text: event.message
+        });
+        break;
+      case "item-start":
+        this.renderCodexItemStart(event.item);
+        break;
+      case "item-delta":
+        this.renderCodexItemDelta(event.itemId, event.textDelta);
+        break;
+      case "item-complete":
+        this.renderCodexItemComplete(event.item);
+        break;
+      case "turn-complete":
+        this.setAgentStatus("Codex ready");
+        break;
+      case "thread-ready":
+        break;
+      case "approval-request":
+        this.renderCodexApproval(event.request);
+        break;
+      case "approval-resolved":
+        this.resolveCodexApproval(event.requestId);
+        break;
+      default:
+        break;
+    }
+  }
+
+  private renderCodexItemStart(item: TranscriptItem) {
+    if (!this.agentTranscriptEl) {
+      return;
+    }
+    const wrap = this.agentTranscriptEl.createDiv(`vault-agent-message vault-agent-message-${backendKindRole(item.kind)}`);
+    wrap.createDiv("vault-agent-message-role").setText(backendKindLabel(item.kind));
+    const body = wrap.createDiv("vault-agent-message-body");
+    if (item.text.trim()) {
+      // Plain text during streaming; item-complete re-renders with links.
+      body.textContent = item.text;
+    }
+    this.codexItemEls.set(item.id, body);
+    this.agentTranscriptEl.scrollTop = this.agentTranscriptEl.scrollHeight;
+  }
+
+  private renderCodexItemDelta(itemId: string, delta: string) {
+    const body = this.codexItemEls.get(itemId);
+    if (!body || !this.agentTranscriptEl) {
+      return;
+    }
+    body.textContent = (body.textContent ?? "") + delta;
+    this.agentTranscriptEl.scrollTop = this.agentTranscriptEl.scrollHeight;
+  }
+
+  private renderCodexApproval(req: ApprovalRequest) {
+    if (!this.agentTranscriptEl) {
+      return;
+    }
+    const card = this.agentTranscriptEl.createDiv("vault-agent-approval");
+    card.createDiv({
+      cls: "vault-agent-approval-title",
+      text: req.kind === "commandExecution" ? "Run this command?" : "Apply this file change?"
+    });
+    card.createEl("pre", { cls: "vault-agent-approval-detail", text: req.detail });
+    const actions = card.createDiv("vault-agent-approval-actions");
+    const accept = actions.createEl("button", { cls: "mod-cta", text: "Accept" });
+    const acceptSession = actions.createEl("button", { text: "Accept for session" });
+    const decline = actions.createEl("button", { text: "Decline" });
+    accept.addEventListener("click", () => void this.agentBackend?.respondToApproval(req.id, "accept"));
+    acceptSession.addEventListener("click", () => void this.agentBackend?.respondToApproval(req.id, "acceptForSession"));
+    decline.addEventListener("click", () => void this.agentBackend?.respondToApproval(req.id, "decline"));
+    this.codexApprovalEls.set(req.id, card);
+    this.agentTranscriptEl.scrollTo({ top: this.agentTranscriptEl.scrollHeight });
+  }
+
+  private resolveCodexApproval(requestId: string) {
+    const card = this.codexApprovalEls.get(requestId);
+    if (card) {
+      card.addClass("is-resolved");
+      card.querySelectorAll("button").forEach((button) => {
+        (button as HTMLButtonElement).disabled = true;
+      });
+    }
+    this.codexApprovalEls.delete(requestId);
+  }
+
+  private async populateCodexModels() {
+    if (!this.agentBackend || !this.codexModelSelect) {
+      return;
+    }
+    const models = await this.agentBackend.listModels();
+    this.codexModels = models;
+    if (models.length === 0) {
+      return;
+    }
+    this.codexModelSelect.empty();
+    for (const model of models) {
+      this.codexModelSelect.createEl("option", { value: model.id, text: model.displayName });
+    }
+    this.codexModelSelect.value = models[0].id;
+    this.codexOptionsRow?.removeClass("is-hidden");
+    this.onCodexModelChange();
+  }
+
+  private onCodexModelChange() {
+    if (!this.codexModelSelect || !this.codexEffortSelect) {
+      return;
+    }
+    const model = this.codexModels.find((m) => m.id === this.codexModelSelect?.value);
+    this.codexEffortSelect.empty();
+    for (const effort of model?.efforts ?? []) {
+      this.codexEffortSelect.createEl("option", { value: effort, text: effort });
+    }
+    if (model?.defaultEffort) {
+      this.codexEffortSelect.value = model.defaultEffort;
+    }
+    this.applyCodexTurnOptions();
+  }
+
+  private applyCodexTurnOptions() {
+    this.agentBackend?.setTurnOptions({
+      model: this.codexModelSelect?.value || undefined,
+      effort: this.codexEffortSelect?.value || undefined,
+      accessLevel: (this.codexAccessSelect?.value as AgentAccessLevel) || undefined
+    });
+  }
+
+  private renderAttachmentChips() {
+    if (!this.codexAttachmentsEl) {
+      return;
+    }
+    this.codexAttachmentsEl.empty();
+    this.codexAttachmentsEl.toggleClass("is-hidden", this.codexPendingAttachments.length === 0);
+    this.codexPendingAttachments.forEach((attachment, index) => {
+      const chip = this.codexAttachmentsEl!.createDiv("vault-agent-attachment-chip");
+      chip.createSpan({ text: attachment.name ?? attachment.path });
+      const remove = chip.createEl("button", { text: "×" });
+      remove.addEventListener("click", () => {
+        this.codexPendingAttachments.splice(index, 1);
+        this.renderAttachmentChips();
+      });
+    });
+  }
+
+  private renderCodexItemComplete(item: TranscriptItem) {
+    const body = this.codexItemEls.get(item.id);
+    if (!body) {
+      if (item.text.trim()) {
+        this.renderCodexItemStart(item);
+      }
+      return;
+    }
+    // commandExecution streamed its output via outputDelta into body — keep that
+    // text and just append an exit-code badge.
+    if (item.kind === "commandExecution") {
+      const exitCode = item.meta?.exitCode;
+      if (typeof exitCode === "number") {
+        body.createSpan({ cls: "vault-agent-exit", text: ` [exit ${exitCode}]` });
+      }
+      this.agentTranscriptEl?.scrollTo({ top: this.agentTranscriptEl.scrollHeight });
+      return;
+    }
+    const finalText = item.text.trim() || (body.textContent ?? "").trim();
+    if (!finalText) {
+      body.parentElement?.remove();
+      this.codexItemEls.delete(item.id);
+      return;
+    }
+    body.empty();
+    this.renderAgentMessageBody(body, finalText);
+    this.agentTranscriptEl?.scrollTo({ top: this.agentTranscriptEl.scrollHeight });
+  }
+
   private async startAgent(provider: AgentProvider) {
     const cwd = this.plugin.getVaultPath();
     if (!cwd) {
@@ -1188,6 +1524,12 @@ class VaultPowerShellView extends ItemView {
     this.disposeAgent();
     this.agentProvider = provider;
     this.refreshAgentProviderButtons();
+
+    if (provider === "codex" && this.plugin.settings.codexUseAppServer) {
+      await this.startCodexBackend(cwd);
+      return;
+    }
+
     this.agentStartedAt = Date.now();
     this.agentSessionPath = null;
     this.agentSessionOffset = 0;
@@ -1384,6 +1726,24 @@ class VaultPowerShellView extends ItemView {
 
     const text = inputEl.value.trim();
     if (!text && !this.agentPromptState?.allowEmptySubmit) {
+      return;
+    }
+
+    if (this.agentBackend) {
+      const attachments = this.codexPendingAttachments.slice();
+      if (!text && attachments.length === 0) {
+        return;
+      }
+      inputEl.value = "";
+      this.codexPendingAttachments = [];
+      this.renderAttachmentChips();
+      const noteSuffix = attachments.length ? `\n\n[${attachments.length} file(s) attached]` : "";
+      this.appendAgentTranscript({
+        id: this.nextLocalAgentEntryId("user"),
+        role: "user",
+        text: (text || "(attachments)") + noteSuffix
+      });
+      void this.agentBackend.sendUserMessage({ text, attachments });
       return;
     }
 
@@ -3064,6 +3424,19 @@ class VaultPowerShellView extends ItemView {
     }
     this.stopAgentSessionPolling();
 
+    if (this.agentBackend) {
+      this.agentBackendUnsubscribe?.();
+      this.agentBackendUnsubscribe = null;
+      void this.agentBackend.stop();
+      this.agentBackend = null;
+    }
+    this.codexItemEls.clear();
+    this.codexApprovalEls.clear();
+    this.codexOptionsRow?.addClass("is-hidden");
+    this.codexModels = [];
+    this.codexPendingAttachments = [];
+    this.renderAttachmentChips();
+
     if (this.agentHost && kill) {
       this.sendAgentHostMessage({ type: "kill" });
       this.agentHost.kill();
@@ -4245,6 +4618,44 @@ function getAgentProviderLabel(provider: AgentProvider): string {
   return provider === "claude" ? "Claude Code" : "Codex";
 }
 
+function backendKindRole(kind: TranscriptItemKind): AgentTranscriptRole {
+  switch (kind) {
+    case "agentMessage":
+    case "plan":
+      return "assistant";
+    case "userMessage":
+      return "user";
+    case "commandExecution":
+    case "fileChange":
+    case "webSearch":
+    case "mcpToolCall":
+      return "tool";
+    default:
+      return "system";
+  }
+}
+
+function backendKindLabel(kind: TranscriptItemKind): string {
+  switch (kind) {
+    case "agentMessage":
+      return "Codex";
+    case "reasoning":
+      return "Thinking";
+    case "plan":
+      return "Plan";
+    case "commandExecution":
+      return "Command";
+    case "fileChange":
+      return "File change";
+    case "webSearch":
+      return "Web search";
+    case "mcpToolCall":
+      return "Tool";
+    default:
+      return "System";
+  }
+}
+
 function getTranscriptRoleLabel(role: AgentTranscriptRole): string {
   if (role === "assistant") {
     return "Agent";
@@ -4299,6 +4710,23 @@ function getAgentPromptModeLabel(mode: AgentPromptMode): string {
 
 function isAgentLoadingStatus(text: string): boolean {
   return /checking|starting|fetching|downloading|installing|launching|in progress|waiting for response|receiving output/i.test(text);
+}
+
+function formatBackendStatus(state: AgentStatus, detail?: string): string {
+  const labels: Record<AgentStatus, string> = {
+    idle: "Idle",
+    starting: "Starting Codex...",
+    "checking-auth": "Checking Codex login...",
+    "login-required": "Sign in required",
+    "login-in-progress": "Codex login in progress",
+    ready: "Codex ready",
+    running: "Working...",
+    "waiting-approval": "Waiting for approval",
+    stopped: "Stopped",
+    error: "Error"
+  };
+  const label = labels[state];
+  return detail ? `${label} — ${detail}` : label;
 }
 
 function getAgentLaunchCommand(provider: AgentProvider, settings: PowerShellSettings): string {
@@ -5478,6 +5906,16 @@ function normalizeShiftEnterMode(value: string | undefined): ShiftEnterMode {
   }
 
   return "claude-backslash";
+}
+
+function normalizeCodexApprovalPolicy(value: string | undefined): CodexApprovalPolicy {
+  return value === "untrusted" || value === "on-failure" || value === "never"
+    ? value
+    : "on-request";
+}
+
+function normalizeCodexLoginMethod(value: string | undefined): CodexLoginMethod {
+  return value === "device-code" ? "device-code" : "browser";
 }
 
 function normalizeWindowsPtyBackend(value: string | undefined): WindowsPtyBackend {

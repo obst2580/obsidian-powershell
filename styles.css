@@ -37,6 +37,106 @@
   display: none !important;
 }
 
+.vault-agent-pane,
+.vault-terminal-pane {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.vault-agent-approval {
+  border: 1px solid var(--interactive-accent);
+  border-radius: 8px;
+  padding: 10px;
+  margin: 6px 0;
+  background: var(--background-secondary);
+}
+
+.vault-agent-approval-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.vault-agent-approval-detail {
+  white-space: pre-wrap;
+  font-size: var(--font-ui-smaller);
+  background: var(--background-primary);
+  padding: 6px;
+  border-radius: 4px;
+  max-height: 220px;
+  overflow: auto;
+  margin: 0 0 8px;
+}
+
+.vault-agent-approval-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.vault-agent-approval.is-resolved {
+  opacity: 0.55;
+}
+
+.vault-agent-exit {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.vault-agent-options {
+  display: flex;
+  gap: 6px;
+  padding: 0 10px 8px;
+  flex-wrap: wrap;
+}
+
+.vault-agent-options.is-hidden {
+  display: none;
+}
+
+.vault-agent-option-select {
+  font-size: var(--font-ui-smaller);
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
+.vault-agent-file-input {
+  display: none;
+}
+
+.vault-agent-attachments {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 4px 0;
+}
+
+.vault-agent-attachments.is-hidden {
+  display: none;
+}
+
+.vault-agent-attachment-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-ui-smaller);
+  background: var(--background-secondary);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.vault-agent-attachment-chip button {
+  padding: 0 2px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
 .vault-terminal-toolbar {
   flex: 0 0 auto;
   display: flex;
