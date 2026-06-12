@@ -895,6 +895,9 @@ class VaultPowerShellView extends ItemView {
   private agentBackend: AgentBackend | null = null;
   private agentBackendUnsubscribe: (() => void) | null = null;
   private codexItemEls = new Map<string, HTMLElement>();
+  private codexDeltaBuffers = new Map<string, string>();
+  private codexDeltaFlushTimer: number | null = null;
+  private codexScrollFrame: number | null = null;
   private codexApprovalEls = new Map<string, HTMLElement>();
   private codexCurrentTurnEl: HTMLElement | null = null;
   private codexCurrentAnswerEl: HTMLElement | null = null;
@@ -903,6 +906,7 @@ class VaultPowerShellView extends ItemView {
   private codexQueuedInputs: { text: string; attachments: AgentAttachment[] }[] = [];
   private agentSendButton: HTMLButtonElement | null = null;
   private codexStatusLineEl: HTMLElement | null = null;
+  private codexStatusLineFrame: number | null = null;
   private codexContextPercent: number | null = null;
   private codexRateLimitWindows: AgentUsageWindow[] = [];
   private codexGitBranch: string | null | undefined = undefined;
@@ -1362,8 +1366,9 @@ class VaultPowerShellView extends ItemView {
   private async startCodexBackend(cwd: string) {
     this.codexContextPercent = null;
     this.codexRateLimitWindows = [];
-    this.codexGitBranch = readGitBranch(cwd);
+    this.codexGitBranch = null;
     this.refreshCodexStatusLine();
+    void this.refreshCodexGitBranch(cwd);
 
     const env = buildProcessEnv({
       useSystemCa: this.plugin.settings.useSystemCa,
@@ -1474,7 +1479,7 @@ class VaultPowerShellView extends ItemView {
         if (event.rateLimits) {
           this.codexRateLimitWindows = event.rateLimits;
         }
-        this.refreshCodexStatusLine();
+        this.scheduleCodexStatusLineRefresh();
         break;
       case "thread-ready":
         break;
@@ -1521,6 +1526,16 @@ class VaultPowerShellView extends ItemView {
   }
 
   private scrollCodexAnswer() {
+    if (this.codexScrollFrame !== null) {
+      return;
+    }
+    this.codexScrollFrame = window.requestAnimationFrame(() => {
+      this.codexScrollFrame = null;
+      this.scrollCodexAnswerNow();
+    });
+  }
+
+  private scrollCodexAnswerNow() {
     if (this.codexCurrentAnswerEl) {
       this.codexCurrentAnswerEl.scrollTop = this.codexCurrentAnswerEl.scrollHeight;
     }
@@ -1594,6 +1609,16 @@ class VaultPowerShellView extends ItemView {
     }
   }
 
+  private scheduleCodexStatusLineRefresh() {
+    if (this.codexStatusLineFrame !== null) {
+      return;
+    }
+    this.codexStatusLineFrame = window.requestAnimationFrame(() => {
+      this.codexStatusLineFrame = null;
+      this.refreshCodexStatusLine();
+    });
+  }
+
   private renderStatusTextSegment(text: string, cls: string) {
     this.codexStatusLineEl?.createSpan({
       cls: `vault-agent-statusline-segment ${cls}`,
@@ -1626,11 +1651,17 @@ class VaultPowerShellView extends ItemView {
   }
 
   private getCodexStatusPath(cwd: string): string {
-    if (this.codexGitBranch === undefined && cwd) {
-      this.codexGitBranch = readGitBranch(cwd);
-    }
     const path = cwd ? formatStatusPath(cwd) : "No vault path";
     return this.codexGitBranch ? `${path}  git:${this.codexGitBranch}` : path;
+  }
+
+  private async refreshCodexGitBranch(cwd: string) {
+    const branch = await readGitBranchAsync(cwd);
+    if (this.agentProvider !== "codex" || this.plugin.getVaultPath() !== cwd) {
+      return;
+    }
+    this.codexGitBranch = branch;
+    this.refreshCodexStatusLine();
   }
 
   private getSelectedCodexModelLabel(): string {
@@ -1678,7 +1709,33 @@ class VaultPowerShellView extends ItemView {
     if (!body || !this.agentTranscriptEl) {
       return;
     }
-    body.textContent = (body.textContent ?? "") + delta;
+    this.codexDeltaBuffers.set(itemId, `${this.codexDeltaBuffers.get(itemId) ?? ""}${delta}`);
+    this.scheduleCodexDeltaFlush();
+  }
+
+  private scheduleCodexDeltaFlush() {
+    if (this.codexDeltaFlushTimer !== null) {
+      return;
+    }
+    this.codexDeltaFlushTimer = window.setTimeout(() => {
+      this.codexDeltaFlushTimer = null;
+      this.flushCodexDeltaBuffers();
+    }, 50);
+  }
+
+  private flushCodexDeltaBuffers() {
+    if (this.codexDeltaBuffers.size === 0) {
+      return;
+    }
+    const pending = Array.from(this.codexDeltaBuffers.entries());
+    this.codexDeltaBuffers.clear();
+    for (const [itemId, text] of pending) {
+      const body = this.codexItemEls.get(itemId);
+      if (!body || !text) {
+        continue;
+      }
+      body.appendChild(document.createTextNode(text));
+    }
     this.scrollCodexAnswer();
   }
 
@@ -1810,6 +1867,7 @@ class VaultPowerShellView extends ItemView {
   }
 
   private renderCodexItemComplete(item: TranscriptItem) {
+    this.flushCodexDeltaBuffers();
     const body = this.codexItemEls.get(item.id);
     if (!body) {
       if (item.text.trim()) {
@@ -3906,6 +3964,18 @@ class VaultPowerShellView extends ItemView {
       window.clearTimeout(this.agentOutputIdleTimer);
       this.agentOutputIdleTimer = null;
     }
+    if (this.codexDeltaFlushTimer !== null) {
+      window.clearTimeout(this.codexDeltaFlushTimer);
+      this.codexDeltaFlushTimer = null;
+    }
+    if (this.codexScrollFrame !== null) {
+      window.cancelAnimationFrame(this.codexScrollFrame);
+      this.codexScrollFrame = null;
+    }
+    if (this.codexStatusLineFrame !== null) {
+      window.cancelAnimationFrame(this.codexStatusLineFrame);
+      this.codexStatusLineFrame = null;
+    }
     this.stopAgentSessionPolling();
 
     if (this.agentBackend) {
@@ -3915,6 +3985,7 @@ class VaultPowerShellView extends ItemView {
       this.agentBackend = null;
     }
     this.codexItemEls.clear();
+    this.codexDeltaBuffers.clear();
     this.codexApprovalEls.clear();
     this.codexCurrentTurnEl = null;
     this.codexCurrentAnswerEl = null;
@@ -5237,22 +5308,12 @@ function formatBackendStatus(state: AgentStatus, detail?: string): string {
   return detail ? `${label} — ${detail}` : label;
 }
 
-function readGitBranch(cwd: string): string | null {
-  try {
-    const result = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-      cwd,
-      encoding: "utf8",
-      windowsHide: true,
-      timeout: 2000
-    });
-    if (result.status !== 0) {
-      return null;
-    }
-    const branch = result.stdout.trim();
-    return branch || null;
-  } catch {
+async function readGitBranchAsync(cwd: string): Promise<string | null> {
+  const result = await runCapturedCommand("git", ["rev-parse", "--abbrev-ref", "HEAD"], cwd, process.env, 2000);
+  if (result.timedOut || result.error || (result.exitCode !== 0 && result.exitCode !== null)) {
     return null;
   }
+  return result.stdout.trim() || null;
 }
 
 function formatStatusPath(cwd: string): string {
