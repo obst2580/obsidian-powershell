@@ -19,7 +19,7 @@ import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { unzipSync } from "fflate";
 import { ChildProcessWithoutNullStreams, spawn, spawnSync } from "child_process";
-import { createHash, randomUUID } from "crypto";
+import { createHash } from "crypto";
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from "fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
 import { tmpdir } from "os";
@@ -924,6 +924,7 @@ class VaultPowerShellView extends ItemView {
   private agentSessionPath: string | null = null;
   private agentSessionOffset = 0;
   private agentClaudeSessionId: string | null = null;
+  private lastAgentLaunchCommand = "";
   private agentSeenEntries = new Set<string>();
   private agentLocalMessageCounter = 0;
   private agentLastRawNotice = "";
@@ -1220,7 +1221,7 @@ class VaultPowerShellView extends ItemView {
     for (const opt of [{ v: "read-only", t: "Read-only" }, { v: "auto", t: "Auto (write)" }, { v: "full", t: "Full access" }]) {
       this.codexAccessSelect.createEl("option", { value: opt.v, text: opt.t });
     }
-    this.codexAccessSelect.value = "auto";
+    this.codexAccessSelect.value = "full";
     this.codexModelSelect.addEventListener("change", () => this.onCodexModelChange());
     this.codexEffortSelect.addEventListener("change", () => this.applyCodexTurnOptions());
     this.codexAccessSelect.addEventListener("change", () => this.applyCodexTurnOptions());
@@ -1880,12 +1881,11 @@ class VaultPowerShellView extends ItemView {
 
   private launchAgentCli() {
     let command = getAgentLaunchCommand(this.agentProvider, this.plugin.settings);
-    if (this.agentProvider === "claude") {
-      // Pin an explicit session id so our polling reads ONLY this conversation,
-      // never a Claude desktop-app session that shares the same vault folder.
-      this.agentClaudeSessionId = randomUUID();
-      command += ` --session-id ${this.agentClaudeSessionId}`;
-    }
+    // claude resumes via --continue (see getAgentLaunchCommand). No explicit
+    // session id, so polling falls back to the newest session in this folder —
+    // which is ours, since the Claude desktop app doesn't open this vault.
+    this.agentClaudeSessionId = null;
+    this.lastAgentLaunchCommand = command;
     this.sendAgentHostMessage({ type: "data", data: `${command}\r` });
     this.setAgentStatus(`Launching ${getAgentProviderLabel(this.agentProvider)}...`);
 
@@ -2261,6 +2261,13 @@ class VaultPowerShellView extends ItemView {
       return;
     }
 
+    // Ignore the shell echo of our own launch command (truncated or full). Its
+    // "--permission-mode" etc. would otherwise be misread as an interactive prompt.
+    const launch = this.lastAgentLaunchCommand;
+    if (launch && (launch.startsWith(plainText) || plainText.startsWith(launch.slice(0, 24)))) {
+      return;
+    }
+
     this.markAgentOutputActive();
 
     const authCompleted = hasAgentAuthSuccess(plainText);
@@ -2383,12 +2390,20 @@ class VaultPowerShellView extends ItemView {
       }
 
       this.agentSessionPath = sessionPath;
-      this.agentSessionOffset = 0;
-      this.appendAgentTranscript({
-        id: this.nextLocalAgentEntryId("system"),
-        role: "system",
-        text: `Reading session log: ${sessionPath}`
-      });
+      // A resumed session (claude --continue) holds the whole backlog. Seed the
+      // seen-set with every existing entry so the backlog isn't rendered, then
+      // read forward from the end. Using the seen-set (not just an offset) means
+      // we still catch the answer even if claude wrote it before our first poll.
+      try {
+        const existing = readFileSync(sessionPath, "utf8");
+        for (const entry of parseAgentTranscriptEntries(this.agentProvider, existing)) {
+          this.agentSeenEntries.add(entry.id);
+        }
+        this.agentSessionOffset = Buffer.byteLength(existing, "utf8");
+      } catch {
+        this.agentSessionOffset = 0;
+      }
+      return;
     }
 
     const chunk = readFileTextFromOffset(this.agentSessionPath, this.agentSessionOffset);
@@ -4986,11 +5001,12 @@ function formatBackendStatus(state: AgentStatus, detail?: string): string {
 
 function getAgentLaunchCommand(provider: AgentProvider, settings: PowerShellSettings): string {
   if (provider === "claude") {
-    // claude's global env is heavy (MCP servers + 50+ plugins). With no
-    // --mcp-config, --strict-mcp-config makes claude ignore ALL global MCP
-    // servers, so startup/response isn't blocked waiting on them (firebase 30s
-    // timeout etc). --continue is left off for now while diagnosing the stall.
-    return "claude --strict-mcp-config";
+    // --continue: resume the most recent conversation in this folder (the reliable
+    //   way to continue; matches how codex resumes).
+    // --strict-mcp-config: ignore heavy global MCP servers (firebase 30s etc).
+    // --permission-mode bypassPermissions: no file/command prompts (vault is the
+    //   user's own folder; same trust as Codex full access).
+    return "claude --continue --strict-mcp-config --permission-mode bypassPermissions";
   }
 
   // codex resume --last reopens the most recent interactive session (PTY path).
@@ -5196,10 +5212,13 @@ function findLatestAgentSessionFile(provider: AgentProvider, cwd: string, starte
     return null;
   }
 
-  const files = getRecentJsonlFiles(root, startedAt - AGENT_SESSION_LOOKBACK_MS);
+  // claude --continue resumes a session file that may be old (yesterday's
+  // conversation), so a 30s lookback would miss it — scan the whole store for
+  // claude and pick the newest match for this folder. codex keeps the window.
+  const sinceMs = provider === "claude" ? 0 : startedAt - AGENT_SESSION_LOOKBACK_MS;
+  const files = getRecentJsonlFiles(root, sinceMs);
 
-  // If we launched with an explicit --session-id, read ONLY that file. Otherwise
-  // a Claude desktop-app session in the same folder could be picked as "latest".
+  // If we launched with an explicit --session-id, read ONLY that file.
   if (sessionId) {
     const suffix = `${sessionId.toLowerCase()}.jsonl`;
     return files.find((file) => file.toLowerCase().endsWith(suffix)) ?? null;
@@ -6020,11 +6039,12 @@ function extractClaudeContentText(content: unknown): string {
 
   const pieces: string[] = [];
   for (const item of content) {
-    const typed = item as { type?: string; text?: string };
-    // Only the visible assistant prose. tool_use / tool_result are transient
-    // execution noise (like Codex command blocks), so drop them entirely.
+    const typed = item as { type?: string; text?: string; name?: string };
     if (typed.type === "text" && typed.text) {
       pieces.push(typed.text);
+    } else if (typed.type === "tool_use" && typed.name) {
+      // Surface tool activity so a long tool run isn't mistaken for a stall.
+      pieces.push(`*🔧 ${typed.name}…*`);
     }
   }
 
