@@ -8,7 +8,7 @@ Obst Terminal은 Obsidian 볼트를 AI agent 작업 공간으로 만듭니다. �
 
 > Community Plugin Directory에는 아직 등록하지 않았습니다. 표준 플러그인 파일은 `manifest.json`, `main.js`, `styles.css`만 사용하고, native `node-pty` 런타임은 첫 실행 또는 설정 화면에서 GitHub Release의 OS/아키텍처별 런타임 ZIP을 내려받아 설치하는 구조로 준비했습니다.
 
-![Obsidian 우측 사이드바에서 Claude Code를 실행한 Obst Terminal 화면](docs/images/vault-terminal-claude-code.png)
+![Obsidian 우측 사이드바에서 AI agent를 실행한 Obst Terminal 화면](docs/images/obst-terminal-agent-console.png)
 
 ## English Overview
 
@@ -39,7 +39,7 @@ Current distribution is GitHub Release ZIP based while Community Plugin Director
 
 ## 사용 예시
 
-![Obsidian 우측 사이드바에서 Claude Code를 실행한 Obst Terminal 화면](docs/images/vault-terminal-claude-code.png)
+![Obsidian 우측 사이드바에서 AI agent를 실행한 Obst Terminal 화면](docs/images/obst-terminal-agent-console.png)
 
 Obst Terminal은 Obsidian 문서를 보면서 같은 볼트 경로에서 agent CLI를 실행하는 흐름에 맞춰 만들었습니다.
 

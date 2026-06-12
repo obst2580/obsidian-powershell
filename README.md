@@ -10,7 +10,7 @@ Obst Terminal turns your Obsidian vault into an agent workspace: keep notes, pla
 
 > Obsidian Community Plugin Directory registration is currently under review. Until it is approved, install from the GitHub Release ZIP or use BRAT.
 
-![Obst Terminal running Claude Code in Obsidian's right sidebar](docs/images/vault-terminal-claude-code.png)
+![Obst Terminal agent console in Obsidian's right sidebar](docs/images/obst-terminal-agent-console.png)
 
 ## What It Does
 
