@@ -5267,9 +5267,8 @@ function runClaudePrintCommand(prompt: string, cwd: string, env: { [key: string]
     "bypassPermissions",
     "--output-format",
     "text",
-    "-p",
-    prompt
-  ], cwd, env, timeoutMs);
+    "-p"
+  ], cwd, env, timeoutMs, `${prompt}\n`);
 }
 
 function formatClaudePrintOutput(result: CapturedCommandResult): string {
@@ -5328,7 +5327,7 @@ function truncateStatusOutput(text: string): string {
   return normalized.length > 240 ? `${normalized.slice(0, 237)}...` : normalized;
 }
 
-function runCapturedCommand(command: string, args: string[], cwd: string, env: { [key: string]: string | undefined }, timeoutMs: number): Promise<CapturedCommandResult> {
+function runCapturedCommand(command: string, args: string[], cwd: string, env: { [key: string]: string | undefined }, timeoutMs: number, stdinText?: string): Promise<CapturedCommandResult> {
   return new Promise((resolvePromise) => {
     let stdout = "";
     let stderr = "";
@@ -5373,7 +5372,7 @@ function runCapturedCommand(command: string, args: string[], cwd: string, env: {
     }
 
     try {
-      child.stdin.end();
+      child.stdin.end(stdinText ?? "");
     } catch {
       // Captured commands in this plugin are non-interactive.
     }
