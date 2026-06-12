@@ -1,100 +1,89 @@
 # Obst Terminal
 
-Obsidian 데스크톱 앱의 우측 사이드바에서 현재 볼트 경로 기준으로 AI agent CLI를 실행하는 플러그인입니다. Claude Code와 Codex CLI를 위한 Agent Console을 기본으로 제공하고, 기존 raw terminal은 fallback으로 유지합니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **Agent Console + Raw terminal** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.13`입니다.
 
-Obst Terminal은 Obsidian 볼트를 AI agent 작업 공간으로 만듭니다. 중앙에는 노트, 기획서, 작업 목록, handoff 문서를 열어두고, 우측 사이드바에서는 Claude Code나 Codex CLI 같은 AI coding agent를 같은 볼트 경로에서 실행할 수 있습니다.
+[English README](README.md)
 
-> 상태: 초기 데스크톱 베타입니다. Windows와 macOS 릴리스 패키지를 배포하며, Community Plugin Directory 등록을 준비 중입니다. Linux는 소스 설치 경로를 유지합니다.
-
-> Community Plugin Directory에는 아직 등록하지 않았습니다. 표준 플러그인 파일은 `manifest.json`, `main.js`, `styles.css`만 사용하고, native `node-pty` 런타임은 첫 실행 또는 설정 화면에서 GitHub Release의 OS/아키텍처별 런타임 ZIP을 내려받아 설치하는 구조로 준비했습니다.
+> 데스크톱 전용 플러그인입니다. Claude Code, Codex CLI, Node.js, Git, npm 같은 외부 도구는 포함하지 않습니다. 사용자의 PC에 설치되어 있고 일반 터미널에서 실행되어야 합니다.
 
 ![Obsidian 우측 사이드바에서 AI agent를 실행한 Obst Terminal 화면](docs/images/obst-terminal-agent-console.png)
 
-## English Overview
+## 현재 동작 기준
 
-Obst Terminal opens an Agent Console and a raw terminal fallback in Obsidian's right sidebar. It starts from the current vault path and is designed for workflows where Obsidian holds project notes while Claude Code, Codex CLI, git, npm, and other local CLI tools run against the same vault.
+Obst Terminal을 열면 기본 화면은 **Agent Console**입니다. 상단에서 `Claude`와 `Codex`를 선택할 수 있고, 현재 선택된 provider는 `현재 Claude Code` 또는 `현재 Codex` chip으로 표시됩니다. Claude와 Codex transcript는 서로 섞이지 않고 따로 유지됩니다.
 
-Current distribution is GitHub Release ZIP based while Community Plugin Directory registration is being prepared. The plugin is desktop-only and requires Node.js plus a native PTY runtime. Standard Community Plugin installs can download the verified OS-specific runtime from the matching GitHub Release.
+### Codex
 
-## 주요 기능
+Codex Agent Console은 기본적으로 fullscreen TUI가 아니라 `codex app-server`를 실행합니다.
 
-- Obst Terminal 탭을 열면 Agent Console이 기본으로 표시됩니다.
-- 현재 Obsidian 볼트가 agent CLI와 raw terminal의 작업 디렉터리가 됩니다.
-- Claude Code와 Codex CLI를 공식 interactive CLI로 실행해 기존 구독 로그인을 그대로 사용합니다.
-- 세션 로그를 읽어 append-only transcript로 표시해 Windows TUI 렌더링 문제를 줄입니다.
-- PowerShell, zsh, bash 같은 일반 셸 명령은 Raw terminal 탭에서 실행합니다.
-- AI agent 작업을 작업 노트, 스펙, 프로젝트 문맥 옆에 붙여둘 수 있습니다.
-- 터미널 텍스트 선택과 복사를 지원합니다.
-- 파일을 터미널에 드롭하면 agent CLI용 파일 참조를 입력합니다.
-- 클립보드 이미지를 볼트에 저장하고 `@path` 참조를 입력합니다.
-- Claude Code 멀티라인 입력을 위해 `Shift + Enter`를 기본적으로 Claude의 `\` + Return 줄바꿈 경로로 보냅니다.
-- Claude Code가 터미널 입력 영역에 표시한 `Try "..."` 추천 문구를 Enter로 바로 채택해 전송할 수 있습니다.
-- Codex CLI를 기본적으로 `--no-alt-screen`으로 실행해 긴 대화가 일반 터미널 scrollback에 남도록 합니다.
-- Codex CLI를 기본적으로 `tui.terminal_resize_reflow=false`로도 실행해 화면 다시 그리기와 pane resize 뒤의 잔상/덮어쓰기를 줄입니다.
-- 한글 IME 조합 중 마지막 글자가 다음 줄로 밀리지 않도록 짧은 지연 후 줄바꿈을 보냅니다.
-- Obsidian 테마를 기본으로 따르되 Codex/Claude Code ANSI 색상이 읽히도록 터미널 팔레트를 보정합니다.
-- 긴 scrollback과 `Shift + Wheel`, `Ctrl + Shift + PageUp/PageDown` 강제 스크롤을 지원합니다.
-- TLS inspection proxy 또는 사용자 지정 인증서 환경을 위해 Node TLS/CA 설정을 선택적으로 주입할 수 있습니다.
-- Community Plugin 표준 설치처럼 `manifest.json`, `main.js`, `styles.css`만 설치된 경우에도 런타임 파일을 자동 설치할 수 있습니다.
+- `codex app-server`와 JSON-RPC로 통신합니다.
+- ChatGPT 로그인 상태를 확인하고, 필요하면 브라우저 로그인 또는 device code 로그인을 시작합니다.
+- 모델, reasoning effort, access level을 Agent Console 안에서 선택합니다.
+- user turn, reasoning, command 실행, 파일 변경, approval 요청을 transcript 카드로 표시합니다.
+- 응답 중에는 `Send` 버튼이 `Stop` 역할을 하며 현재 turn을 interrupt합니다.
+- 응답 중 새 메시지를 보내면 Codex app처럼 queue에 넣습니다.
+- statusline에는 현재 볼트 경로, git branch, 선택 모델, context 사용률, 5시간/7일 rate-limit meter를 표시합니다.
+- streaming delta는 일정 간격으로 모아 렌더링해서 Obsidian UI가 멈추는 현상을 줄입니다.
 
-## 사용 예시
+Agent Console의 fallback PTY 경로를 쓰거나 Raw terminal에서 `codex`를 직접 실행하는 경우에는 기존 PTY 경로를 사용합니다. 이 경로에서는 `--no-alt-screen`, `tui.terminal_resize_reflow=false`, scrollback 보정 옵션이 적용될 수 있습니다.
 
-![Obsidian 우측 사이드바에서 AI agent를 실행한 Obst Terminal 화면](docs/images/obst-terminal-agent-console.png)
+### Claude Code
 
-Obst Terminal은 Obsidian 문서를 보면서 같은 볼트 경로에서 agent CLI를 실행하는 흐름에 맞춰 만들었습니다.
+Claude Code Agent Console은 로그인/제어 흐름과 일반 대화 흐름을 분리합니다.
 
-예를 들어 중앙에는 프로젝트 인덱스나 작업 노트를 열어두고, 우측 사이드바에서는 Obst Terminal로 `claude`, `codex`, `git`, `npm` 같은 명령을 실행할 수 있습니다. 터미널의 작업 디렉터리는 현재 볼트이므로 Claude Code나 Codex CLI가 `AGENTS.md`, `CLAUDE.md`, 프로젝트 노트, 소스 파일을 같은 기준 경로에서 읽고 작업합니다.
+- 시작 시 `claude auth status --json`으로 로그인 상태를 확인합니다.
+- 일반 메시지는 `claude --continue --strict-mcp-config --permission-mode bypassPermissions --output-format text -p`로 실행하고 prompt를 stdin으로 전달합니다.
+- Claude 응답은 최대 10분까지 기다립니다. 초과하면 timeout 메시지를 transcript에 표시합니다.
+- `/login`, MCP 연결, permission 또는 command prompt처럼 interactive 응답이 필요한 경우에는 뒤쪽 PTY host를 통해 입력을 전달합니다.
+- Claude Code 세션 로그는 login/control 흐름 추적과 transcript 보정에 사용합니다.
 
-이 플러그인은 실제 로컬 셸을 띄웁니다. 따라서 터미널에서 실행한 CLI의 파일 접근, 네트워크 접근, 인증서 설정은 사용자의 PC와 해당 CLI 설정을 그대로 따릅니다.
+### Raw Terminal
 
-## 릴리스 다운로드
+Raw terminal은 실제 xterm.js + node-pty terminal입니다.
 
-GitHub Actions가 태그 릴리스마다 OS별 ZIP을 자동 생성합니다.
+- Windows: PowerShell 7이 있으면 우선 사용하고, 없으면 Windows PowerShell을 사용합니다.
+- macOS: `$SHELL`, `zsh`, `bash` 순서로 선택합니다.
+- Linux: `$SHELL`, `bash`, `sh` 순서로 선택합니다.
+- `git`, `npm`, `python`, `claude`, `codex` 등 일반 CLI를 직접 실행할 수 있습니다.
+- 로그인, fallback debugging, 긴 shell 작업은 Raw terminal에서 처리하는 것이 가장 명확합니다.
 
-| 파일 | 대상 |
-| --- | --- |
-| `manifest.json`, `main.js`, `styles.css` | Community Plugin Directory / BRAT용 표준 플러그인 파일 |
-| `runtime-manifest.json` | 플러그인이 런타임 ZIP을 검증하기 위한 SHA-256 매니페스트 |
-| `ObstTerminal-<version>-windows-x64.zip` | Windows x64 |
-| `ObstTerminal-<version>-macos-x64.zip` | macOS Intel |
-| `ObstTerminal-<version>-macos-arm64.zip` | macOS Apple Silicon |
-| `ObstTerminal-runtime-<version>-windows-x64.zip` | Windows x64 런타임 전용 |
-| `ObstTerminal-runtime-<version>-macos-x64.zip` | macOS Intel 런타임 전용 |
-| `ObstTerminal-runtime-<version>-macos-arm64.zip` | macOS Apple Silicon 런타임 전용 |
+## 요구사항
 
-릴리스 페이지:
+- Obsidian Desktop
+- 시스템에 설치된 Node.js
+- 사용할 CLI 도구: `claude`, `codex`, `git`, `npm`, `python` 등
+
+VS Code extension에 포함된 Node.js나 CLI는 Obsidian에서 보이지 않을 수 있습니다. 아래 명령이 일반 PowerShell, Terminal, zsh, bash에서 실행되는지 확인하세요.
 
 ```text
-https://github.com/obst2580/obsidian-powershell/releases
-```
-
-Windows 인증서 설정 스크립트도 릴리스 asset으로 함께 올라갑니다.
-
-```text
-configure-corporate-ca.ps1
-configure-corporate-ca.cmd
+node --version
+claude --version
+codex --version
 ```
 
 ## 설치
 
-설치 전 요구사항:
+### GitHub Release ZIP
 
-- Obsidian Desktop 앱이 필요합니다.
-- Node.js가 시스템에 설치되어 있어야 합니다. 릴리스 패키지는 Node.js 22 기준으로 빌드합니다.
-- VS Code extension이 내부적으로 사용하는 Node.js는 Obsidian에서 보이지 않습니다. `node --version`이 일반 PowerShell, Terminal, zsh, bash에서 실행되는지 확인하세요.
-- Claude Code, Codex CLI 같은 agent CLI는 사용자 PC에 별도로 설치되어 있어야 합니다. VS Code extension만 설치된 상태와 터미널 명령 `claude`, `codex`가 실행되는 상태는 다릅니다.
+릴리스 페이지에서 OS/아키텍처에 맞는 전체 ZIP을 받습니다.
 
-### GitHub Release 전체 ZIP 설치
+[https://github.com/obst2580/obsidian-powershell/releases](https://github.com/obst2580/obsidian-powershell/releases)
 
-플러그인은 볼트마다 설치됩니다. OS/아키텍처에 맞는 전체 ZIP을 아래 경로에 압축 해제합니다.
+| 파일 | 대상 |
+| --- | --- |
+| `ObstTerminal-<version>-windows-x64.zip` | Windows x64 |
+| `ObstTerminal-<version>-macos-x64.zip` | macOS Intel |
+| `ObstTerminal-<version>-macos-arm64.zip` | macOS Apple Silicon |
+
+압축을 볼트 안의 아래 경로에 풉니다.
 
 ```text
-<볼트경로>/.obsidian/plugins/vault-terminal/
+<vault>/.obsidian/plugins/vault-terminal/
 ```
 
-표시 이름은 Obst Terminal이지만, 기존 릴리스와 Obsidian Community Plugin 등록 호환을 위해 플러그인 ID와 설치 폴더명은 `vault-terminal`을 유지합니다.
+표시 이름은 `Obst Terminal`이지만, 플러그인 ID와 설치 폴더명은 기존 호환을 위해 `vault-terminal`을 유지합니다.
 
-압축 해제 후 플러그인 폴더에는 다음 파일과 폴더가 있어야 합니다.
+전체 ZIP 설치 후 플러그인 폴더에는 보통 아래 파일이 있어야 합니다.
 
 ```text
 manifest.json
@@ -102,40 +91,18 @@ main.js
 styles.css
 pty-host.js
 node_modules/
+runtime.json
 ```
 
-Obsidian을 재시작한 뒤 아래 메뉴에서 플러그인을 활성화합니다.
+Obsidian을 재시작한 뒤 활성화합니다.
 
 ```text
 Settings > Community plugins > Obst Terminal > Enable
 ```
 
-업데이트할 때도 같은 위치에 새 ZIP을 덮어쓴 뒤 Obsidian을 재시작하거나 플러그인을 껐다 켭니다.
+### BRAT / Community Plugin 방식
 
-### Community Plugin / BRAT 설치
-
-Community Plugin Directory 등록 후에는 Obsidian에서 일반 플러그인처럼 설치할 수 있습니다. BRAT으로 테스트 설치하는 경우에도 표준 플러그인 파일만 먼저 설치됩니다.
-
-Community Plugin 승인 전 팀원들에게 배포할 때는 BRAT을 사용하는 것을 권장합니다.
-
-1. Obsidian에서 BRAT 커뮤니티 플러그인을 설치합니다.
-2. **Settings > BRAT > Beta plugin list**를 엽니다.
-3. 아래 저장소를 추가합니다.
-
-```text
-https://github.com/obst2580/obsidian-powershell
-```
-
-4. BRAT의 시작 시 업데이트 확인 옵션을 켜거나, 명령 팔레트에서 **BRAT: Check for updates to all beta plugins and UPDATE**를 실행합니다.
-5. **Settings > Community plugins**에서 **Obst Terminal**을 활성화합니다.
-
-새 GitHub Release가 올라오면 BRAT이 표준 플러그인 파일을 업데이트합니다. 이후 Obst Terminal이 같은 릴리스에서 OS/아키텍처에 맞는 native runtime을 설치하거나 업데이트합니다. 새 설치에서는 runtime 자동 설치가 기본으로 켜져 있으며, 아래 설정에서 바꿀 수 있습니다.
-
-```text
-Settings > Obst Terminal > Install runtime automatically
-```
-
-표준 설치 직후 플러그인 폴더에는 보통 아래 세 파일만 있습니다.
+BRAT 또는 Community Plugin 방식은 처음에 표준 플러그인 파일만 설치할 수 있습니다.
 
 ```text
 manifest.json
@@ -143,16 +110,108 @@ main.js
 styles.css
 ```
 
-Obst Terminal은 런타임이 없거나 오래된 경우 현재 버전의 GitHub Release에서 `runtime-manifest.json`을 읽고, OS/아키텍처에 맞는 런타임 ZIP을 내려받아 SHA-256 검증 후 플러그인 폴더에 압축 해제할 수 있습니다. macOS/Linux에서는 압축 해제 후 `spawn-helper` 실행 권한도 자동 복구합니다. Obsidian 명령 팔레트의 **Update runtime files** 또는 설정 화면의 런타임 버튼으로 개별 업데이트할 수 있습니다. 런타임이 없으면 Obst Terminal 탭에 런타임 설치 안내가 표시되고 **Install runtime** 버튼으로 수동 설치할 수 있습니다.
+Obst Terminal은 실제 terminal을 위해 native `node-pty` runtime이 필요합니다. runtime이 없거나 오래된 경우 같은 버전의 GitHub Release에서 `runtime-manifest.json`을 읽고, OS/아키텍처에 맞는 runtime ZIP을 내려받아 SHA-256 검증 후 설치합니다.
 
-설정에서도 같은 작업을 실행할 수 있습니다.
+관련 명령과 설정:
 
 ```text
+Command palette > Update runtime files
 Settings > Obst Terminal > Runtime files > Install runtime
 Settings > Obst Terminal > Install runtime automatically
 ```
 
-터미널에 `Node.js was not found` 또는 `spawn node ENOENT`가 표시되면 Node.js를 시스템에 설치한 뒤 Obsidian을 재시작하세요. Node를 별도 위치에 설치했다면 `Settings > Obst Terminal > Node executable`에 절대경로를 입력할 수 있습니다.
+BRAT으로 테스트 설치할 때는 아래 저장소를 추가합니다.
+
+```text
+https://github.com/obst2580/obsidian-powershell
+```
+
+## Agent Console 사용
+
+1. Obsidian에서 프로젝트 볼트를 엽니다.
+2. 명령 팔레트에서 `Open terminal`을 실행하거나 우측 사이드바의 Obst Terminal 탭을 엽니다.
+3. 상단 provider 버튼에서 `Claude` 또는 `Codex`를 선택합니다.
+4. `Start`로 agent를 시작합니다.
+5. 필요하면 `Login`으로 로그인 흐름을 시작합니다.
+6. 입력창에 메시지를 쓰고 `Send`를 누릅니다.
+
+Codex가 응답 중일 때 `Send`는 `Stop`으로 동작합니다. 응답 중 새 메시지를 보내면 현재 turn이 끝난 뒤 이어서 실행되도록 queue에 들어갑니다.
+
+## 첨부 파일과 이미지
+
+Agent Console composer의 `Attach` 버튼으로 파일을 첨부할 수 있습니다.
+
+- 첨부 후 버튼은 `Attach (N)`으로 바뀝니다.
+- 입력창 아래에 `첨부됨 N개` 영역이 나타납니다.
+- 각 파일은 `IMG` 또는 `FILE` chip으로 표시됩니다.
+- chip의 `x` 버튼으로 개별 첨부를 제거할 수 있습니다.
+- 텍스트 없이 첨부 파일만 보내는 것도 가능합니다.
+
+Codex app-server 경로에서는 이미지가 `localImage`, 일반 파일이 `mention` 입력으로 전달됩니다. Claude Code 경로에서는 prompt 하단에 `첨부 파일:` 목록을 붙여 전달합니다.
+
+Agent Console에서 이미지를 붙여넣으면 첨부 chip으로 추가합니다. Raw terminal에서 이미지나 스크린샷을 붙여넣으면 볼트의 attachment folder에 저장한 뒤 `@path` 참조를 입력합니다.
+
+기본 attachment folder:
+
+```text
+Obst Terminal Attachments/
+```
+
+설정:
+
+```text
+Settings > Obst Terminal > Attachment folder
+```
+
+현재 노트 참조는 명령 팔레트에서 넣을 수 있습니다.
+
+```text
+Command palette > Insert current note reference
+```
+
+## 주요 설정
+
+| 설정 | 동작 |
+| --- | --- |
+| `Shell executable` | Raw terminal에서 사용할 shell을 직접 지정합니다. |
+| `Node executable` | Node.js가 PATH에 없을 때 절대경로를 지정합니다. |
+| `Windows PTY backend` | Windows에서 `ConPTY` 또는 `winpty`를 선택합니다. |
+| `Terminal color scheme` | Obsidian 테마 추적 또는 light/dark 고정 색상을 선택합니다. |
+| `Shift+Enter behavior` | Claude multiline 입력 등 줄바꿈 방식을 선택합니다. |
+| `Run Codex without alternate screen` | PTY 경로의 Codex를 `--no-alt-screen`으로 실행합니다. |
+| `Stabilize Codex resize rendering` | PTY 경로의 Codex에 `tui.terminal_resize_reflow=false`를 적용합니다. |
+| `Preserve Codex scrollback` | Codex redraw가 scrollback을 지우는 escape를 제거합니다. |
+| `Install runtime automatically` | runtime이 없거나 오래된 경우 자동 설치를 허용합니다. |
+| `Use system certificate store` | Node 기반 CLI에 system CA store 옵션을 주입합니다. |
+| `Extra CA certificate` | 사용자 PEM 인증서 경로를 지정합니다. |
+
+## TLS / 사내 인증서
+
+기본 상태에서는 Node TLS 동작을 바꾸지 않습니다. TLS inspection proxy 또는 사내 CA가 필요한 네트워크에서 Claude Code 같은 Node 기반 CLI가 인증서 오류를 내면 아래 설정을 사용합니다.
+
+```text
+Settings > Obst Terminal > Use system certificate store
+Settings > Obst Terminal > Extra CA certificate
+```
+
+`Extra CA certificate`가 비어 있으면 공통 위치를 자동 확인합니다.
+
+```text
+OBST_TERMINAL_EXTRA_CA_CERT
+VAULT_TERMINAL_EXTRA_CA_CERT
+C:\certs\extra-ca.pem
+C:\ProgramData\Obst Terminal\extra-ca.pem
+%USERPROFILE%\.obst-terminal\extra-ca.pem
+%USERPROFILE%\.vault-terminal\extra-ca.pem
+certs/extra-ca.pem
+```
+
+Windows 릴리스에는 인증서 설정 helper가 포함됩니다.
+
+```powershell
+.\configure-corporate-ca.ps1 -VaultPath "C:\path\to\vault" -Thumbprint "<root-ca-thumbprint>"
+.\configure-corporate-ca.ps1 -VaultPath "C:\path\to\vault" -PemPath "C:\path\to\custom-ca.pem"
+```
 
 ## 개발
 
@@ -175,203 +234,35 @@ npm run build
 ./install.sh /path/to/vault
 ```
 
-로컬 릴리스 ZIP 생성:
+로컬 Windows 릴리스 ZIP 생성:
 
 ```powershell
 pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 -OutputDir dist
 ```
 
-## GitHub Actions 릴리스
+## 릴리스
 
-태그를 푸시하면 `.github/workflows/release.yml`이 실행됩니다.
-
-```powershell
-git tag <version>
-git push origin <version>
-```
-
-Obsidian Community Plugin Directory 검증을 통과하려면 GitHub release tag가 `manifest.json`의 `version`과 정확히 같아야 합니다. 예를 들어 `manifest.json`이 `0.4.1`이면 tag도 `0.4.1`이어야 하며, `v0.4.1`처럼 `v`를 붙이지 않습니다.
-
-워크플로는 다음 작업을 수행합니다.
-
-- `npm ci`
-- `npm run build`
-- OS별 ZIP 패키징
-- 런타임 전용 ZIP 패키징
-- `runtime-manifest.json` 생성
-- GitHub Release 생성 또는 기존 Release asset 갱신
-
-사용하는 GitHub-hosted runner:
-
-- `windows-latest`: Windows x64 패키지
-- `macos-15-intel`: macOS Intel x64 패키지
-- `macos-14`: macOS Apple Silicon arm64 패키지
-
-macOS runner 라벨은 GitHub 공식 hosted runner 문서를 기준으로 선택했습니다.
-
-## 런타임 파일
-
-이 플러그인은 터미널 UI에 `xterm`, 실제 pseudo-terminal에 `node-pty` 런타임을 사용합니다.
-
-`pty-host.js`는 Obsidian renderer 프로세스 안에서 native PTY를 직접 로드하지 않도록 별도 Node 프로세스로 실행됩니다.
-
-기본 셸 선택:
-
-- Windows: PowerShell 7이 있으면 PowerShell 7, 없으면 Windows PowerShell
-- macOS: 사용자 `$SHELL`, 그 다음 `zsh`/`bash`; Homebrew `pwsh`는 fallback으로만 사용
-- Linux: 사용자 `$SHELL`, 그 다음 `bash`/`sh`; `pwsh`는 fallback으로만 사용
-
-동기화된 볼트에 다른 OS의 shell 경로가 저장되어 있으면 Obst Terminal은 명백히 호환되지 않는 경로를 무시하고 현재 OS의 기본 셸로 fallback합니다. macOS에서 강제로 지정하려면 `Settings > Obst Terminal > Shell executable`에 `/bin/zsh`를 입력하세요.
-
-native PTY 런타임이 필요하므로 전체 릴리스 ZIP과 런타임 전용 ZIP은 OS/아키텍처별로 분리됩니다. Community Plugin 표준 설치에서는 런타임 전용 ZIP을 현재 플러그인 버전과 같은 GitHub Release에서 내려받고 SHA-256으로 검증합니다.
-
-## 파일과 이미지 참조
-
-- 파일을 터미널에 드롭하면 파일 참조가 입력됩니다.
-- 현재 볼트 안의 파일은 `@relative/path` 형식으로 입력됩니다.
-- 볼트 밖의 파일은 quoted absolute path로 입력됩니다.
-- 이미지나 스크린샷을 클립보드에 복사한 뒤 터미널에서 `Ctrl+V`를 누르면, 이미지를 볼트에 저장하고 `@path`를 입력합니다.
-- 명령 팔레트의 **Insert current note reference** 명령으로 현재 노트를 `@note.md` 형식으로 입력할 수 있습니다.
-
-클립보드 이미지는 기본적으로 아래 폴더에 저장됩니다.
-
-```text
-Obst Terminal Attachments/
-```
-
-설정에서 변경할 수 있습니다.
-
-```text
-Settings > Obst Terminal > Attachment folder
-```
-
-## Windows PTY
-
-Windows 기본 PTY backend는 `ConPTY`입니다.
-
-ConPTY는 최신 Windows에서 fullscreen TUI 렌더링과 resize 동작이 대체로 더 안정적입니다. 특정 CLI에서 입력 호환 문제가 있으면 `winpty`를 fallback으로 선택할 수 있습니다.
-
-환경에 따라 winpty가 더 잘 맞으면 플러그인 설정에서 바꿀 수 있습니다.
-
-```text
-Settings > Obst Terminal > Windows PTY backend
-```
-
-## Shift + Enter
-
-기본값은 **Claude backslash newline**입니다.
-
-Claude Code는 줄 끝의 `\` + Return을 멀티라인 줄바꿈으로 처리합니다. Obst Terminal은 `Shift + Enter`를 이 경로로 보내며, 한글 IME 마지막 글자가 먼저 커밋되도록 짧게 지연합니다.
-
-다른 도구를 위해 아래 모드도 남겨두었습니다.
-
-- `Claude backslash newline`
-- `Bracketed newline paste`
-- `xterm paste newline`
-- `Modified Enter`
-- `CSI-u Shift Enter`
-- `Line feed`
-
-설정 위치:
-
-```text
-Settings > Obst Terminal > Shift+Enter behavior
-```
-
-## 화면 색상과 스크롤
-
-기본 색상은 **Follow Obsidian**입니다. Obsidian의 라이트/다크 테마를 따르되, 터미널 ANSI 색상은 읽기 쉬운 팔레트로 보정합니다.
-
-스크롤 관련 동작:
-
-- 일반 출력은 50,000줄 scrollback을 유지합니다.
-- CLI가 마우스 입력을 잡고 있으면 `Shift + mouse wheel`로 터미널 scrollback을 강제 스크롤합니다.
-- Codex CLI는 기본적으로 `--no-alt-screen`으로 실행해 긴 대화가 fullscreen TUI buffer가 아니라 일반 터미널 scrollback에 남도록 합니다.
-- Codex CLI는 기본적으로 `-c tui.terminal_resize_reflow=false`로도 실행해 terminal redraw와 pane resize 뒤의 줄 덮어쓰기를 줄입니다.
-- 다른 fullscreen TUI에서는 일반 mouse wheel 입력을 `PageUp` / `PageDown`으로 변환해 CLI 내부 대화 화면을 스크롤합니다.
-- `Ctrl + Shift + PageUp/PageDown`으로 페이지 단위 이동을 할 수 있습니다.
-- fullscreen TUI 도구는 alternate screen buffer를 사용할 수 있습니다. 이 경우 오래된 출력은 일반 scrollback이 아니라 CLI 내부 화면에 있을 수 있습니다.
-
-Codex scrollback 자동 변환은 기본으로 켜져 있습니다. Codex fullscreen TUI buffer를 선호하면 아래 설정에서 끌 수 있습니다.
-
-```text
-Settings > Obst Terminal > Run Codex without alternate screen
-```
-
-Codex resize 렌더링 보정은 아래 설정에서 끌 수 있습니다.
-
-```text
-Settings > Obst Terminal > Stabilize Codex resize rendering
-```
-
-## SSL / 인증서 설정
-
-기본 설치 상태에서는 Node TLS 또는 인증서 동작을 바꾸지 않고, 인증서 파일을 포함하지 않습니다.
-
-TLS inspection proxy 또는 사용자 지정 CA가 필요한 네트워크에서 Claude Code 같은 Node 기반 CLI가 아래 오류를 내면 인증서 설정이 필요할 수 있습니다.
-
-```text
-Self-signed certificate detected
-Unable to connect to API
-```
-
-플러그인 설정:
-
-- **Use system certificate store**: Node의 system CA store 사용
-- **Extra CA certificate**: PEM 인증서 파일 경로. 비워두면 공통 PEM 파일을 자동으로 찾습니다.
-
-설정값이 비어 있으면 먼저 아래 공통 위치를 확인합니다.
-
-```text
-OBST_TERMINAL_EXTRA_CA_CERT
-VAULT_TERMINAL_EXTRA_CA_CERT
-C:\certs\extra-ca.pem
-C:\ProgramData\Obst Terminal\extra-ca.pem
-%USERPROFILE%\.obst-terminal\extra-ca.pem
-%USERPROFILE%\.vault-terminal\extra-ca.pem
-```
-
-공통 파일이 없으면 현재 플러그인 폴더 안의 파일을 확인합니다.
-
-```text
-certs/extra-ca.pem
-```
-
-Windows에서 루트 인증서를 내보내고 설정하려면 릴리스의 스크립트를 사용합니다.
+릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-.\configure-corporate-ca.ps1 -VaultPath "C:\path\to\vault" -Thumbprint "<root-ca-thumbprint>"
+git tag 0.6.13
+git push origin 0.6.13
 ```
 
-PEM 파일을 직접 받은 경우:
+릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.
 
-```powershell
-.\configure-corporate-ca.ps1 -VaultPath "C:\path\to\vault" -PemPath "C:\path\to\custom-ca.pem"
-```
+## 보안
 
-브라우저는 `.ps1`을 자동 실행하지 않습니다. PowerShell에서 직접 실행하거나, 같은 폴더에 있는 `configure-corporate-ca.cmd`를 실행합니다.
+Obst Terminal은 실제 로컬 shell과 별도 Node.js PTY host process를 실행합니다.
 
-## 배포 메모
+- 명령은 사용자의 OS 계정 권한으로 실행됩니다.
+- 실행한 CLI는 로컬 파일, 네트워크, 인증 정보에 접근할 수 있습니다.
+- Claude Code, Codex CLI, git, npm 등 외부 도구는 이 플러그인에 포함되지 않습니다.
+- native runtime은 전체 ZIP에 포함되거나 같은 버전 GitHub Release에서 SHA-256 검증 후 설치됩니다.
+- TLS/CA 환경변수는 사용자가 설정한 경우에만 주입합니다.
+- 자체 telemetry, analytics, 광고 코드는 없습니다.
 
-Obsidian Community Plugin 표준 설치는 보통 `manifest.json`, `main.js`, `styles.css`만 다룹니다. 이 플러그인은 실제 터미널을 위해 `pty-host.js`와 native `node-pty` 런타임도 필요합니다.
-
-따라서 릴리스에는 두 종류의 asset을 함께 올립니다.
-
-- 수동 설치용 전체 ZIP: 표준 플러그인 파일 + `pty-host.js` + native 런타임 포함
-- Community Plugin용 런타임 ZIP: 표준 플러그인 설치 후 플러그인이 직접 내려받아 설치
-
-런타임 설치/업데이트는 같은 버전의 GitHub Release에서만 받도록 제한하고, `runtime-manifest.json`의 크기와 SHA-256 값이 맞지 않으면 설치하지 않습니다. 런타임 파일은 이미 설치되어 있는데 `runtime.json` 버전만 오래된 경우에는 터미널 실행을 막지 않고 업데이트 가능 상태로만 처리합니다.
-
-## 보안과 권한
-
-Obst Terminal은 데스크톱 전용 플러그인이며, 실제 로컬 셸과 별도 Node.js PTY host 프로세스를 실행합니다.
-
-- 터미널에서 실행한 명령은 사용자 PC 권한으로 동작합니다.
-- 명령은 볼트 안팎의 로컬 파일, 네트워크, 인증 정보에 접근할 수 있습니다. 접근 범위는 실행한 CLI와 운영체제 권한을 따릅니다.
-- Claude Code, Codex CLI, git, npm 같은 외부 CLI는 별도로 설치해야 합니다.
-- native `node-pty` 런타임은 전체 ZIP에 포함되거나, Community Plugin 표준 설치 후 GitHub Release에서 내려받아 SHA-256 검증 후 설치됩니다.
-- TLS/CA 환경변수는 사용자가 설정에서 명시적으로 켠 경우에만 주입합니다.
-- 이 플러그인은 자체 telemetry, analytics, 광고 코드를 포함하지 않습니다.
+신뢰할 수 있는 release asset만 설치하세요.
 
 ## 라이선스
 

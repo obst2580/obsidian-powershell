@@ -917,6 +917,7 @@ class VaultPowerShellView extends ItemView {
   private codexModels: AgentModelInfo[] = [];
   private codexPendingAttachments: AgentAttachment[] = [];
   private codexAttachmentsEl: HTMLElement | null = null;
+  private agentAttachButton: HTMLButtonElement | null = null;
   private agentHost: ChildProcessWithoutNullStreams | null = null;
   private agentHostReady = false;
   private agentReadyForInput = false;
@@ -1034,6 +1035,7 @@ class VaultPowerShellView extends ItemView {
     this.agentPromptActionsEl = null;
     this.agentLoginButton = null;
     this.agentInputEl = null;
+    this.agentAttachButton = null;
     this.codexStatusLineEl = null;
     this.paneTabEls = { agent: null, terminal: null };
     this.agentProviderButtons = { claude: null, codex: null };
@@ -1264,23 +1266,13 @@ class VaultPowerShellView extends ItemView {
 
     const composerActions = composer.createDiv("vault-agent-composer-actions");
     const fileInput = composerActions.createEl("input", { cls: "vault-agent-file-input", attr: { type: "file", multiple: "true" } });
-    const attachButton = composerActions.createEl("button", { text: "Attach" });
+    const attachButton = composerActions.createEl("button", { cls: "vault-agent-attach-button", text: "Attach" });
+    this.agentAttachButton = attachButton;
     attachButton.addEventListener("click", () => fileInput.click());
     fileInput.addEventListener("change", () => {
-      for (const file of Array.from(fileInput.files ?? [])) {
-        // Electron exposes the absolute path on File; codex needs it for localImage/mention.
-        const path = (file as unknown as { path?: string }).path;
-        if (!path) {
-          continue;
-        }
-        this.codexPendingAttachments.push({
-          kind: file.type.startsWith("image/") ? "localImage" : "mention",
-          path,
-          name: file.name
-        });
-      }
+      const files = Array.from(fileInput.files ?? []);
       fileInput.value = "";
-      this.renderAttachmentChips();
+      void this.addAgentAttachments(files);
     });
     const noteButton = composerActions.createEl("button", { text: "Add current note" });
     noteButton.addEventListener("click", () => {
@@ -1815,15 +1807,81 @@ class VaultPowerShellView extends ItemView {
     });
   }
 
+  private async addAgentAttachments(files: File[]) {
+    if (files.length === 0) {
+      return;
+    }
+    let added = 0;
+    for (const file of files) {
+      try {
+        const attachment = await this.createAgentAttachment(file);
+        if (!attachment) {
+          continue;
+        }
+        this.codexPendingAttachments.push(attachment);
+        added += 1;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        new Notice(`첨부 실패: ${file.name || "file"} — ${message}`);
+      }
+    }
+    this.renderAttachmentChips();
+    if (added === 0) {
+      new Notice("첨부할 수 있는 파일 경로를 찾지 못했습니다.");
+    }
+  }
+
+  private async createAgentAttachment(file: File): Promise<AgentAttachment | null> {
+    const name = file.name || "attachment";
+    const localPath = getDataTransferFilePath(file);
+    if (localPath) {
+      return {
+        kind: isImageAttachmentFile(file) ? "localImage" : "mention",
+        path: localPath,
+        name
+      };
+    }
+
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const vaultPath = await this.plugin.saveAttachmentBytes(bytes, getGeneralFileExtension(file), sanitizeFileStem(name));
+    const absolutePath = this.plugin.getVaultPath()
+      ? join(this.plugin.getVaultPath()!, ...vaultPath.split("/"))
+      : vaultPath;
+    return {
+      kind: isImageAttachmentFile(file) ? "localImage" : "mention",
+      path: absolutePath,
+      name
+    };
+  }
+
   private renderAttachmentChips() {
     if (!this.codexAttachmentsEl) {
       return;
     }
     this.codexAttachmentsEl.empty();
-    this.codexAttachmentsEl.toggleClass("is-hidden", this.codexPendingAttachments.length === 0);
+    const count = this.codexPendingAttachments.length;
+    this.codexAttachmentsEl.toggleClass("is-hidden", count === 0);
+    if (this.agentAttachButton) {
+      this.agentAttachButton.setText(count > 0 ? `Attach (${count})` : "Attach");
+      this.agentAttachButton.toggleClass("has-attachments", count > 0);
+      this.agentAttachButton.setAttr("title", count > 0 ? `${count} file(s) attached` : "Attach files");
+    }
+    if (count === 0) {
+      return;
+    }
+    this.codexAttachmentsEl.createDiv({
+      cls: "vault-agent-attachments-label",
+      text: `첨부됨 ${count}개`
+    });
     this.codexPendingAttachments.forEach((attachment, index) => {
       const chip = this.codexAttachmentsEl!.createDiv("vault-agent-attachment-chip");
+      chip.toggleClass("is-image", attachment.kind === "localImage");
+      chip.createSpan({
+        cls: "vault-agent-attachment-kind",
+        text: attachment.kind === "localImage" ? "IMG" : "FILE"
+      });
       chip.createSpan({ text: attachment.name ?? attachment.path });
+      chip.setAttr("title", attachment.path);
       const remove = chip.createEl("button", { text: "×" });
       remove.addEventListener("click", () => {
         this.codexPendingAttachments.splice(index, 1);
@@ -2124,12 +2182,12 @@ class VaultPowerShellView extends ItemView {
     }
 
     const text = inputEl.value.trim();
-    if (!text && !this.agentPromptState?.allowEmptySubmit) {
+    const attachments = this.codexPendingAttachments.slice();
+    if (!text && attachments.length === 0 && !this.agentPromptState?.allowEmptySubmit) {
       return;
     }
 
     if (this.agentBackend) {
-      const attachments = this.codexPendingAttachments.slice();
       if (!text && attachments.length === 0) {
         return;
       }
@@ -2181,21 +2239,24 @@ class VaultPowerShellView extends ItemView {
       return;
     }
 
+    const textWithAttachments = appendAgentAttachmentPrompt(text, attachments);
     const useClaudePrintMode = this.agentProvider === "claude" &&
-      !!text &&
+      !!textWithAttachments &&
       !text.startsWith("/") &&
       (!this.agentPromptState || promptMode === "text");
 
     inputEl.value = "";
-    const visibleText = text || "[Enter]";
+    this.codexPendingAttachments = [];
+    this.renderAttachmentChips();
+    const visibleText = text || (attachments.length ? "(attachments)" : "[Enter]");
     this.agentCurrentTurnStartedAt = Date.now();
     this.appendAgentTranscript({
       id: this.nextLocalAgentEntryId("user"),
       role: "user",
-      text: visibleText
+      text: visibleText + (attachments.length ? `\n\n[${attachments.length} file(s) attached]` : "")
     });
     if (useClaudePrintMode) {
-      await this.sendClaudePrintTurn(text);
+      await this.sendClaudePrintTurn(textWithAttachments);
       return;
     }
 
@@ -2203,7 +2264,7 @@ class VaultPowerShellView extends ItemView {
       this.clearAgentPromptState();
       this.sendAgentHostMessage({ type: "data", data: ESCAPE_SEQUENCE });
       window.setTimeout(() => {
-        this.sendAgentHostMessage({ type: "data", data: `${formatTerminalPasteData(text)}\r` });
+        this.sendAgentHostMessage({ type: "data", data: `${formatTerminalPasteData(textWithAttachments)}\r` });
       }, 100);
       this.setAgentStatus("Waiting for response...");
       return;
@@ -2211,7 +2272,7 @@ class VaultPowerShellView extends ItemView {
 
     const data = this.agentPromptState && !(promptMode === "mcp" && !text.startsWith("/"))
       ? formatAgentInteractiveInput(text)
-      : `${formatTerminalPasteData(text)}\r`;
+      : `${formatTerminalPasteData(textWithAttachments)}\r`;
     this.clearAgentPromptState();
     this.sendAgentHostMessage({ type: "data", data });
     this.setAgentStatus("Waiting for response...");
@@ -4728,6 +4789,29 @@ function getExtensionFromFile(file: File): string {
   }
 
   return "png";
+}
+
+function getGeneralFileExtension(file: File): string {
+  const nameExtension = file.name.match(/\.([a-zA-Z0-9]+)$/)?.[1];
+  if (nameExtension) {
+    return sanitizeExtension(nameExtension);
+  }
+  return file.type.startsWith("image/") ? getExtensionFromFile(file) : "bin";
+}
+
+function isImageAttachmentFile(file: File): boolean {
+  return file.type.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(file.name);
+}
+
+function appendAgentAttachmentPrompt(text: string, attachments: AgentAttachment[]): string {
+  if (attachments.length === 0) {
+    return text;
+  }
+  const attachmentText = attachments
+    .map((attachment) => `- ${attachment.name ?? "attachment"}: ${attachment.path}`)
+    .join("\n");
+  const prefix = text.trim() ? `${text.trim()}\n\n` : "";
+  return `${prefix}첨부 파일:\n${attachmentText}`;
 }
 
 function formatVaultFileReference(path: string): string {

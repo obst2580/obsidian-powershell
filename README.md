@@ -1,72 +1,73 @@
 # Obst Terminal
 
-Run vault-rooted AI agent CLIs from Obsidian's right sidebar, with an Agent Console for Claude Code and Codex CLI plus a raw terminal fallback.
-
-Obst Terminal turns your Obsidian vault into an agent workspace: keep notes, plans, specs, and handoff documents open in the main editor while an AI coding agent runs in the right sidebar against the same vault folder.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **Agent Console + raw terminal** in the right sidebar. This branch currently reports version `0.6.13`.
 
 [한국어 README](README.ko.md)
 
-> Status: early desktop beta. Windows and macOS release packages are available. Linux can be built from source.
-
-> Obsidian Community Plugin Directory registration is currently under review. Until it is approved, install from the GitHub Release ZIP or use BRAT.
+> Desktop only. Claude Code, Codex CLI, Node.js, Git, npm, and other external tools are not bundled. Install them on your machine and make sure they work from a normal terminal.
 
 ![Obst Terminal agent console in Obsidian's right sidebar](docs/images/obst-terminal-agent-console.png)
 
-## What It Does
+## Current Behavior
 
-Obst Terminal is designed for workflows where Obsidian holds project notes, indexes, plans, and handoff documents while local CLI tools work against the same folder.
+The default pane is **Agent Console**. The toolbar lets you choose `Claude` or `Codex`, and the active provider is shown as `현재 Claude Code` or `현재 Codex`. Claude and Codex keep separate transcripts when you switch providers.
 
-The default pane is **Agent Console**. It starts the official interactive Claude Code or Codex CLI in the current vault path, so existing subscription login is preserved. The transcript pane reads local session logs and renders append-only messages instead of relying on fragile Windows TUI rendering. A **Raw terminal** tab is still available for login, permission prompts, shell commands, and fallback troubleshooting.
+### Codex
 
-The agent and terminal start in the current vault path, so local CLIs can read the same `AGENTS.md`, `CLAUDE.md`, notes, specs, and project files that you are looking at in Obsidian. This makes it practical to manage a project from Obsidian while Claude Code, Codex CLI, or another local agent works from the same folder.
+The Codex Agent Console uses `codex app-server` by default instead of embedding the fullscreen Codex TUI.
 
-Typical workflow:
+- Talks to `codex app-server` over JSON-RPC.
+- Checks ChatGPT login state and can start browser or device-code login.
+- Shows model, reasoning effort, and access-level controls inside the composer.
+- Renders user turns, reasoning, command execution, file changes, and approval requests as structured transcript cards.
+- Turns the `Send` button into `Stop` while a turn is active.
+- Queues additional messages while Codex is still answering.
+- Shows a statusline with cwd, git branch, selected model, context usage, and 5h/7d rate-limit meters.
+- Buffers streaming deltas before rendering so Obsidian stays responsive during long answers.
 
-1. Keep the project brief, TODO, or active note open in Obsidian.
-2. Open Obst Terminal in the right sidebar.
-3. Start Claude Code or Codex CLI in Agent Console, or run `git`, `npm`, `python`, PowerShell, zsh, bash, or other shell commands in Raw terminal.
-4. Drop files or paste screenshots into the terminal to insert agent-friendly `@path` references.
-5. Let the agent work while your notes remain visible.
+If the Agent Console falls back to the PTY path, or if you run `codex` manually in the raw terminal, the Codex scrollback settings such as `--no-alt-screen`, `tui.terminal_resize_reflow=false`, and scrollback preservation may apply.
 
-Obst Terminal does not bundle an AI agent. It gives Obsidian a local agent console and terminal surface so the agent tools you already use can operate from the vault.
+### Claude Code
 
-## Features
+The Claude Code Agent Console separates normal chat turns from login/control prompts.
 
-- Opens automatically in Obsidian's right sidebar.
-- Uses the current vault path as the agent and terminal working directory.
-- Adds an Agent Console for interactive Claude Code and Codex CLI subscription workflows.
-- Keeps the raw xterm/node-pty terminal as a fallback for shell commands, login, and permissions.
-- Works with local CLI tools such as Claude Code, Codex CLI, Git, Python, and npm.
-- Keeps AI agent work next to the notes, specs, and project context that guide it.
-- Supports terminal text selection and copy.
-- Inserts file references when files are dropped onto the terminal.
-- Saves clipboard images into the vault and inserts an `@path` reference for agent CLIs.
-- Uses Obsidian-aware light/dark terminal colors while keeping ANSI output readable.
-- Keeps a long scrollback buffer and supports forced scrolling with `Shift + mouse wheel`.
-- Supports `Shift + Enter` multiline input modes, including Claude Code's backslash newline flow.
-- Accepts Claude Code `Try "..."` suggestions with Enter when they are shown in the terminal input area.
-- Runs Codex CLI with `--no-alt-screen` by default so long conversations stay in normal terminal scrollback.
-- Also runs Codex CLI with `tui.terminal_resize_reflow=false` by default to reduce stale text after redraws and pane resizes.
-- Provides optional TLS / custom CA settings for networks that require a custom certificate.
-- Supports Community Plugin style installs by downloading a verified OS-specific native runtime package on first launch.
+- Checks login with `claude auth status --json`.
+- Sends normal prompts through `claude --continue --strict-mcp-config --permission-mode bypassPermissions --output-format text -p`.
+- Passes the prompt through stdin and waits up to 10 minutes for the response.
+- Uses the background PTY host for `/login`, MCP connection prompts, permission prompts, and command-style control input.
+- Uses Claude session logs to track control flow and keep transcript offsets aligned.
+
+### Raw Terminal
+
+The raw terminal is a real xterm.js + node-pty terminal.
+
+- Windows: PowerShell 7 when available, otherwise Windows PowerShell.
+- macOS: `$SHELL`, then `zsh`, then `bash`.
+- Linux: `$SHELL`, then `bash`, then `sh`.
+- Runs normal CLI commands such as `git`, `npm`, `python`, `claude`, and `codex`.
+- Best used for login fallback, troubleshooting, and long shell commands.
 
 ## Requirements
 
 - Obsidian Desktop.
-- Node.js installed system-wide and visible from a normal terminal.
-- Any CLI tool you want to run, such as `claude`, `codex`, `git`, or `npm`, must be installed separately.
+- Node.js installed system-wide.
+- Any CLI you want to use, such as `claude`, `codex`, `git`, `npm`, or `python`.
 
-VS Code extensions that bundle their own Node.js or CLI runtime are not enough. Obsidian starts Obst Terminal from the normal desktop environment, so `node --version`, `claude`, or `codex` must work from PowerShell, Terminal, zsh, or bash.
+CLI runtimes bundled inside editor extensions are not enough. Obsidian starts this plugin from the normal desktop environment, so these commands should work from PowerShell, Terminal, zsh, or bash:
+
+```text
+node --version
+claude --version
+codex --version
+```
 
 ## Installation
 
 ### GitHub Release ZIP
 
-Download the OS-specific package from the latest release:
+Download the full ZIP for your OS and CPU architecture:
 
 [https://github.com/obst2580/obsidian-powershell/releases](https://github.com/obst2580/obsidian-powershell/releases)
-
-Use the package that matches your machine:
 
 | File | Target |
 | --- | --- |
@@ -74,15 +75,15 @@ Use the package that matches your machine:
 | `ObstTerminal-<version>-macos-x64.zip` | macOS Intel |
 | `ObstTerminal-<version>-macos-arm64.zip` | macOS Apple Silicon |
 
-Extract the ZIP into this folder inside your vault:
+Extract it into your vault:
 
 ```text
 <vault>/.obsidian/plugins/vault-terminal/
 ```
 
-The display name is Obst Terminal, but the plugin ID and install folder remain `vault-terminal` for compatibility with existing releases and Obsidian Community Plugin registration.
+The display name is `Obst Terminal`, but the plugin ID and folder remain `vault-terminal` for compatibility.
 
-After extraction, the plugin folder should contain:
+A full ZIP install should contain:
 
 ```text
 manifest.json
@@ -93,36 +94,15 @@ node_modules/
 runtime.json
 ```
 
-Restart Obsidian, then enable the plugin:
+Restart Obsidian and enable the plugin:
 
 ```text
 Settings > Community plugins > Obst Terminal > Enable
 ```
 
-### Community Plugin / BRAT
+### BRAT / Community Plugin Style
 
-After Community Plugin Directory approval, Obst Terminal can be installed from Obsidian's plugin browser. Before approval, BRAT can install the standard plugin files from this repository.
-
-For team beta distribution before Community Plugin approval:
-
-1. Install the BRAT community plugin in Obsidian.
-2. Open **Settings > BRAT > Beta plugin list**.
-3. Add this repository:
-
-```text
-https://github.com/obst2580/obsidian-powershell
-```
-
-4. Enable BRAT's startup update check, or run **BRAT: Check for updates to all beta plugins and UPDATE** from the command palette.
-5. Enable **Obst Terminal** in **Settings > Community plugins**.
-
-When a new GitHub Release is published, BRAT updates the standard plugin files. Obst Terminal then installs or updates the matching native runtime from the same release. Runtime auto-install is enabled by default for new installs and can be changed here:
-
-```text
-Settings > Obst Terminal > Install runtime automatically
-```
-
-Community Plugin style installs only install these standard files first:
+BRAT and Community Plugin style installs may initially install only the standard plugin files:
 
 ```text
 manifest.json
@@ -130,158 +110,92 @@ main.js
 styles.css
 ```
 
-Obst Terminal also needs a native `node-pty` runtime. The plugin can download the verified OS-specific runtime ZIP from the matching GitHub Release when the runtime is missing or out of date. Use **Update runtime files** from Obsidian's command palette, or use the runtime button in settings. If the runtime is missing, the Obst Terminal tab shows a **Runtime installation required** prompt with a manual **Install runtime** button.
+Obst Terminal also needs a native `node-pty` runtime. If the runtime is missing or out of date, the plugin reads `runtime-manifest.json` from the matching GitHub Release, downloads the OS-specific runtime ZIP, verifies size and SHA-256, and extracts it into the plugin folder.
 
-The runtime installer:
-
-- Downloads `runtime-manifest.json` from the matching release version.
-- Selects the runtime ZIP for your OS and CPU architecture.
-- Verifies file size and SHA-256 before extraction.
-- Extracts only inside the plugin folder.
-- Repairs executable permissions for the macOS/Linux `spawn-helper` file after extraction.
-- Writes `runtime.json` so stale runtime versions can be refreshed later without blocking an otherwise usable installed runtime.
-
-Run the runtime installer or optionally enable automatic runtime installation from:
+Runtime commands and settings:
 
 ```text
+Command palette > Update runtime files
 Settings > Obst Terminal > Runtime files > Install runtime
 Settings > Obst Terminal > Install runtime automatically
 ```
 
-## Release Assets
-
-Each release includes both manual install packages and Community Plugin runtime assets:
-
-| File | Purpose |
-| --- | --- |
-| `manifest.json`, `main.js`, `styles.css` | Standard Obsidian plugin files |
-| `runtime-manifest.json` | Runtime ZIP metadata and SHA-256 checksums |
-| `ObstTerminal-<version>-<platform>-<arch>.zip` | Full manual install package |
-| `ObstTerminal-runtime-<version>-<platform>-<arch>.zip` | Native runtime package used by the in-app installer |
-| `configure-corporate-ca.ps1`, `configure-corporate-ca.cmd` | Optional Windows helper scripts for custom CA setup |
-
-## Shell Behavior
-
-Default shell selection:
-
-- Windows: PowerShell 7 if available, otherwise Windows PowerShell.
-- macOS: `$SHELL`, then `zsh` or `bash`; Homebrew `pwsh` is used only as a fallback.
-- Linux: `$SHELL`, then `bash` or `sh`; `pwsh` is used only as a fallback.
-
-You can override the shell in:
+For BRAT testing, add this repository:
 
 ```text
-Settings > Obst Terminal > Shell executable
+https://github.com/obst2580/obsidian-powershell
 ```
 
-If a synced vault carries a shell path from another OS, Obst Terminal ignores obvious incompatible paths and falls back to the local system shell. On macOS, set this to `/bin/zsh` if you need to force the native default shell.
+## Using Agent Console
 
-If Node.js is installed in a non-standard location, set:
+1. Open the project vault in Obsidian.
+2. Run `Open terminal` from the command palette or open the Obst Terminal right-sidebar tab.
+3. Choose `Claude` or `Codex`.
+4. Press `Start`.
+5. Use `Login` if the selected provider needs authentication.
+6. Type a message and press `Send`.
 
-```text
-Settings > Obst Terminal > Node executable
-```
+When Codex is answering, `Send` acts as `Stop`. Additional messages are queued until the active turn finishes.
 
-## File and image references
+## Attachments
 
-Obst Terminal can bridge Obsidian and agent CLI attachment workflows:
+Use the composer `Attach` button to attach files.
 
-- Drop files onto the terminal to insert references.
-- Files inside the current vault are inserted as `@relative/path`.
-- Files outside the vault are inserted as quoted absolute paths.
-- Copy an image or screenshot, then press `Ctrl+V` in the terminal. Obst Terminal saves it into the vault and inserts an `@path` reference.
-- Use the command palette action **Insert current note reference** to insert the active note as `@note.md`.
+- The button changes to `Attach (N)` after files are selected.
+- An attachment strip appears under the input.
+- The strip shows `첨부됨 N개`.
+- Each attachment is shown as an `IMG` or `FILE` chip.
+- Use the chip `x` button to remove one attachment.
+- You can send attachments without text.
 
-Clipboard images are saved to:
+On the Codex app-server path, images are sent as `localImage` inputs and other files as `mention` inputs. On the Claude path, attachments are appended to the prompt as an `첨부 파일:` list.
+
+Pasting an image in Agent Console adds it as an attachment chip. Pasting an image in the raw terminal saves it into the vault attachment folder and inserts an `@path` reference.
+
+Default attachment folder:
 
 ```text
 Obst Terminal Attachments/
 ```
 
-You can change that folder here:
+Setting:
 
 ```text
 Settings > Obst Terminal > Attachment folder
 ```
 
-## Windows PTY backend
-
-The default Windows PTY backend is `ConPTY`.
-
-ConPTY generally handles fullscreen TUI rendering and resize behavior better on modern Windows. `winpty` remains available as a fallback if a CLI has input compatibility issues.
-
-You can switch the backend here:
+The current note can be inserted from the command palette:
 
 ```text
-Settings > Obst Terminal > Windows PTY backend
+Command palette > Insert current note reference
 ```
 
-Open a new Obst Terminal tab after changing this setting.
+## Settings
 
-## Shift + Enter
+| Setting | Behavior |
+| --- | --- |
+| `Shell executable` | Override the shell used by the raw terminal. |
+| `Node executable` | Point to Node.js when it is not on PATH. |
+| `Windows PTY backend` | Choose `ConPTY` or `winpty` on Windows. |
+| `Terminal color scheme` | Follow Obsidian or force light/dark terminal colors. |
+| `Shift+Enter behavior` | Choose multiline behavior, including Claude backslash newline. |
+| `Run Codex without alternate screen` | Adds `--no-alt-screen` on the Codex PTY path. |
+| `Stabilize Codex resize rendering` | Adds `tui.terminal_resize_reflow=false` on the Codex PTY path. |
+| `Preserve Codex scrollback` | Removes Codex redraw escapes that clear scrollback. |
+| `Install runtime automatically` | Allows automatic native runtime installation. |
+| `Use system certificate store` | Injects Node system CA behavior for Node-based CLIs. |
+| `Extra CA certificate` | Provides a custom PEM certificate path. |
 
-The default `Shift + Enter` behavior is **Claude backslash newline**.
+## TLS / Custom CA
 
-Claude Code treats a trailing `\` followed by Return as a multiline newline. Obst Terminal sends that sequence after a short delay so IME composition can finish before the newline is sent.
-
-Other modes are also available:
-
-- `Claude backslash newline`
-- `Bracketed newline paste`
-- `xterm paste newline`
-- `Modified Enter`
-- `CSI-u Shift Enter`
-- `Line feed`
-
-Setting:
+By default, Obst Terminal does not change Node TLS behavior. If a corporate proxy or private CA causes certificate errors in Node-based CLIs such as Claude Code, use:
 
 ```text
-Settings > Obst Terminal > Shift+Enter behavior
+Settings > Obst Terminal > Use system certificate store
+Settings > Obst Terminal > Extra CA certificate
 ```
 
-## Colors and scrolling
-
-The default color mode is **Follow Obsidian**. It follows the current Obsidian light/dark theme while using a readable ANSI palette for terminal tools.
-
-Scrolling behavior:
-
-- Normal terminal output keeps a 50,000-line scrollback buffer.
-- Use `Shift + mouse wheel` when an interactive CLI captures mouse input.
-- Codex CLI is run with `--no-alt-screen` by default so long conversations stay in normal terminal scrollback instead of being redrawn in the fullscreen TUI buffer.
-- Codex CLI is also run with `-c tui.terminal_resize_reflow=false` by default to reduce overwritten lines after terminal redraws and pane resizes.
-- In other fullscreen TUI tools, normal mouse wheel input is translated to `PageUp` / `PageDown` so the CLI can scroll its own transcript.
-- Use `Ctrl + Shift + PageUp/PageDown` for forced page scrolling.
-- Fullscreen TUI tools may use the alternate screen buffer. In that mode, older output belongs to the CLI's own screen state rather than normal terminal scrollback.
-
-You can disable the Codex scrollback rewrite here if you prefer Codex's fullscreen TUI buffer:
-
-```text
-Settings > Obst Terminal > Run Codex without alternate screen
-```
-
-You can disable the Codex resize rendering fix here:
-
-```text
-Settings > Obst Terminal > Stabilize Codex resize rendering
-```
-
-## TLS / custom certificates
-
-By default, Obst Terminal does not change Node TLS behavior and does not include certificate files.
-
-If a Node-based CLI such as Claude Code shows an error like this:
-
-```text
-Self-signed certificate detected
-Unable to connect to API
-```
-
-try the settings below:
-
-- **Use system certificate store**: enables Node's system CA store.
-- **Extra CA certificate**: path to a PEM certificate file. Leave empty to auto-detect a shared PEM file.
-
-When the setting is empty, Obst Terminal checks these shared locations first:
+When `Extra CA certificate` is empty, the plugin checks these shared locations:
 
 ```text
 OBST_TERMINAL_EXTRA_CA_CERT
@@ -290,27 +204,15 @@ C:\certs\extra-ca.pem
 C:\ProgramData\Obst Terminal\extra-ca.pem
 %USERPROFILE%\.obst-terminal\extra-ca.pem
 %USERPROFILE%\.vault-terminal\extra-ca.pem
-```
-
-If no shared file exists, it checks the current plugin folder:
-
-```text
 certs/extra-ca.pem
 ```
 
-Windows helper scripts are included in each release:
+Windows release packages include helper scripts:
 
 ```powershell
 .\configure-corporate-ca.ps1 -VaultPath "C:\path\to\vault" -Thumbprint "<root-ca-thumbprint>"
-```
-
-If you already have a PEM file:
-
-```powershell
 .\configure-corporate-ca.ps1 -VaultPath "C:\path\to\vault" -PemPath "C:\path\to\custom-ca.pem"
 ```
-
-Browsers do not run `.ps1` files automatically. Run the script from PowerShell, or run `configure-corporate-ca.cmd` from the same folder.
 
 ## Development
 
@@ -339,38 +241,29 @@ Create a local Windows release package:
 pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 -OutputDir dist
 ```
 
-## Release process
+## Release
 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
-For example, if `manifest.json` says `0.4.1`, use:
-
 ```powershell
-git tag 0.4.1
-git push origin 0.4.1
+git tag 0.6.13
+git push origin 0.6.13
 ```
 
-The release workflow:
-
-- Runs `npm ci`.
-- Runs `npm run build`.
-- Builds Windows and macOS full ZIP packages.
-- Builds Windows and macOS runtime-only ZIP packages.
-- Builds `runtime-manifest.json`.
-- Publishes standard plugin files and ZIP assets to GitHub Releases.
+The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.
 
 ## Security
 
-Obst Terminal is a desktop-only plugin that starts a real local shell and a separate Node.js PTY host process.
+Obst Terminal starts a real local shell and a separate Node.js PTY host process.
 
-- Commands run with your local user permissions.
-- Commands can access local files, network resources, and credentials according to your OS permissions and the CLI you run.
+- Commands run with your local OS user permissions.
+- Commands can access local files, network resources, and credentials according to the CLI and OS permissions.
 - Claude Code, Codex CLI, git, npm, and other external tools are not bundled.
-- Native `node-pty` runtime files are either included in the full ZIP or downloaded from the matching GitHub Release and verified with SHA-256.
-- TLS / CA environment variables are only injected when explicitly enabled in settings.
-- Obst Terminal does not include telemetry, analytics, or advertising code.
+- Native runtime files are included in full ZIPs or downloaded from the matching GitHub Release and verified with SHA-256.
+- TLS / CA environment variables are injected only when enabled in settings.
+- The plugin does not include telemetry, analytics, or advertising code.
 
-Only install releases from a source you trust.
+Only install release assets from sources you trust.
 
 ## License
 
