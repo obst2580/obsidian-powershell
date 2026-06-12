@@ -35,8 +35,12 @@ export function mapCodexNotification(method: string, params: unknown): AgentUiEv
     }
 
     case "thread/tokenUsage/updated": {
-      const usage = p.tokenUsage as { total?: { totalTokens?: number }; modelContextWindow?: number | null } | undefined;
-      const used = usage?.total?.totalTokens;
+      const usage = p.tokenUsage as { last?: { totalTokens?: number }; modelContextWindow?: number | null } | undefined;
+      // `total` is cumulative for the thread. Using it as a context-window meter
+      // makes resumed/long-lived threads hit 100% almost immediately. `last`
+      // tracks the latest request footprint, which is the closest app-server
+      // notification value to the Codex statusline context-window percentage.
+      const used = usage?.last?.totalTokens;
       const contextWindow = usage?.modelContextWindow;
       if (typeof used !== "number" || typeof contextWindow !== "number" || contextWindow <= 0) {
         return { type: "usage-update", contextPercent: null };
