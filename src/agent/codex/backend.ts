@@ -23,6 +23,7 @@ import { CodexProcess } from "./process";
 import { mapCodexNotification } from "./events";
 import type { InitializeResponse } from "./protocol/InitializeResponse";
 import type { GetAccountResponse } from "./protocol/v2/GetAccountResponse";
+import type { GetAccountRateLimitsResponse } from "./protocol/v2/GetAccountRateLimitsResponse";
 import type { LoginAccountResponse } from "./protocol/v2/LoginAccountResponse";
 
 export interface CodexBackendDeps {
@@ -308,9 +309,26 @@ export class CodexAppServerBackend implements AgentBackend {
       const plan = account.planType ? ` (${account.planType})` : "";
       const label = account.email ? `${account.email}${plan}` : "signed in";
       this.emit({ type: "status", state: "ready", detail: label });
+      void this.refreshRateLimits();
     } else {
       this.emit({ type: "status", state: "login-required" });
       this.emit({ type: "auth-required", methods: ["chatgpt", "chatgpt-device-code"] });
+    }
+  }
+
+  private async refreshRateLimits(): Promise<void> {
+    if (!this.proc) {
+      return;
+    }
+    try {
+      const res = await this.proc.rpc.request<GetAccountRateLimitsResponse>("account/rateLimits/read");
+      const snapshot = res.rateLimitsByLimitId?.codex ?? res.rateLimits;
+      const event = mapCodexNotification("account/rateLimits/updated", { rateLimits: snapshot });
+      if (event) {
+        this.emit(event);
+      }
+    } catch {
+      // Rate-limit data is optional UI metadata; absence should not block chat.
     }
   }
 

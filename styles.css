@@ -247,47 +247,85 @@
   margin-bottom: 0;
 }
 
-/* === Context usage bar (sits just above the composer input) === */
-.vault-agent-context {
+/* === Codex statusline: cwd/git, model, context, and rate-limit meters === */
+.vault-agent-statusline {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px 10px;
+  flex-wrap: wrap;
   padding: 0 0 8px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
 }
 
-.vault-agent-context.is-hidden {
+.vault-agent-statusline.is-hidden {
   display: none;
 }
 
-.vault-agent-context-bar {
-  flex: 1;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--background-modifier-border);
+.vault-agent-statusline-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.vault-agent-statusline-path {
+  flex: 1 1 160px;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.vault-agent-context-fill {
-  height: 100%;
+.vault-agent-statusline-model {
+  color: var(--text-normal);
+  font-weight: 600;
+}
+
+.vault-agent-statusline-meter {
+  color: var(--text-muted);
+}
+
+.vault-agent-statusline-label {
+  color: var(--text-faint);
+}
+
+.vault-agent-statusline-bar {
+  width: 44px;
+  height: 4px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--background-modifier-border);
+}
+
+.vault-agent-statusline-fill {
   width: 0;
-  background: var(--interactive-accent);
-  border-radius: 2px;
-  transition: width 0.4s ease, background 0.3s ease;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--text-muted);
+  transition: width 0.35s ease, background 0.2s ease;
 }
 
-.vault-agent-context.is-mid .vault-agent-context-fill {
+.vault-agent-statusline-meter.is-low .vault-agent-statusline-fill {
+  background: var(--color-green, #3f9f5f);
+}
+
+.vault-agent-statusline-meter.is-mid .vault-agent-statusline-fill {
   background: var(--color-orange, #d98c30);
 }
 
-.vault-agent-context.is-high .vault-agent-context-fill {
+.vault-agent-statusline-meter.is-high .vault-agent-statusline-fill {
   background: var(--color-red, #d64545);
 }
 
-.vault-agent-context-label {
-  font-size: var(--font-ui-smaller);
-  color: var(--text-muted);
-  white-space: nowrap;
+.vault-agent-statusline-value {
+  color: var(--text-normal);
   font-variant-numeric: tabular-nums;
+}
+
+.vault-agent-statusline-reset {
+  color: var(--text-faint);
 }
 
 /* === In-chat "thinking" indicator, pinned to the active answer === */
@@ -461,6 +499,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  flex-wrap: wrap;
   padding: 8px 12px;
   border-bottom: 1px solid var(--background-modifier-border);
 }
@@ -506,6 +545,46 @@
   background: var(--background-modifier-hover);
 }
 
+.vault-agent-current-provider {
+  flex: 1 1 150px;
+  min-width: 0;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-weight: 700;
+}
+
+.vault-agent-current-provider .svg-icon {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+}
+
+.vault-agent-current-provider.is-claude {
+  color: #d97757;
+  border-color: rgba(217, 119, 87, 0.45);
+}
+
+.vault-agent-current-provider.is-codex {
+  color: #10a37f;
+  border-color: rgba(16, 163, 127, 0.45);
+}
+
+.vault-agent-current-provider-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .vault-agent-action {
   display: inline-flex;
   align-items: center;
@@ -532,6 +611,14 @@
 .vault-agent-action-stop:hover {
   color: var(--text-error, #e5534b);
   border-color: currentColor;
+}
+
+@media (max-width: 520px) {
+  .vault-agent-current-provider {
+    order: 3;
+    flex-basis: 100%;
+    justify-content: flex-start;
+  }
 }
 
 .vault-agent-transcript.is-hidden {

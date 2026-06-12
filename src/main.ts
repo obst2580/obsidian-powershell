@@ -25,7 +25,7 @@ import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, re
 import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
 import { tmpdir } from "os";
 import { CodexAppServerBackend } from "./agent/codex/backend";
-import type { AgentAccessLevel, AgentAttachment, AgentBackend, AgentModelInfo, AgentStatus, AgentUiEvent, ApprovalRequest, TranscriptItem, TranscriptItemKind } from "./agent/types";
+import type { AgentAccessLevel, AgentAttachment, AgentBackend, AgentModelInfo, AgentStatus, AgentUiEvent, AgentUsageWindow, ApprovalRequest, TranscriptItem, TranscriptItemKind } from "./agent/types";
 
 const VIEW_TYPE_POWERSHELL = "vault-powershell";
 const GITHUB_REPOSITORY = "obst2580/obsidian-powershell";
@@ -902,9 +902,10 @@ class VaultPowerShellView extends ItemView {
   private codexTurnActive = false;
   private codexQueuedInputs: { text: string; attachments: AgentAttachment[] }[] = [];
   private agentSendButton: HTMLButtonElement | null = null;
-  private codexContextEl: HTMLElement | null = null;
-  private codexContextFillEl: HTMLElement | null = null;
-  private codexContextLabelEl: HTMLElement | null = null;
+  private codexStatusLineEl: HTMLElement | null = null;
+  private codexContextPercent: number | null = null;
+  private codexRateLimitWindows: AgentUsageWindow[] = [];
+  private codexGitBranch: string | null | undefined = undefined;
   private codexOptionsRow: HTMLElement | null = null;
   private codexModelSelect: HTMLSelectElement | null = null;
   private codexEffortSelect: HTMLSelectElement | null = null;
@@ -926,6 +927,7 @@ class VaultPowerShellView extends ItemView {
   private agentLoginButton: HTMLButtonElement | null = null;
   private agentInputEl: HTMLTextAreaElement | null = null;
   private agentProviderButtons: Record<AgentProvider, HTMLElement | null> = { claude: null, codex: null };
+  private agentProviderIndicatorEl: HTMLElement | null = null;
   private agentSessionPollTimer: number | null = null;
   private agentReadyTimer: number | null = null;
   private agentOutputIdleTimer: number | null = null;
@@ -1028,8 +1030,10 @@ class VaultPowerShellView extends ItemView {
     this.agentPromptActionsEl = null;
     this.agentLoginButton = null;
     this.agentInputEl = null;
+    this.codexStatusLineEl = null;
     this.paneTabEls = { agent: null, terminal: null };
     this.agentProviderButtons = { claude: null, codex: null };
+    this.agentProviderIndicatorEl = null;
     return Promise.resolve();
   }
 
@@ -1143,6 +1147,10 @@ class VaultPowerShellView extends ItemView {
     const providerGroup = toolbar.createDiv("vault-agent-provider-group");
     this.agentProviderButtons.claude = this.createAgentProviderButton(providerGroup, "Claude", "claude", CLAUDE_ICON_PATH);
     this.agentProviderButtons.codex = this.createAgentProviderButton(providerGroup, "Codex", "codex", CODEX_ICON_PATH);
+    this.agentProviderIndicatorEl = toolbar.createDiv({
+      cls: "vault-agent-current-provider",
+      attr: { "aria-live": "polite" }
+    });
     this.refreshAgentProviderButtons();
 
     const actions = toolbar.createDiv("vault-agent-actions");
@@ -1211,10 +1219,8 @@ class VaultPowerShellView extends ItemView {
     });
 
     const composer = container.createDiv("vault-agent-composer");
-    this.codexContextEl = composer.createDiv("vault-agent-context is-hidden");
-    const contextBar = this.codexContextEl.createDiv("vault-agent-context-bar");
-    this.codexContextFillEl = contextBar.createDiv("vault-agent-context-fill");
-    this.codexContextLabelEl = this.codexContextEl.createSpan({ cls: "vault-agent-context-label" });
+    this.codexStatusLineEl = composer.createDiv("vault-agent-statusline is-hidden");
+    this.refreshCodexStatusLine();
     this.agentPromptActionsEl = composer.createDiv("vault-agent-prompt-actions");
     this.refreshAgentPromptActions();
     this.agentInputEl = composer.createEl("textarea", {
@@ -1233,6 +1239,7 @@ class VaultPowerShellView extends ItemView {
       }
     });
     this.agentInputEl.addEventListener("paste", (event) => this.handleAgentPaste(event));
+    this.refreshAgentProviderButtons();
 
     this.codexAttachmentsEl = composer.createDiv("vault-agent-attachments is-hidden");
 
@@ -1314,6 +1321,29 @@ class VaultPowerShellView extends ItemView {
   private refreshAgentProviderButtons() {
     this.agentProviderButtons.claude?.toggleClass("is-active", this.agentProvider === "claude");
     this.agentProviderButtons.codex?.toggleClass("is-active", this.agentProvider === "codex");
+    this.renderAgentProviderIndicator();
+    this.agentInputEl?.setAttr("placeholder", `Message to ${getAgentProviderLabel(this.agentProvider)}. Shift+Enter inserts a new line.`);
+  }
+
+  private renderAgentProviderIndicator() {
+    if (!this.agentProviderIndicatorEl) {
+      return;
+    }
+    const label = getAgentProviderLabel(this.agentProvider);
+    const iconPath = this.agentProvider === "claude" ? CLAUDE_ICON_PATH : CODEX_ICON_PATH;
+    this.agentProviderIndicatorEl.empty();
+    this.agentProviderIndicatorEl.toggleClass("is-claude", this.agentProvider === "claude");
+    this.agentProviderIndicatorEl.toggleClass("is-codex", this.agentProvider === "codex");
+    this.agentProviderIndicatorEl.setAttr("title", `현재 사용 중: ${label}`);
+    const svg = this.agentProviderIndicatorEl.createSvg("svg", {
+      cls: "svg-icon",
+      attr: { viewBox: "0 0 24 24", "aria-hidden": "true" }
+    });
+    svg.createSvg("path", { attr: { d: iconPath, fill: "currentColor" } });
+    this.agentProviderIndicatorEl.createSpan({
+      cls: "vault-agent-current-provider-label",
+      text: `현재 ${label}`
+    });
   }
 
   // Show only the active provider's transcript; each keeps its own conversation.
@@ -1326,9 +1356,15 @@ class VaultPowerShellView extends ItemView {
     this.codexCurrentTurnEl = null;
     this.codexCurrentAnswerEl = null;
     this.codexTurnLoadingEl = null;
+    this.refreshCodexStatusLine();
   }
 
   private async startCodexBackend(cwd: string) {
+    this.codexContextPercent = null;
+    this.codexRateLimitWindows = [];
+    this.codexGitBranch = readGitBranch(cwd);
+    this.refreshCodexStatusLine();
+
     const env = buildProcessEnv({
       useSystemCa: this.plugin.settings.useSystemCa,
       extraCaCertPath: this.plugin.getExtraCaCertPath()
@@ -1431,8 +1467,14 @@ class VaultPowerShellView extends ItemView {
         this.codexCurrentAnswerEl = null;
         this.flushQueuedInput();
         break;
-      case "context-usage":
-        this.updateContextUsage(event.usedTokens, event.contextWindow);
+      case "usage-update":
+        if ("contextPercent" in event) {
+          this.codexContextPercent = event.contextPercent ?? null;
+        }
+        if (event.rateLimits) {
+          this.codexRateLimitWindows = event.rateLimits;
+        }
+        this.refreshCodexStatusLine();
         break;
       case "thread-ready":
         break;
@@ -1531,20 +1573,70 @@ class VaultPowerShellView extends ItemView {
     this.codexTurnLoadingEl = thinking;
   }
 
-  private updateContextUsage(used: number, window: number | null) {
-    if (!this.codexContextEl || !this.codexContextFillEl || !this.codexContextLabelEl) {
+  private refreshCodexStatusLine() {
+    if (!this.codexStatusLineEl) {
       return;
     }
-    if (!window || window <= 0) {
-      this.codexContextEl.addClass("is-hidden");
+    const visible = this.agentProvider === "codex";
+    this.codexStatusLineEl.toggleClass("is-hidden", !visible);
+    if (!visible) {
       return;
     }
-    const pct = Math.min(100, Math.max(0, Math.round((used / window) * 100)));
-    this.codexContextEl.removeClass("is-hidden");
-    this.codexContextFillEl.style.width = `${pct}%`;
-    this.codexContextLabelEl.setText(`컨텍스트 ${pct}%`);
-    this.codexContextEl.toggleClass("is-mid", pct >= 50 && pct < 80);
-    this.codexContextEl.toggleClass("is-high", pct >= 80);
+
+    this.codexStatusLineEl.empty();
+    const cwd = this.plugin.getVaultPath() ?? "";
+    const pathText = this.getCodexStatusPath(cwd);
+    this.renderStatusTextSegment(pathText, "vault-agent-statusline-path");
+    this.renderStatusTextSegment(this.getSelectedCodexModelLabel(), "vault-agent-statusline-model");
+    this.renderStatusMeterSegment("ctx", this.codexContextPercent, null);
+    for (const window of this.codexRateLimitWindows) {
+      this.renderStatusMeterSegment(window.label, window.usedPercent, window.resetsAt ?? null);
+    }
+  }
+
+  private renderStatusTextSegment(text: string, cls: string) {
+    this.codexStatusLineEl?.createSpan({
+      cls: `vault-agent-statusline-segment ${cls}`,
+      text
+    });
+  }
+
+  private renderStatusMeterSegment(label: string, percent: number | null, resetsAt: number | null) {
+    if (!this.codexStatusLineEl) {
+      return;
+    }
+    const segment = this.codexStatusLineEl.createDiv("vault-agent-statusline-segment vault-agent-statusline-meter");
+    if (percent !== null) {
+      segment.toggleClass("is-low", percent < 30);
+      segment.toggleClass("is-mid", percent >= 50 && percent < 80);
+      segment.toggleClass("is-high", percent >= 80);
+    }
+    segment.createSpan({ cls: "vault-agent-statusline-label", text: label });
+    const bar = segment.createDiv("vault-agent-statusline-bar");
+    const fill = bar.createDiv("vault-agent-statusline-fill");
+    fill.style.width = `${percent === null ? 0 : Math.min(100, Math.max(0, percent))}%`;
+    segment.createSpan({
+      cls: "vault-agent-statusline-value",
+      text: percent === null ? "--%" : `${Math.round(percent)}%`
+    });
+    const resetText = formatResetTime(resetsAt);
+    if (resetText) {
+      segment.createSpan({ cls: "vault-agent-statusline-reset", text: `(${resetText})` });
+    }
+  }
+
+  private getCodexStatusPath(cwd: string): string {
+    if (this.codexGitBranch === undefined && cwd) {
+      this.codexGitBranch = readGitBranch(cwd);
+    }
+    const path = cwd ? formatStatusPath(cwd) : "No vault path";
+    return this.codexGitBranch ? `${path}  git:${this.codexGitBranch}` : path;
+  }
+
+  private getSelectedCodexModelLabel(): string {
+    const selected = this.codexModelSelect?.value || this.plugin.settings.codexModel;
+    const model = this.codexModels.find((candidate) => candidate.id === selected);
+    return model?.displayName || selected || "Codex";
   }
 
   private async renderCodexMarkdown(el: HTMLElement, markdown: string) {
@@ -1639,6 +1731,7 @@ class VaultPowerShellView extends ItemView {
     this.codexModelSelect.value = models[0].id;
     this.codexOptionsRow?.removeClass("is-hidden");
     this.onCodexModelChange();
+    this.refreshCodexStatusLine();
   }
 
   private onCodexModelChange() {
@@ -1654,6 +1747,7 @@ class VaultPowerShellView extends ItemView {
       this.codexEffortSelect.value = model.defaultEffort;
     }
     this.applyCodexTurnOptions();
+    this.refreshCodexStatusLine();
   }
 
   private applyCodexTurnOptions() {
@@ -3828,7 +3922,10 @@ class VaultPowerShellView extends ItemView {
     this.codexTurnActive = false;
     this.codexQueuedInputs = [];
     this.updateSendButtonMode();
-    this.codexContextEl?.addClass("is-hidden");
+    this.codexContextPercent = null;
+    this.codexRateLimitWindows = [];
+    this.codexGitBranch = undefined;
+    this.refreshCodexStatusLine();
     this.codexOptionsRow?.addClass("is-hidden");
     this.codexModels = [];
     this.codexPendingAttachments = [];
@@ -5138,6 +5235,55 @@ function formatBackendStatus(state: AgentStatus, detail?: string): string {
   };
   const label = labels[state];
   return detail ? `${label} — ${detail}` : label;
+}
+
+function readGitBranch(cwd: string): string | null {
+  try {
+    const result = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      cwd,
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 2000
+    });
+    if (result.status !== 0) {
+      return null;
+    }
+    const branch = result.stdout.trim();
+    return branch || null;
+  } catch {
+    return null;
+  }
+}
+
+function formatStatusPath(cwd: string): string {
+  const normalized = cwd.replace(/\\/g, "/");
+  const home = (process.env.USERPROFILE || process.env.HOME || "").replace(/\\/g, "/");
+  if (home && (normalized === home || normalized.startsWith(`${home}/`))) {
+    return `~${normalized.slice(home.length)}`;
+  }
+  return normalized;
+}
+
+function formatResetTime(value: number | null): string {
+  if (value === null) {
+    return "";
+  }
+  const resetMs = value < 10_000_000_000 ? value * 1000 : value;
+  const deltaSeconds = Math.floor((resetMs - Date.now()) / 1000);
+  if (deltaSeconds <= 0) {
+    return "now";
+  }
+  if (deltaSeconds < 3600) {
+    return `${Math.floor(deltaSeconds / 60)}m`;
+  }
+  if (deltaSeconds < 86400) {
+    const hours = Math.floor(deltaSeconds / 3600);
+    const minutes = Math.floor((deltaSeconds % 3600) / 60);
+    return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
+  }
+  const days = Math.floor(deltaSeconds / 86400);
+  const hours = Math.floor((deltaSeconds % 86400) / 3600);
+  return hours ? `${days}d ${hours}h` : `${days}d`;
 }
 
 function getAgentLaunchCommand(provider: AgentProvider, settings: PowerShellSettings): string {

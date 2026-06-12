@@ -1,4 +1,4 @@
-import type { AgentUiEvent, TranscriptItem, TranscriptItemKind } from "../types";
+import type { AgentUiEvent, AgentUsageWindow, TranscriptItem, TranscriptItemKind } from "../types";
 
 // Maps codex app-server notifications to UI events. Structures verified against
 // codex-cli 0.139.0 (Phase 2 wire probe). Unknown notifications return null and
@@ -37,10 +37,17 @@ export function mapCodexNotification(method: string, params: unknown): AgentUiEv
     case "thread/tokenUsage/updated": {
       const usage = p.tokenUsage as { total?: { totalTokens?: number }; modelContextWindow?: number | null } | undefined;
       const used = usage?.total?.totalTokens;
-      if (typeof used !== "number") {
-        return null;
+      const contextWindow = usage?.modelContextWindow;
+      if (typeof used !== "number" || typeof contextWindow !== "number" || contextWindow <= 0) {
+        return { type: "usage-update", contextPercent: null };
       }
-      return { type: "context-usage", usedTokens: used, contextWindow: usage?.modelContextWindow ?? null };
+      const contextPercent = Math.min(100, Math.max(0, (used / contextWindow) * 100));
+      return { type: "usage-update", contextPercent };
+    }
+
+    case "account/rateLimits/updated": {
+      const rateLimits = rateLimitWindowsFromSnapshot(p.rateLimits);
+      return rateLimits.length ? { type: "usage-update", rateLimits } : null;
     }
 
     case "turn/completed": {
@@ -72,6 +79,54 @@ export function mapCodexNotification(method: string, params: unknown): AgentUiEv
     default:
       return null;
   }
+}
+
+export function rateLimitWindowsFromSnapshot(raw: unknown): AgentUsageWindow[] {
+  if (!raw || typeof raw !== "object") {
+    return [];
+  }
+  const snapshot = raw as { primary?: unknown; secondary?: unknown };
+  return [snapshot.primary, snapshot.secondary]
+    .map((window, index) => rateLimitWindowFromRaw(window, index))
+    .filter((window): window is AgentUsageWindow => window !== null);
+}
+
+function rateLimitWindowFromRaw(raw: unknown, index: number): AgentUsageWindow | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const window = raw as { usedPercent?: unknown; windowDurationMins?: unknown; resetsAt?: unknown };
+  const usedPercent = typeof window.usedPercent === "number"
+    ? Math.min(100, Math.max(0, window.usedPercent))
+    : null;
+  const duration = typeof window.windowDurationMins === "number" ? window.windowDurationMins : null;
+  const resetsAt = typeof window.resetsAt === "number" ? window.resetsAt : null;
+  return {
+    label: rateLimitWindowLabel(duration, index),
+    usedPercent,
+    resetsAt
+  };
+}
+
+function rateLimitWindowLabel(durationMins: number | null, index: number): string {
+  if (durationMins === 300) {
+    return "5h";
+  }
+  if (durationMins === 10080) {
+    return "7d";
+  }
+  if (durationMins !== null && durationMins > 0) {
+    if (durationMins < 60) {
+      return `${durationMins}m`;
+    }
+    if (durationMins % 1440 === 0) {
+      return `${durationMins / 1440}d`;
+    }
+    if (durationMins % 60 === 0) {
+      return `${durationMins / 60}h`;
+    }
+  }
+  return index === 0 ? "rate" : `rate${index + 1}`;
 }
 
 const KIND_MAP: Record<string, TranscriptItemKind> = {
