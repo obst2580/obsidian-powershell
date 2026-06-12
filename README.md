@@ -1,6 +1,8 @@
 # Obst Terminal
 
-Run vault-rooted agent CLIs from Obsidian's right sidebar, with an Agent Console and a raw terminal fallback.
+Run vault-rooted AI agent CLIs from Obsidian's right sidebar, with an Agent Console for Claude Code and Codex CLI plus a raw terminal fallback.
+
+Obst Terminal turns your Obsidian vault into an agent workspace: keep notes, plans, specs, and handoff documents open in the main editor while an AI coding agent runs in the right sidebar against the same vault folder.
 
 [한국어 README](README.ko.md)
 
@@ -8,13 +10,25 @@ Run vault-rooted agent CLIs from Obsidian's right sidebar, with an Agent Console
 
 > Obsidian Community Plugin Directory registration is currently under review. Until it is approved, install from the GitHub Release ZIP or use BRAT.
 
+![Obst Terminal running Claude Code in Obsidian's right sidebar](docs/images/vault-terminal-claude-code.png)
+
 ## What It Does
 
 Obst Terminal is designed for workflows where Obsidian holds project notes, indexes, plans, and handoff documents while local CLI tools work against the same folder.
 
 The default pane is **Agent Console**. It starts the official interactive Claude Code or Codex CLI in the current vault path, so existing subscription login is preserved. The transcript pane reads local session logs and renders append-only messages instead of relying on fragile Windows TUI rendering. A **Raw terminal** tab is still available for login, permission prompts, shell commands, and fallback troubleshooting.
 
-![Obst Terminal running Claude Code in Obsidian's right sidebar](docs/images/vault-terminal-claude-code.png)
+The agent and terminal start in the current vault path, so local CLIs can read the same `AGENTS.md`, `CLAUDE.md`, notes, specs, and project files that you are looking at in Obsidian. This makes it practical to manage a project from Obsidian while Claude Code, Codex CLI, or another local agent works from the same folder.
+
+Typical workflow:
+
+1. Keep the project brief, TODO, or active note open in Obsidian.
+2. Open Obst Terminal in the right sidebar.
+3. Start Claude Code or Codex CLI in Agent Console, or run `git`, `npm`, `python`, PowerShell, zsh, bash, or other shell commands in Raw terminal.
+4. Drop files or paste screenshots into the terminal to insert agent-friendly `@path` references.
+5. Let the agent work while your notes remain visible.
+
+Obst Terminal does not bundle an AI agent. It gives Obsidian a local agent console and terminal surface so the agent tools you already use can operate from the vault.
 
 ## Features
 
@@ -23,6 +37,7 @@ The default pane is **Agent Console**. It starts the official interactive Claude
 - Adds an Agent Console for interactive Claude Code and Codex CLI subscription workflows.
 - Keeps the raw xterm/node-pty terminal as a fallback for shell commands, login, and permissions.
 - Works with local CLI tools such as Claude Code, Codex CLI, Git, Python, and npm.
+- Keeps AI agent work next to the notes, specs, and project context that guide it.
 - Supports terminal text selection and copy.
 - Inserts file references when files are dropped onto the terminal.
 - Saves clipboard images into the vault and inserts an `@path` reference for agent CLIs.
