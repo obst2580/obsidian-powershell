@@ -104,6 +104,7 @@ const AGENT_SESSION_LOOKBACK_MS = 30000;
 const AGENT_SESSION_MATCH_BYTES = 262144;
 const AGENT_SESSION_MAX_READ_BYTES = 1024 * 1024;
 const AGENT_SESSION_TURN_CUTOFF_SLOP_MS = 2000;
+const CLAUDE_PRINT_TIMEOUT_MS = 10 * 60 * 1000;
 
 interface PowerShellSettings {
   settingsSchemaVersion: number;
@@ -2083,7 +2084,7 @@ class VaultPowerShellView extends ItemView {
         useSystemCa: this.plugin.settings.useSystemCa,
         extraCaCertPath: this.plugin.getExtraCaCertPath()
       });
-      const result = await runClaudePrintCommand(text, cwd, env, 120000);
+      const result = await runClaudePrintCommand(text, cwd, env, CLAUDE_PRINT_TIMEOUT_MS);
       const output = formatClaudePrintOutput(result);
       this.appendAgentTranscript({
         id: this.nextLocalAgentEntryId("assistant"),
@@ -5278,7 +5279,7 @@ function formatClaudePrintOutput(result: CapturedCommandResult): string {
   }
 
   if (result.timedOut) {
-    return "Claude 응답 시간이 초과되었습니다.";
+    return "Claude 응답 시간이 10분을 초과했습니다.";
   }
 
   if (result.error) {
@@ -5351,11 +5352,7 @@ function runCapturedCommand(command: string, args: string[], cwd: string, env: {
     };
 
     const timeout = window.setTimeout(() => {
-      try {
-        child?.kill();
-      } catch {
-        // The command may already have exited.
-      }
+      killCapturedCommandProcess(child);
       finish({ timedOut: true });
     }, timeoutMs);
 
@@ -5390,6 +5387,27 @@ function runCapturedCommand(command: string, args: string[], cwd: string, env: {
       finish({ exitCode: code });
     });
   });
+}
+
+function killCapturedCommandProcess(child: ChildProcessWithoutNullStreams | null) {
+  if (!child) {
+    return;
+  }
+
+  try {
+    if (process.platform === "win32" && child.pid !== undefined) {
+      spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true });
+      return;
+    }
+  } catch {
+    // Fall through to the plain kill path.
+  }
+
+  try {
+    child.kill();
+  } catch {
+    // The command may already have exited.
+  }
 }
 
 function findLatestAgentSessionFile(provider: AgentProvider, cwd: string, startedAt: number, sessionId?: string | null): string | null {
