@@ -17,20 +17,27 @@
 }
 
 .vault-terminal-tab {
-  flex: 1 1 0;
-  border: 1px solid var(--background-modifier-border);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border: 1px solid transparent;
   border-radius: 6px;
-  background: var(--background-primary);
+  background: transparent;
   color: var(--text-muted);
-  font-size: var(--font-ui-small);
+  font-size: var(--font-ui-smaller);
   font-weight: 600;
-  min-height: 30px;
+  min-height: 26px;
+}
+
+.vault-terminal-tab .svg-icon {
+  width: 15px;
+  height: 15px;
 }
 
 .vault-terminal-tab.is-active {
-  border-color: var(--interactive-accent);
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
 }
 
 .vault-terminal-pane-hidden {
@@ -173,11 +180,21 @@
 
 .vault-agent-turn-answer {
   padding: 14px 16px;
-  max-height: 65vh;
-  overflow-y: auto;
-  line-height: 1.62;
-  font-size: var(--font-ui-small);
+  line-height: var(--line-height-normal, 1.6);
+  /* Match note body text size; no inner scroll — the whole transcript scrolls. */
+  font-size: var(--font-text-size);
   color: var(--text-normal);
+}
+
+/* Code blocks: wrap instead of scrolling sideways (the copy icon overlapped and
+   the text was hard to read). Cap height and scroll vertically only when long. */
+.vault-agent-turn-answer pre,
+.vault-agent-block pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 420px;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 /* Items flow inside the answer with no per-item box. */
@@ -458,18 +475,67 @@
 }
 
 .vault-agent-provider {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 28px;
+  padding: 0;
   border: 1px solid var(--background-modifier-border);
   border-radius: 6px;
   background: var(--background-primary);
   color: var(--text-muted);
-  font-size: var(--font-ui-small);
-  min-height: 28px;
+}
+
+.vault-agent-provider .svg-icon {
+  width: 17px;
+  height: 17px;
+}
+
+/* Brand identity: always tinted, active state adds background + border. */
+.vault-agent-provider-claude {
+  color: #d97757;
+}
+
+.vault-agent-provider-codex {
+  color: #10a37f;
 }
 
 .vault-agent-provider.is-active {
-  border-color: var(--interactive-accent);
-  color: var(--text-accent);
+  border-color: currentColor;
   background: var(--background-modifier-hover);
+}
+
+.vault-agent-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+  color: var(--text-muted);
+}
+
+.vault-agent-action .svg-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.vault-agent-action-start:hover {
+  color: var(--text-success, #3aa675);
+  border-color: currentColor;
+}
+
+.vault-agent-action-stop:hover {
+  color: var(--text-error, #e5534b);
+  border-color: currentColor;
+}
+
+.vault-agent-transcript.is-hidden {
+  display: none;
 }
 
 .vault-agent-transcript {

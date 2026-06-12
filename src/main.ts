@@ -10,6 +10,7 @@ import {
   Plugin,
   PluginSettingTab,
   requestUrl,
+  setIcon,
   Setting,
   TFolder,
   WorkspaceLeaf
@@ -43,6 +44,9 @@ const OBST_TERMINAL_ICON_SVG = `
 <circle cx="84" cy="50" r="4" fill="currentColor"/>
 <path d="M60 34l-5-3M76 34l5-3M76 44l5 4" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>
 `;
+// Official brand-mark paths (24x24 viewBox) so each provider is recognizable.
+const CLAUDE_ICON_PATH = "M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5527h3.7442L10.5363 3.541Zm-.3712 10.2232 2.2932-5.9456 2.2932 5.9456Z";
+const CODEX_ICON_PATH = "M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.1419.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z";
 const DEFAULT_ATTACHMENT_FOLDER = "Obst Terminal Attachments";
 const EXTRA_CA_ENV_VARS = ["OBST_TERMINAL_EXTRA_CA_CERT", "VAULT_TERMINAL_EXTRA_CA_CERT"];
 const RUNTIME_BASE_REQUIRED_RELATIVE_FILES = [
@@ -911,6 +915,8 @@ class VaultPowerShellView extends ItemView {
   private agentStdoutBuffer = "";
   private agentStatusEl: HTMLElement | null = null;
   private agentTranscriptEl: HTMLElement | null = null;
+  private claudeTranscriptEl: HTMLElement | null = null;
+  private codexTranscriptEl: HTMLElement | null = null;
   private agentLoadingEl: HTMLElement | null = null;
   private agentLoadingTextEl: HTMLElement | null = null;
   private agentPromptActionsEl: HTMLElement | null = null;
@@ -962,8 +968,8 @@ class VaultPowerShellView extends ItemView {
     container.addClass("vault-powershell-view");
 
     const tabbar = container.createDiv("vault-terminal-tabbar");
-    this.paneTabEls.agent = this.createPaneTab(tabbar, "Agent", "agent");
-    this.paneTabEls.terminal = this.createPaneTab(tabbar, "Terminal", "terminal");
+    this.paneTabEls.agent = this.createPaneTab(tabbar, "Agent", "agent", "bot");
+    this.paneTabEls.terminal = this.createPaneTab(tabbar, "Terminal", "terminal", "square-terminal");
 
     this.agentPaneEl = container.createDiv("vault-agent-pane");
     this.createAgentConsole(this.agentPaneEl);
@@ -972,7 +978,7 @@ class VaultPowerShellView extends ItemView {
     this.createTerminalToolbar(this.terminalPaneEl);
     this.terminalHostEl = this.terminalPaneEl.createDiv("vault-powershell-terminal");
 
-    this.showPane("terminal");
+    this.showPane("agent");
     return Promise.resolve();
   }
 
@@ -1021,11 +1027,13 @@ class VaultPowerShellView extends ItemView {
     return Promise.resolve();
   }
 
-  private createPaneTab(container: Element, label: string, pane: ViewPane): HTMLElement {
+  private createPaneTab(container: Element, label: string, pane: ViewPane, icon: string): HTMLElement {
     const button = container.createEl("button", {
       cls: "vault-terminal-tab",
-      text: label
+      attr: { "aria-label": label, title: label }
     });
+    setIcon(button, icon);
+    button.createSpan({ cls: "vault-terminal-tab-label", text: label });
     button.addEventListener("click", () => {
       this.showPane(pane);
     });
@@ -1127,22 +1135,30 @@ class VaultPowerShellView extends ItemView {
 
     const toolbar = container.createDiv("vault-agent-toolbar");
     const providerGroup = toolbar.createDiv("vault-agent-provider-group");
-    this.agentProviderButtons.claude = this.createAgentProviderButton(providerGroup, "Claude", "claude");
-    this.agentProviderButtons.codex = this.createAgentProviderButton(providerGroup, "Codex", "codex");
+    this.agentProviderButtons.claude = this.createAgentProviderButton(providerGroup, "Claude", "claude", CLAUDE_ICON_PATH);
+    this.agentProviderButtons.codex = this.createAgentProviderButton(providerGroup, "Codex", "codex", CODEX_ICON_PATH);
     this.refreshAgentProviderButtons();
 
     const actions = toolbar.createDiv("vault-agent-actions");
-    const startButton = actions.createEl("button", { text: "Start" });
+    const startButton = actions.createEl("button", {
+      cls: "vault-agent-action vault-agent-action-start",
+      attr: { "aria-label": "Start", title: "Start" }
+    });
+    setIcon(startButton, "play");
     startButton.addEventListener("click", () => {
       void this.startAgent(this.agentProvider);
     });
-    const stopButton = actions.createEl("button", { text: "Stop" });
+    const stopButton = actions.createEl("button", {
+      cls: "vault-agent-action vault-agent-action-stop",
+      attr: { "aria-label": "Stop", title: "Stop" }
+    });
+    setIcon(stopButton, "square");
     stopButton.addEventListener("click", () => {
       this.disposeAgent();
       this.appendAgentTranscript({
         id: this.nextLocalAgentEntryId("system"),
         role: "system",
-        text: "Agent stopped."
+        text: "에이전트를 정지했습니다."
       });
     });
     const rawButton = actions.createEl("button", { text: "Raw" });
@@ -1168,11 +1184,14 @@ class VaultPowerShellView extends ItemView {
     });
     this.refreshAgentLoginButton();
 
-    this.agentTranscriptEl = container.createDiv("vault-agent-transcript");
+    // Separate transcript per provider so Claude/Codex don't mix when switching.
+    this.claudeTranscriptEl = container.createDiv("vault-agent-transcript");
+    this.codexTranscriptEl = container.createDiv("vault-agent-transcript");
+    this.switchAgentTranscript(this.agentProvider);
     this.appendAgentTranscript({
       id: this.nextLocalAgentEntryId("system"),
       role: "system",
-      text: "Start Claude or Codex. The CLI runs in interactive subscription mode behind this pane; the transcript is rendered from local session logs when available."
+      text: "Claude 또는 Codex를 시작하세요. 구독 모드 CLI가 이 패널 뒤에서 실행되며, 대화 내용은 로컬 세션 로그를 통해 표시됩니다."
     });
 
     this.agentLoadingEl = container.createDiv("vault-agent-loading is-hidden");
@@ -1265,19 +1284,22 @@ class VaultPowerShellView extends ItemView {
     });
   }
 
-  private createAgentProviderButton(container: HTMLElement, label: string, provider: AgentProvider): HTMLElement {
+  private createAgentProviderButton(container: HTMLElement, label: string, provider: AgentProvider, iconPath: string): HTMLElement {
     const button = container.createEl("button", {
-      cls: "vault-agent-provider",
-      text: label
+      cls: `vault-agent-provider vault-agent-provider-${provider}`,
+      attr: { "aria-label": label, title: label }
     });
+    const svg = button.createSvg("svg", { cls: "svg-icon", attr: { viewBox: "0 0 24 24" } });
+    svg.createSvg("path", { attr: { d: iconPath, fill: "currentColor" } });
     button.addEventListener("click", () => {
-      if (this.agentHost) {
+      if (this.agentHost || this.agentBackend) {
         new Notice("Stop the current agent before switching providers.");
         return;
       }
 
       this.agentProvider = provider;
       this.refreshAgentProviderButtons();
+      this.switchAgentTranscript(provider);
       this.agentInputEl?.focus();
     });
     return button;
@@ -1286,6 +1308,18 @@ class VaultPowerShellView extends ItemView {
   private refreshAgentProviderButtons() {
     this.agentProviderButtons.claude?.toggleClass("is-active", this.agentProvider === "claude");
     this.agentProviderButtons.codex?.toggleClass("is-active", this.agentProvider === "codex");
+  }
+
+  // Show only the active provider's transcript; each keeps its own conversation.
+  private switchAgentTranscript(provider: AgentProvider) {
+    this.claudeTranscriptEl?.toggleClass("is-hidden", provider !== "claude");
+    this.codexTranscriptEl?.toggleClass("is-hidden", provider !== "codex");
+    this.agentTranscriptEl = provider === "codex" ? this.codexTranscriptEl : this.claudeTranscriptEl;
+    // The active turn belonged to the previous provider's transcript; reset so a
+    // new turn attaches to the now-visible one.
+    this.codexCurrentTurnEl = null;
+    this.codexCurrentAnswerEl = null;
+    this.codexTurnLoadingEl = null;
   }
 
   private async startCodexBackend(cwd: string) {
@@ -1744,7 +1778,7 @@ class VaultPowerShellView extends ItemView {
     this.appendAgentTranscript({
       id: this.nextLocalAgentEntryId("system"),
       role: "system",
-      text: `Starting ${getAgentProviderLabel(provider)} in ${cwd}`
+      text: `${getAgentProviderLabel(provider)} 세션을 시작합니다 · ${cwd}`
     });
 
     try {
@@ -1818,7 +1852,7 @@ class VaultPowerShellView extends ItemView {
         this.appendAgentTranscript({
           id: this.nextLocalAgentEntryId("system"),
           role: "system",
-          text: `Agent host exited with code ${code ?? "unknown"}.`
+          text: `에이전트 호스트가 종료되었습니다 (코드 ${code ?? "알 수 없음"}).`
         });
         this.agentHost = null;
         this.agentHostReady = false;
@@ -1863,7 +1897,7 @@ class VaultPowerShellView extends ItemView {
           this.appendAgentTranscript({
             id: this.nextLocalAgentEntryId("system"),
             role: "system",
-            text: `${getAgentProviderLabel(this.agentProvider)} exited with code ${message.exitCode ?? "unknown"}.`
+            text: `${getAgentProviderLabel(this.agentProvider)} 세션이 종료되었습니다 (코드 ${message.exitCode ?? "알 수 없음"}).`
           });
         } else if (message.type === "error") {
           this.setAgentStatus("Failed");
@@ -1906,7 +1940,7 @@ class VaultPowerShellView extends ItemView {
       }
 
       if (this.agentAuthState === "authenticated" || this.agentAuthState === "ready") {
-        this.markAgentConversationReady(`${getAgentProviderLabel(this.agentProvider)} login is confirmed. Conversation is ready.`);
+        this.markAgentConversationReady(`${getAgentProviderLabel(this.agentProvider)} 로그인이 확인되었습니다. 이제 대화를 시작할 수 있습니다.`);
         return;
       }
 
@@ -2094,7 +2128,7 @@ class VaultPowerShellView extends ItemView {
 
   private setAgentPromptState(prompt: AgentPromptState) {
     if (prompt.mode === "mcp") {
-      this.markAgentConversationReady("Claude Code is signed in. MCP tool connections are separate from Claude login.");
+      this.markAgentConversationReady("Claude Code에 로그인되어 있습니다. MCP 도구 연결은 로그인과 별개로 처리됩니다.");
       this.agentMcpAuthInProgress = hasMcpNeedsAuthenticationText(prompt.text);
     } else if (prompt.requiresAuth || prompt.mode === "auth" || prompt.mode === "auth-code") {
       this.agentConversationReady = false;
@@ -2117,7 +2151,7 @@ class VaultPowerShellView extends ItemView {
       }
 
       if (this.agentAuthState === "login-required") {
-        this.startAgentLoginFlow("Claude Code requires login.");
+        this.startAgentLoginFlow("Claude Code에 로그인이 필요합니다.");
       } else {
         this.refreshAgentAuthStatus();
       }
@@ -2272,7 +2306,7 @@ class VaultPowerShellView extends ItemView {
 
     const authCompleted = hasAgentAuthSuccess(plainText);
     if (authCompleted) {
-      this.markAgentConversationReady("Login completed. Claude Code is signed in and ready.");
+      this.markAgentConversationReady("로그인이 완료되었습니다. Claude Code가 준비되었습니다.");
     }
 
     if (hasAgentMcpAuthSuccess(plainText)) {
@@ -2311,7 +2345,7 @@ class VaultPowerShellView extends ItemView {
     const loginFlow = !mcpAuth && isAgentLoginFlowText(promptSource);
     if (mcpAuth) {
       this.agentMcpAuthInProgress = hasMcpNeedsAuthenticationText(promptSource);
-      this.markAgentConversationReady("Claude Code is signed in. MCP tool connections are being handled separately.");
+      this.markAgentConversationReady("Claude Code에 로그인되어 있습니다. MCP 도구 연결은 별도로 처리됩니다.");
     }
 
     if (!loginRequired && !loginFlow && isAgentConversationReadyText(promptSource)) {
@@ -2330,7 +2364,7 @@ class VaultPowerShellView extends ItemView {
       this.agentConversationReady = false;
       this.agentAuthState = "login-required";
       this.agentNeedsAuth = true;
-      this.startAgentLoginFlow("Claude Code requires login.");
+      this.startAgentLoginFlow("Claude Code에 로그인이 필요합니다.");
     } else if (!actionablePrompt && loginFlow) {
       this.agentConversationReady = false;
       this.agentAuthState = "login-in-progress";
@@ -5047,7 +5081,7 @@ function parseClaudeAuthCheck(result: CapturedCommandResult): AgentAuthCheck {
     return {
       checked: true,
       loggedIn: true,
-      summary: `Claude Code login confirmed: ${pieces.join(", ")}. Conversation will be available after Claude finishes opening.`
+      summary: `Claude Code 로그인 확인: ${pieces.join(", ")}. Claude 준비가 끝나면 대화를 시작할 수 있습니다.`
     };
   }
 
@@ -5082,7 +5116,7 @@ function parseCodexAuthCheck(result: CapturedCommandResult): AgentAuthCheck {
     return {
       checked: true,
       loggedIn: true,
-      summary: `Codex login confirmed: ${output.replace(/\s+/g, " ")}. Conversation will be available after Codex finishes opening.`
+      summary: `Codex 로그인 확인: ${output.replace(/\s+/g, " ")}. Codex 준비가 끝나면 대화를 시작할 수 있습니다.`
     };
   }
 
