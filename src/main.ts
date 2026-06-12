@@ -103,6 +103,7 @@ const AGENT_SESSION_POLL_MS = 1200;
 const AGENT_SESSION_LOOKBACK_MS = 30000;
 const AGENT_SESSION_MATCH_BYTES = 262144;
 const AGENT_SESSION_MAX_READ_BYTES = 1024 * 1024;
+const AGENT_SESSION_TURN_CUTOFF_SLOP_MS = 2000;
 
 interface PowerShellSettings {
   settingsSchemaVersion: number;
@@ -193,6 +194,7 @@ interface AgentTranscriptEntry {
   id: string;
   role: AgentTranscriptRole;
   text: string;
+  timestampMs?: number;
 }
 
 type AgentPromptAction =
@@ -929,6 +931,9 @@ class VaultPowerShellView extends ItemView {
   private agentStartedAt = 0;
   private agentSessionPath: string | null = null;
   private agentSessionOffset = 0;
+  private agentCurrentTurnStartedAt = 0;
+  private agentSessionBaselineOffsets = new Map<string, number>();
+  private agentClaudePrintTurnActive = false;
   private agentClaudeSessionId: string | null = null;
   private lastAgentLaunchCommand = "";
   private agentSeenEntries = new Set<string>();
@@ -1761,6 +1766,8 @@ class VaultPowerShellView extends ItemView {
     this.agentStartedAt = Date.now();
     this.agentSessionPath = null;
     this.agentSessionOffset = 0;
+    this.agentCurrentTurnStartedAt = 0;
+    this.agentSessionBaselineOffsets = snapshotAgentSessionOffsets(provider, cwd);
     this.agentSeenEntries.clear();
     this.agentAuthState = "checking";
     this.agentConversationReady = false;
@@ -2006,6 +2013,11 @@ class VaultPowerShellView extends ItemView {
     }
 
     const promptMode = this.agentPromptState?.mode;
+    if (this.agentProvider === "claude" && this.agentClaudePrintTurnActive) {
+      new Notice("Claude 응답을 기다리는 중입니다.");
+      return;
+    }
+
     if (promptMode === "auth-code" && !text.startsWith("/") && !looksLikeAgentAuthCode(text)) {
       new Notice("Claude is waiting for the login code. Open the login link, copy the code, then paste only the code here.");
       this.appendAgentTranscript({
@@ -2016,13 +2028,24 @@ class VaultPowerShellView extends ItemView {
       return;
     }
 
+    const useClaudePrintMode = this.agentProvider === "claude" &&
+      !!text &&
+      !text.startsWith("/") &&
+      (!this.agentPromptState || promptMode === "text");
+
     inputEl.value = "";
     const visibleText = text || "[Enter]";
+    this.agentCurrentTurnStartedAt = Date.now();
     this.appendAgentTranscript({
       id: this.nextLocalAgentEntryId("user"),
       role: "user",
       text: visibleText
     });
+    if (useClaudePrintMode) {
+      await this.sendClaudePrintTurn(text);
+      return;
+    }
+
     if (promptMode === "continue" && !text.startsWith("/")) {
       this.clearAgentPromptState();
       this.sendAgentHostMessage({ type: "data", data: ESCAPE_SEQUENCE });
@@ -2041,12 +2064,65 @@ class VaultPowerShellView extends ItemView {
     this.setAgentStatus("Waiting for response...");
   }
 
+  private async sendClaudePrintTurn(text: string) {
+    const cwd = this.plugin.getVaultPath();
+    if (!cwd) {
+      this.appendAgentTranscript({
+        id: this.nextLocalAgentEntryId("system"),
+        role: "system",
+        text: "This vault does not expose a local file-system path."
+      });
+      return;
+    }
+
+    this.agentClaudePrintTurnActive = true;
+    this.clearAgentPromptState();
+    this.setAgentStatus("Waiting for Claude response...");
+    try {
+      const env = buildProcessEnv({
+        useSystemCa: this.plugin.settings.useSystemCa,
+        extraCaCertPath: this.plugin.getExtraCaCertPath()
+      });
+      const result = await runClaudePrintCommand(text, cwd, env, 120000);
+      const output = formatClaudePrintOutput(result);
+      this.appendAgentTranscript({
+        id: this.nextLocalAgentEntryId("assistant"),
+        role: "assistant",
+        text: output
+      });
+      if (isAgentSessionLimitText(output)) {
+        this.setAgentStatus("Claude session limit");
+      } else {
+        this.markAgentConversationReady();
+      }
+      this.syncAgentSessionOffsetToLatestEnd();
+    } finally {
+      this.agentClaudePrintTurnActive = false;
+    }
+  }
+
+  private syncAgentSessionOffsetToLatestEnd() {
+    const cwd = this.plugin.getVaultPath();
+    if (!cwd) {
+      return;
+    }
+
+    const sessionPath = findLatestAgentSessionFile(this.agentProvider, cwd, this.agentStartedAt, this.agentClaudeSessionId);
+    if (!sessionPath) {
+      return;
+    }
+
+    this.agentSessionPath = sessionPath;
+    this.agentSessionOffset = getFileSize(sessionPath) ?? this.agentSessionOffset;
+  }
+
   private sendAgentControlInput(text: string) {
     if (!this.agentHost || !this.agentHostReady || !this.agentReadyForInput) {
       new Notice("Start the selected agent first.");
       return;
     }
 
+    this.agentCurrentTurnStartedAt = Date.now();
     this.appendAgentTranscript({
       id: this.nextLocalAgentEntryId("user"),
       role: "user",
@@ -2064,6 +2140,7 @@ class VaultPowerShellView extends ItemView {
       return;
     }
 
+    this.agentCurrentTurnStartedAt = Date.now();
     this.appendAgentTranscript({
       id: this.nextLocalAgentEntryId("user"),
       role: "user",
@@ -2424,18 +2501,28 @@ class VaultPowerShellView extends ItemView {
       }
 
       this.agentSessionPath = sessionPath;
-      // A resumed session (claude --continue) holds the whole backlog. Seed the
-      // seen-set with every existing entry so the backlog isn't rendered, then
-      // read forward from the end. Using the seen-set (not just an offset) means
-      // we still catch the answer even if claude wrote it before our first poll.
+      const baselineOffset = this.agentSessionBaselineOffsets.get(normalizeSessionFileKey(sessionPath));
+      if (baselineOffset !== undefined) {
+        this.agentSessionOffset = baselineOffset;
+        const chunk = readFileTextFromOffset(sessionPath, baselineOffset);
+        if (chunk) {
+          this.agentSessionOffset = chunk.nextOffset;
+          if (chunk.text) {
+            this.ingestAgentSessionLog(chunk.text, false);
+          }
+        }
+        return;
+      }
+
+      // A resumed session (claude --continue) holds the whole backlog. Seed old
+      // entries so the backlog is hidden, but still render entries from the
+      // current turn if Claude wrote the answer before our first poll.
       try {
         const existing = readFileSync(sessionPath, "utf8");
-        for (const entry of parseAgentTranscriptEntries(this.agentProvider, existing)) {
-          this.agentSeenEntries.add(entry.id);
-        }
+        this.ingestAgentSessionLog(existing, true);
         this.agentSessionOffset = Buffer.byteLength(existing, "utf8");
       } catch {
-        this.agentSessionOffset = 0;
+        this.agentSessionOffset = getFileSize(sessionPath) ?? 0;
       }
       return;
     }
@@ -2446,7 +2533,12 @@ class VaultPowerShellView extends ItemView {
     }
 
     this.agentSessionOffset = chunk.nextOffset;
-    for (const entry of parseAgentTranscriptEntries(this.agentProvider, chunk.text)) {
+    this.ingestAgentSessionLog(chunk.text, false);
+  }
+
+  private ingestAgentSessionLog(text: string, initialBacklog: boolean) {
+    const cutoffMs = this.agentCurrentTurnStartedAt || this.agentStartedAt;
+    for (const entry of parseAgentTranscriptEntries(this.agentProvider, text)) {
       if (this.agentSeenEntries.has(entry.id)) {
         continue;
       }
@@ -2456,7 +2548,18 @@ class VaultPowerShellView extends ItemView {
         continue;
       }
 
+      if (initialBacklog && !isAgentEntryAfterCutoff(entry, cutoffMs)) {
+        continue;
+      }
+
+      if (this.agentProvider === "claude" && this.agentClaudePrintTurnActive && entry.role === "assistant") {
+        continue;
+      }
+
       this.appendAgentTranscript(entry);
+      if (isAgentSessionLimitText(entry.text)) {
+        this.setAgentStatus("Claude session limit");
+      }
       this.clearAgentPromptState(true);
       this.markAgentConversationReady();
     }
@@ -3752,6 +3855,9 @@ class VaultPowerShellView extends ItemView {
     this.agentStdoutBuffer = "";
     this.agentSessionPath = null;
     this.agentSessionOffset = 0;
+    this.agentCurrentTurnStartedAt = 0;
+    this.agentSessionBaselineOffsets.clear();
+    this.agentClaudePrintTurnActive = false;
     this.agentSeenEntries.clear();
     this.agentLastRawNotice = "";
     this.agentAuthState = "idle";
@@ -5153,6 +5259,47 @@ function getCapturedCommandFailure(result: CapturedCommandResult): string {
   return "";
 }
 
+function runClaudePrintCommand(prompt: string, cwd: string, env: { [key: string]: string | undefined }, timeoutMs: number): Promise<CapturedCommandResult> {
+  return runCapturedCommand("claude", [
+    "--continue",
+    "--strict-mcp-config",
+    "--permission-mode",
+    "bypassPermissions",
+    "--output-format",
+    "text",
+    "-p",
+    prompt
+  ], cwd, env, timeoutMs);
+}
+
+function formatClaudePrintOutput(result: CapturedCommandResult): string {
+  const output = removeClaudeNoStdinWarning(stripTerminalControlSequences(`${result.stdout}\n${result.stderr}`)).trim();
+  if (output) {
+    return output;
+  }
+
+  if (result.timedOut) {
+    return "Claude 응답 시간이 초과되었습니다.";
+  }
+
+  if (result.error) {
+    return `Claude 실행 실패: ${result.error}`;
+  }
+
+  if (result.exitCode !== 0 && result.exitCode !== null) {
+    return `Claude가 응답 없이 종료되었습니다 (코드 ${result.exitCode}).`;
+  }
+
+  return "Claude가 빈 응답을 반환했습니다.";
+}
+
+function removeClaudeNoStdinWarning(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .filter((line) => !/^Warning: no stdin data received in \d+s, proceeding without it\./i.test(line.trim()))
+    .join("\n");
+}
+
 function parseJsonObject(text: string): unknown | null {
   const trimmed = text.trim();
   if (!trimmed) {
@@ -5225,6 +5372,12 @@ function runCapturedCommand(command: string, args: string[], cwd: string, env: {
       return;
     }
 
+    try {
+      child.stdin.end();
+    } catch {
+      // Captured commands in this plugin are non-interactive.
+    }
+
     child.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString();
     });
@@ -5265,6 +5418,33 @@ function findLatestAgentSessionFile(provider: AgentProvider, cwd: string, starte
   }
 
   return null;
+}
+
+function snapshotAgentSessionOffsets(provider: AgentProvider, cwd: string): Map<string, number> {
+  const offsets = new Map<string, number>();
+  const root = getAgentSessionRoot(provider);
+  if (!root || !existsSync(root)) {
+    return offsets;
+  }
+
+  const sinceMs = provider === "claude" ? 0 : Date.now() - AGENT_SESSION_LOOKBACK_MS;
+  for (const file of getRecentJsonlFiles(root, sinceMs)) {
+    if (!agentSessionFileMatches(file, cwd)) {
+      continue;
+    }
+
+    const size = getFileSize(file);
+    if (size !== null) {
+      offsets.set(normalizeSessionFileKey(file), size);
+    }
+  }
+
+  return offsets;
+}
+
+function normalizeSessionFileKey(filePath: string): string {
+  const resolved = resolve(filePath);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
 }
 
 function getAgentSessionRoot(provider: AgentProvider): string | null {
@@ -5386,6 +5566,14 @@ function readFileTextFromOffset(filePath: string, offset: number): { text: strin
   }
 }
 
+function getFileSize(filePath: string): number | null {
+  try {
+    return statSync(filePath).size;
+  } catch {
+    return null;
+  }
+}
+
 function computeConsumedBytes(chunk: Buffer, reachedEof: boolean): number {
   // At EOF the chunk ends on a complete line, so consume all of it.
   if (reachedEof) {
@@ -5402,6 +5590,14 @@ function computeConsumedBytes(chunk: Buffer, reachedEof: boolean): number {
   }
 
   return lastNewline + 1;
+}
+
+function isAgentEntryAfterCutoff(entry: AgentTranscriptEntry, cutoffMs: number): boolean {
+  if (!entry.timestampMs) {
+    return false;
+  }
+
+  return entry.timestampMs >= cutoffMs - AGENT_SESSION_TURN_CUTOFF_SLOP_MS;
 }
 
 function parseAgentTranscriptEntries(provider: AgentProvider, text: string): AgentTranscriptEntry[] {
@@ -6029,10 +6225,15 @@ function parseClaudeTranscriptEntry(value: unknown): AgentTranscriptEntry | null
     return null;
   }
 
+  if (entry.type === "assistant" && text === "No response requested.") {
+    return null;
+  }
+
   return {
     id: entry.uuid ?? entry.message.id ?? `${entry.timestamp ?? ""}-${text.slice(0, 32)}`,
     role,
-    text
+    text,
+    timestampMs: parseSessionTimestampMs(entry.timestamp)
   };
 }
 
@@ -6058,8 +6259,46 @@ function parseCodexTranscriptEntry(value: unknown): AgentTranscriptEntry | null 
   return {
     id: `${entry.timestamp ?? ""}-${text.slice(0, 32)}`,
     role: "assistant",
-    text
+    text,
+    timestampMs: parseSessionTimestampMs(entry.timestamp)
   };
+}
+
+function parseSessionTimestampMs(timestamp?: string): number | undefined {
+  if (!timestamp) {
+    return undefined;
+  }
+
+  const localKorean = timestamp.trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})\s+(오전|오후)\s+(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?$/);
+  if (localKorean) {
+    const [, year, month, day, meridiem, rawHour, minute, second, millisecond] = localKorean;
+    let hour = Number(rawHour);
+    if (meridiem === "오전") {
+      hour = hour === 12 ? 0 : hour;
+    } else {
+      hour = hour === 12 ? 12 : hour + 12;
+    }
+    // Claude writes this localized shape as UTC without an explicit timezone.
+    const parsed = new Date(
+      Date.UTC(
+        Number(year),
+        Number(month) - 1,
+        Number(day),
+        hour,
+        Number(minute),
+        Number(second),
+        Number((millisecond ?? "0").padEnd(3, "0"))
+      )
+    ).getTime();
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+
+  const value = Date.parse(timestamp);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function isAgentSessionLimitText(text: string): boolean {
+  return /hit your session limit|session limit.*resets|usage limit.*resets|rate limit.*resets/i.test(text);
 }
 
 function extractClaudeContentText(content: unknown): string {

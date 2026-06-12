@@ -29,12 +29,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
@@ -50,7 +50,7 @@ jobs:
         run: ./scripts/package-release.ps1 -Platform "${{ matrix.platform }}" -Arch "${{ matrix.arch }}" -OutputDir dist
 
       - name: Upload package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ObstTerminal-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
@@ -60,7 +60,7 @@ jobs:
 
       - name: Upload core plugin artifact
         if: matrix.platform == 'windows' && matrix.arch == 'x64'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ObstTerminal-core
           path: |
@@ -80,10 +80,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
 
@@ -117,14 +117,14 @@ jobs:
           NODE
 
       - name: Download packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: ObstTerminal-*-*
           path: dist
           merge-multiple: true
 
       - name: Download core plugin files
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ObstTerminal-core
           path: .
