@@ -20,7 +20,7 @@ import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { unzipSync } from "fflate";
 import { ChildProcessWithoutNullStreams, spawn, spawnSync } from "child_process";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from "fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
 import { tmpdir } from "os";
@@ -138,9 +138,20 @@ type CodexLoginMethod = "browser" | "device-code";
 type ShellProfile = "auto" | "pwsh" | "windows-powershell" | "cmd" | "wsl" | "git-bash" | "zsh" | "bash" | "custom";
 type ViewPane = "agent" | "terminal";
 type AgentProvider = "claude" | "codex";
+type AgentSessionMode = "legacy-latest" | "isolated";
 type AgentTranscriptRole = "user" | "assistant" | "tool" | "system";
 type AgentPromptMode = "auth" | "auth-code" | "mcp" | "menu" | "confirmation" | "permission" | "continue" | "command" | "text";
 type AgentAuthState = "idle" | "checking" | "authenticated" | "ready" | "login-required" | "login-in-progress";
+
+interface AgentViewSessionState extends Record<string, unknown> {
+  agentSessionKey?: string;
+  agentSessionLabel?: string;
+  agentSessionMode?: AgentSessionMode;
+  agentProvider?: AgentProvider;
+  activePane?: ViewPane;
+  claudeSessionId?: string;
+  codexThreadId?: string | null;
+}
 
 interface PtyHostConfig {
   shell: string;
@@ -374,6 +385,13 @@ export default class VaultPowerShellPlugin extends Plugin {
       name: "Open terminal",
       callback: () => {
         void this.activateView();
+      }
+    });
+    this.addCommand({
+      id: "open-new-agent-session",
+      name: "Open new AI session",
+      callback: () => {
+        void this.activateNewSessionView();
       }
     });
     this.addCommand({
@@ -851,6 +869,17 @@ export default class VaultPowerShellPlugin extends Plugin {
     const leaf = this.app.workspace.getRightLeaf(false) ?? this.app.workspace.getLeaf(true);
     await leaf.setViewState({
       type: VIEW_TYPE_POWERSHELL,
+      state: createAgentViewSessionState("legacy-latest"),
+      active: true
+    });
+    await this.app.workspace.revealLeaf(leaf);
+  }
+
+  async activateNewSessionView() {
+    const leaf = this.app.workspace.getRightLeaf(true) ?? this.app.workspace.getLeaf(true);
+    await leaf.setViewState({
+      type: VIEW_TYPE_POWERSHELL,
+      state: createAgentViewSessionState("isolated"),
       active: true
     });
     await this.app.workspace.revealLeaf(leaf);
@@ -891,6 +920,12 @@ class VaultPowerShellView extends ItemView {
   private terminalPaneEl: HTMLElement | null = null;
   private terminalHostEl: HTMLElement | null = null;
   private terminalStarted = false;
+  private agentSessionKey = createAgentSessionKey();
+  private agentSessionLabel = createAgentSessionLabel(this.agentSessionKey);
+  private agentSessionMode: AgentSessionMode = "legacy-latest";
+  private agentCodexThreadId: string | null = null;
+  private agentSessionTitleEl: HTMLElement | null = null;
+  private agentSessionSubtitleEl: HTMLElement | null = null;
   private agentProvider: AgentProvider = "claude";
   private agentBackend: AgentBackend | null = null;
   private agentBackendUnsubscribe: (() => void) | null = null;
@@ -942,7 +977,7 @@ class VaultPowerShellView extends ItemView {
   private agentCurrentTurnStartedAt = 0;
   private agentSessionBaselineOffsets = new Map<string, number>();
   private agentClaudePrintTurnActive = false;
-  private agentClaudeSessionId: string | null = null;
+  private agentClaudeSessionId: string | null = randomUUID();
   private lastAgentLaunchCommand = "";
   private agentSeenEntries = new Set<string>();
   private agentLocalMessageCounter = 0;
@@ -968,11 +1003,29 @@ class VaultPowerShellView extends ItemView {
   }
 
   getDisplayText(): string {
-    return "Obst Terminal";
+    return this.agentSessionLabel ? `Obst ${this.agentSessionLabel}` : "Obst Terminal";
   }
 
   getIcon(): string {
     return OBST_TERMINAL_ICON;
+  }
+
+  getState(): Record<string, unknown> {
+    return {
+      agentSessionKey: this.agentSessionKey,
+      agentSessionLabel: this.agentSessionLabel,
+      agentSessionMode: this.agentSessionMode,
+      agentProvider: this.agentProvider,
+      activePane: this.activePane,
+      claudeSessionId: this.agentClaudeSessionId,
+      codexThreadId: this.agentCodexThreadId
+    };
+  }
+
+  setState(state: unknown): Promise<void> {
+    this.applyAgentViewState(state);
+    this.refreshAgentSessionChrome();
+    return Promise.resolve();
   }
 
   onOpen(): Promise<void> {
@@ -991,7 +1044,7 @@ class VaultPowerShellView extends ItemView {
     this.createTerminalToolbar(this.terminalPaneEl);
     this.terminalHostEl = this.terminalPaneEl.createDiv("vault-powershell-terminal");
 
-    this.showPane("agent");
+    this.showPane(this.activePane, false);
     return Promise.resolve();
   }
 
@@ -1029,6 +1082,8 @@ class VaultPowerShellView extends ItemView {
     this.terminalPaneEl = null;
     this.terminalHostEl = null;
     this.agentStatusEl = null;
+    this.agentSessionTitleEl = null;
+    this.agentSessionSubtitleEl = null;
     this.agentTranscriptEl = null;
     this.agentLoadingEl = null;
     this.agentLoadingTextEl = null;
@@ -1041,6 +1096,61 @@ class VaultPowerShellView extends ItemView {
     this.agentProviderButtons = { claude: null, codex: null };
     this.agentProviderIndicatorEl = null;
     return Promise.resolve();
+  }
+
+  private applyAgentViewState(state: unknown) {
+    if (!state || typeof state !== "object") {
+      return;
+    }
+    const value = state as AgentViewSessionState;
+    if (typeof value.agentSessionKey === "string" && value.agentSessionKey.trim()) {
+      this.agentSessionKey = value.agentSessionKey.trim();
+    }
+    if (typeof value.agentSessionLabel === "string" && value.agentSessionLabel.trim()) {
+      this.agentSessionLabel = value.agentSessionLabel.trim();
+    } else if (!this.agentSessionLabel) {
+      this.agentSessionLabel = createAgentSessionLabel(this.agentSessionKey);
+    }
+    if (value.agentSessionMode === "isolated" || value.agentSessionMode === "legacy-latest") {
+      this.agentSessionMode = value.agentSessionMode;
+    }
+    if (value.agentProvider === "claude" || value.agentProvider === "codex") {
+      this.agentProvider = value.agentProvider;
+    }
+    if (value.activePane === "agent" || value.activePane === "terminal") {
+      this.activePane = value.activePane;
+    }
+    if (typeof value.claudeSessionId === "string" && value.claudeSessionId.trim()) {
+      this.agentClaudeSessionId = value.claudeSessionId.trim();
+    }
+    if (typeof value.codexThreadId === "string" && value.codexThreadId.trim()) {
+      this.agentCodexThreadId = value.codexThreadId.trim();
+    } else if (value.codexThreadId === null) {
+      this.agentCodexThreadId = null;
+    }
+  }
+
+  private saveAgentViewState() {
+    this.app.workspace.requestSaveLayout();
+  }
+
+  private refreshAgentSessionChrome() {
+    const title = `Agent console · ${this.agentSessionLabel}`;
+    this.agentSessionTitleEl?.setText(title);
+    const path = this.plugin.getVaultPath() ?? "No local vault path";
+    const mode = this.agentSessionMode === "isolated" ? "isolated" : "latest fallback";
+    const codex = this.agentCodexThreadId ? ` · codex:${shortSessionId(this.agentCodexThreadId)}` : "";
+    const claude = this.agentClaudeSessionId ? ` · claude:${shortSessionId(this.agentClaudeSessionId)}` : "";
+    this.agentSessionSubtitleEl?.setText(`${path} · ${mode}${claude}${codex}`);
+  }
+
+  private ensureClaudeSessionId(): string {
+    if (!this.agentClaudeSessionId) {
+      this.agentClaudeSessionId = randomUUID();
+      this.saveAgentViewState();
+      this.refreshAgentSessionChrome();
+    }
+    return this.agentClaudeSessionId;
   }
 
   private createPaneTab(container: Element, label: string, pane: ViewPane, icon: string): HTMLElement {
@@ -1102,7 +1212,7 @@ class VaultPowerShellView extends ItemView {
     });
   }
 
-  private showPane(pane: ViewPane) {
+  private showPane(pane: ViewPane, persist = true) {
     this.activePane = pane;
     this.agentPaneEl?.toggleClass("vault-terminal-pane-hidden", pane !== "agent");
     this.terminalPaneEl?.toggleClass("vault-terminal-pane-hidden", pane !== "terminal");
@@ -1115,6 +1225,9 @@ class VaultPowerShellView extends ItemView {
       this.scheduleTerminalFitStabilization();
     } else {
       this.agentInputEl?.focus();
+    }
+    if (persist) {
+      this.saveAgentViewState();
     }
   }
 
@@ -1140,11 +1253,11 @@ class VaultPowerShellView extends ItemView {
 
     const header = container.createDiv("vault-agent-header");
     const titleWrap = header.createDiv("vault-agent-title-wrap");
-    titleWrap.createEl("div", { cls: "vault-agent-title", text: "Agent console" });
-    titleWrap.createEl("div", {
+    this.agentSessionTitleEl = titleWrap.createEl("div", { cls: "vault-agent-title" });
+    this.agentSessionSubtitleEl = titleWrap.createEl("div", {
       cls: "vault-agent-subtitle",
-      text: this.plugin.getVaultPath() ?? "No local vault path"
     });
+    this.refreshAgentSessionChrome();
 
     this.agentStatusEl = header.createDiv("vault-agent-status");
     this.setAgentStatus("Idle");
@@ -1160,6 +1273,14 @@ class VaultPowerShellView extends ItemView {
     this.refreshAgentProviderButtons();
 
     const actions = toolbar.createDiv("vault-agent-actions");
+    const newSessionButton = actions.createEl("button", {
+      cls: "vault-agent-action vault-agent-action-new-session",
+      attr: { "aria-label": "Open new AI session", title: "Open new AI session" }
+    });
+    setIcon(newSessionButton, "plus");
+    newSessionButton.addEventListener("click", () => {
+      void this.plugin.activateNewSessionView();
+    });
     const startButton = actions.createEl("button", {
       cls: "vault-agent-action vault-agent-action-start",
       attr: { "aria-label": "Start", title: "Start" }
@@ -1211,7 +1332,7 @@ class VaultPowerShellView extends ItemView {
     this.appendAgentTranscript({
       id: this.nextLocalAgentEntryId("system"),
       role: "system",
-      text: "Claude 또는 Codex를 시작하세요. 구독 모드 CLI가 이 패널 뒤에서 실행되며, 대화 내용은 로컬 세션 로그를 통해 표시됩니다."
+      text: `${this.agentSessionLabel} 세션입니다. Claude 또는 Codex를 시작하세요. 각 Obst Terminal pane은 고유 Claude sessionId / Codex threadId를 유지합니다.`
     });
 
     this.agentLoadingEl = container.createDiv("vault-agent-loading is-hidden");
@@ -1307,6 +1428,7 @@ class VaultPowerShellView extends ItemView {
       }
 
       this.agentProvider = provider;
+      this.saveAgentViewState();
       this.refreshAgentProviderButtons();
       this.switchAgentTranscript(provider);
       this.agentInputEl?.focus();
@@ -1385,12 +1507,17 @@ class VaultPowerShellView extends ItemView {
     this.appendAgentTranscript({
       id: this.nextLocalAgentEntryId("system"),
       role: "system",
-      text: `Starting Codex (app-server) in ${cwd}`
+      text: this.agentCodexThreadId
+        ? `Starting Codex (app-server) in ${cwd} · thread ${shortSessionId(this.agentCodexThreadId)}`
+        : `Starting Codex (app-server) in ${cwd} · new isolated thread`
     });
 
     try {
       await backend.start({
         cwd,
+        resumeThreadId: this.agentCodexThreadId ?? undefined,
+        resumeLatestThread: !this.agentCodexThreadId && this.agentSessionMode === "legacy-latest",
+        sessionName: this.agentSessionLabel,
         model: this.plugin.settings.codexModel || undefined
       });
       await this.populateCodexModels();
@@ -1474,6 +1601,10 @@ class VaultPowerShellView extends ItemView {
         this.scheduleCodexStatusLineRefresh();
         break;
       case "thread-ready":
+        this.agentCodexThreadId = event.threadId;
+        this.agentSessionMode = "isolated";
+        this.saveAgentViewState();
+        this.refreshAgentSessionChrome();
         break;
       case "approval-request":
         this.renderCodexApproval(event.request);
@@ -1967,6 +2098,7 @@ class VaultPowerShellView extends ItemView {
 
     this.disposeAgent();
     this.agentProvider = provider;
+    this.saveAgentViewState();
     this.refreshAgentProviderButtons();
 
     if (provider === "codex" && this.plugin.settings.codexUseAppServer) {
@@ -1990,6 +2122,9 @@ class VaultPowerShellView extends ItemView {
     this.agentNeedsAuth = false;
     this.agentPromptState = null;
     this.agentOpenedExternalUrls.clear();
+    if (provider === "claude") {
+      this.ensureClaudeSessionId();
+    }
     this.refreshAgentPromptActions();
     this.agentReadyForInput = false;
     this.setAgentStatus(`Checking ${getAgentProviderLabel(provider)} login...`);
@@ -2132,11 +2267,13 @@ class VaultPowerShellView extends ItemView {
   }
 
   private launchAgentCli() {
-    let command = getAgentLaunchCommand(this.agentProvider, this.plugin.settings);
-    // claude resumes via --continue (see getAgentLaunchCommand). No explicit
-    // session id, so polling falls back to the newest session in this folder —
-    // which is ours, since the Claude desktop app doesn't open this vault.
-    this.agentClaudeSessionId = null;
+    const claudeSessionId = this.agentProvider === "claude" ? this.ensureClaudeSessionId() : undefined;
+    let command = getAgentLaunchCommand(this.agentProvider, this.plugin.settings, {
+      claudeSessionId,
+      sessionName: this.agentSessionLabel
+    });
+    this.saveAgentViewState();
+    this.refreshAgentSessionChrome();
     this.lastAgentLaunchCommand = command;
     this.sendAgentHostMessage({ type: "data", data: `${command}\r` });
     this.setAgentStatus(`Launching ${getAgentProviderLabel(this.agentProvider)}...`);
@@ -2297,7 +2434,11 @@ class VaultPowerShellView extends ItemView {
         useSystemCa: this.plugin.settings.useSystemCa,
         extraCaCertPath: this.plugin.getExtraCaCertPath()
       });
-      const result = await runClaudePrintCommand(text, cwd, env, CLAUDE_PRINT_TIMEOUT_MS);
+      const sessionId = this.ensureClaudeSessionId();
+      const result = await runClaudePrintCommand(text, cwd, env, CLAUDE_PRINT_TIMEOUT_MS, {
+        sessionId,
+        sessionName: this.agentSessionLabel
+      });
       const output = formatClaudePrintOutput(result);
       this.appendAgentTranscript({
         id: this.nextLocalAgentEntryId("assistant"),
@@ -5281,6 +5422,31 @@ function getAgentProviderLabel(provider: AgentProvider): string {
   return provider === "claude" ? "Claude Code" : "Codex";
 }
 
+function createAgentSessionKey(): string {
+  return randomUUID();
+}
+
+function shortSessionId(id: string): string {
+  return id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8) || "session";
+}
+
+function createAgentSessionLabel(sessionKey: string): string {
+  return `Agent ${shortSessionId(sessionKey)}`;
+}
+
+function createAgentViewSessionState(mode: AgentSessionMode): AgentViewSessionState {
+  const sessionKey = createAgentSessionKey();
+  return {
+    agentSessionKey: sessionKey,
+    agentSessionLabel: createAgentSessionLabel(sessionKey),
+    agentSessionMode: mode,
+    agentProvider: "claude",
+    activePane: "agent",
+    claudeSessionId: randomUUID(),
+    codexThreadId: null
+  };
+}
+
 function backendKindRole(kind: TranscriptItemKind): AgentTranscriptRole {
   switch (kind) {
     case "agentMessage":
@@ -5431,14 +5597,20 @@ function formatResetTime(value: number | null): string {
   return hours ? `${days}d ${hours}h` : `${days}d`;
 }
 
-function getAgentLaunchCommand(provider: AgentProvider, settings: PowerShellSettings): string {
+interface AgentLaunchOptions {
+  claudeSessionId?: string;
+  sessionName?: string;
+}
+
+function getAgentLaunchCommand(provider: AgentProvider, settings: PowerShellSettings, options: AgentLaunchOptions = {}): string {
   if (provider === "claude") {
-    // --continue: resume the most recent conversation in this folder (the reliable
-    //   way to continue; matches how codex resumes).
+    const sessionArgs = options.claudeSessionId
+      ? ` --session-id ${options.claudeSessionId}${options.sessionName ? ` --name ${quoteShellArg(options.sessionName)}` : ""}`
+      : " --continue";
     // --strict-mcp-config: ignore heavy global MCP servers (firebase 30s etc).
     // --permission-mode bypassPermissions: no file/command prompts (vault is the
     //   user's own folder; same trust as Codex full access).
-    return "claude --continue --strict-mcp-config --permission-mode bypassPermissions";
+    return `claude${sessionArgs} --strict-mcp-config --permission-mode bypassPermissions`;
   }
 
   // codex resume --last reopens the most recent interactive session (PTY path).
@@ -5551,16 +5723,24 @@ function getCapturedCommandFailure(result: CapturedCommandResult): string {
   return "";
 }
 
-function runClaudePrintCommand(prompt: string, cwd: string, env: { [key: string]: string | undefined }, timeoutMs: number): Promise<CapturedCommandResult> {
-  return runCapturedCommand("claude", [
-    "--continue",
+function runClaudePrintCommand(
+  prompt: string,
+  cwd: string,
+  env: { [key: string]: string | undefined },
+  timeoutMs: number,
+  options: { sessionId?: string; sessionName?: string } = {}
+): Promise<CapturedCommandResult> {
+  const args = [
+    ...(options.sessionId ? ["--session-id", options.sessionId] : ["--continue"]),
+    ...(options.sessionName ? ["--name", options.sessionName] : []),
     "--strict-mcp-config",
     "--permission-mode",
     "bypassPermissions",
     "--output-format",
     "text",
     "-p"
-  ], cwd, env, timeoutMs, `${prompt}\n`);
+  ];
+  return runCapturedCommand("claude", args, cwd, env, timeoutMs, `${prompt}\n`);
 }
 
 function formatClaudePrintOutput(result: CapturedCommandResult): string {

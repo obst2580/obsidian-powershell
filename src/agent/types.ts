@@ -56,6 +56,10 @@ export interface AgentStartOptions {
   cwd: string;
   /** Resume a prior thread/conversation when the backend supports it. */
   resumeThreadId?: string;
+  /** Compatibility fallback for a legacy single-console pane. */
+  resumeLatestThread?: boolean;
+  /** Human-readable session name shown by the backend where supported. */
+  sessionName?: string;
   /** Model id override (backend default when empty). */
   model?: string;
   /** Reasoning effort override (backend default when empty). */

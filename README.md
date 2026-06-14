@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **Agent Console + raw terminal** in the right sidebar. This branch currently reports version `0.6.14`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **Agent Console + raw terminal** in the right sidebar. This branch currently reports version `0.6.15`.
 
 [한국어 README](README.ko.md)
 
@@ -11,6 +11,8 @@ Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **Agent Co
 ## Current Behavior
 
 The default pane is **Agent Console**. The toolbar lets you choose `Claude` or `Codex`, and the active provider is shown as `현재 Claude Code` or `현재 Codex`. Claude and Codex keep separate transcripts when you switch providers.
+
+You can open multiple AI sessions in the same vault. `Open terminal` keeps the existing single-pane behavior, while `Open new AI session` or the Agent Console `+` button creates a new pane with its own Claude sessionId and Codex threadId. This is intended for project-management roles such as PM, Writer, Analyst, and Reviewer working beside the same vault documents.
 
 ### Codex
 
@@ -32,7 +34,7 @@ If the Agent Console falls back to the PTY path, or if you run `codex` manually 
 The Claude Code Agent Console separates normal chat turns from login/control prompts.
 
 - Checks login with `claude auth status --json`.
-- Sends normal prompts through `claude --continue --strict-mcp-config --permission-mode bypassPermissions --output-format text -p`.
+- Sends normal prompts through a pane-specific `claude --session-id <uuid> --strict-mcp-config --permission-mode bypassPermissions --output-format text -p`.
 - Passes the prompt through stdin and waits up to 10 minutes for the response.
 - Uses the background PTY host for `/login`, MCP connection prompts, permission prompts, and command-style control input.
 - Uses Claude session logs to track control flow and keep transcript offsets aligned.
@@ -136,6 +138,8 @@ https://github.com/obst2580/obsidian-powershell
 6. Type a message and press `Send`.
 
 When Codex is answering, `Send` acts as `Stop`. Additional messages are queued until the active turn finishes.
+
+For multiple AI collaborators, run `Open new AI session` from the command palette or press the Agent Console `+` button. Each pane gets an `Agent xxxxxxxx` label and shows short Claude/Codex session identifiers in the subtitle.
 
 ## Attachments
 
@@ -246,8 +250,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.14
-git push origin 0.6.14
+git tag 0.6.15
+git push origin 0.6.15
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.

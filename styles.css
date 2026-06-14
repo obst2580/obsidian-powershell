@@ -636,6 +636,11 @@
   height: 16px;
 }
 
+.vault-agent-action-new-session:hover {
+  color: var(--interactive-accent);
+  border-color: currentColor;
+}
+
 .vault-agent-action-start:hover {
   color: var(--text-success, #3aa675);
   border-color: currentColor;
