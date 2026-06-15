@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console + Raw terminal** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.27`입니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.28`입니다.
 
 [English README](README.md)
 
@@ -22,7 +22,7 @@ Obst Terminal은 한 명의 AI와만 대화하는 단일 콘솔이 아니라, **
 
 Obst Terminal을 열면 기본 화면은 **Agent Console**입니다. 상단에서 `Claude`와 `Codex`를 선택할 수 있고, 현재 선택된 provider는 `현재 Claude Code` 또는 `현재 Codex` chip으로 표시됩니다. Claude와 Codex transcript는 서로 섞이지 않고 따로 유지됩니다.
 
-한 볼트 안에서 여러 AI 세션을 나눠 사용할 수 있습니다. 기존 `Open terminal` 명령은 첫 Obst Terminal 뷰를 재사용하고, `Open new AI session` 명령이나 Agent Console의 `+` 버튼은 Obsidian 탭을 새로 만들지 않고 플러그인 내부 상단에 AI 세션 탭을 추가합니다. 각 탭은 독립 Claude sessionId / Codex threadId, 선택 provider, 수정 가능한 제목, 표시 중인 transcript, 실행 중인 backend/PTY 상태를 유지합니다. 탭을 바꿔도 실행 중인 에이전트는 정지되지 않고 자기 세션 transcript에 계속 기록됩니다. 이 구조는 PM, Writer, Reviewer처럼 역할이 다른 여러 AI를 같은 프로젝트 문서 옆에 나눠두는 용도입니다. 한 세션에서 `@all`, `@codex`, `@claude`, `@"세션 제목"`으로 다른 실행 중인 탭에 지시를 전달할 수 있습니다.
+한 볼트 안에서 여러 AI 세션을 나눠 사용할 수 있습니다. `Open AI workspace` 명령은 첫 Obst Terminal 뷰를 재사용하고, `Open new AI session` 명령이나 Agent Console의 `+` 버튼은 Obsidian 탭을 새로 만들지 않고 플러그인 내부 상단에 AI 세션 탭을 추가합니다. 각 탭은 독립 Claude sessionId / Codex threadId, 선택 provider, 수정 가능한 제목, 표시 중인 transcript, 실행 중인 backend/PTY 상태를 유지합니다. 탭을 바꿔도 실행 중인 에이전트는 정지되지 않고 자기 세션 transcript에 계속 기록됩니다. 이 구조는 PM, Writer, Reviewer처럼 역할이 다른 여러 AI를 같은 프로젝트 문서 옆에 나눠두는 용도입니다. 한 세션에서 `@all`, `@codex`, `@claude`, `@"세션 제목"`으로 다른 실행 중인 탭에 지시를 전달할 수 있습니다.
 
 ### Codex
 
@@ -37,8 +37,6 @@ Codex Agent Console은 기본적으로 fullscreen TUI가 아니라 `codex app-se
 - statusline에는 현재 볼트 경로, git branch, 선택 모델, context 사용률, 5시간/7일 rate-limit meter를 표시합니다.
 - streaming delta는 일정 간격으로 모아 렌더링해서 Obsidian UI가 멈추는 현상을 줄입니다.
 
-Agent Console의 fallback PTY 경로를 쓰거나 Raw terminal에서 `codex`를 직접 실행하는 경우에는 기존 PTY 경로를 사용합니다. 이 경로에서는 `--no-alt-screen`, `tui.terminal_resize_reflow=false`, scrollback 보정 옵션이 적용될 수 있습니다.
-
 ### Claude Code
 
 Claude Code Agent Console은 로그인/제어 흐름과 일반 대화 흐름을 분리합니다.
@@ -49,21 +47,11 @@ Claude Code Agent Console은 로그인/제어 흐름과 일반 대화 흐름을 
 - `/login`, MCP 연결, permission 또는 command prompt처럼 interactive 응답이 필요한 경우에는 뒤쪽 PTY host를 통해 입력을 전달합니다.
 - Claude Code 세션 로그는 login/control 흐름 추적과 transcript 보정에 사용합니다.
 
-### Raw Terminal
-
-Raw terminal은 실제 xterm.js + node-pty terminal입니다.
-
-- Windows: PowerShell 7이 있으면 우선 사용하고, 없으면 Windows PowerShell을 사용합니다.
-- macOS: `$SHELL`, `zsh`, `bash` 순서로 선택합니다.
-- Linux: `$SHELL`, `bash`, `sh` 순서로 선택합니다.
-- `git`, `npm`, `python`, `claude`, `codex` 등 일반 CLI를 직접 실행할 수 있습니다.
-- 로그인, fallback debugging, 긴 shell 작업은 Raw terminal에서 처리하는 것이 가장 명확합니다.
-
 ## 요구사항
 
 - Obsidian Desktop
 - 시스템에 설치된 Node.js
-- 사용할 CLI 도구: `claude`, `codex`, `git`, `npm`, `python` 등
+- 사용할 CLI 도구: `claude`, `codex`
 
 VS Code extension에 포함된 Node.js나 CLI는 Obsidian에서 보이지 않을 수 있습니다. 아래 명령이 일반 PowerShell, Terminal, zsh, bash에서 실행되는지 확인하세요.
 
@@ -122,7 +110,7 @@ main.js
 styles.css
 ```
 
-Obst Terminal은 실제 terminal을 위해 native `node-pty` runtime이 필요합니다. runtime이 없거나 오래된 경우 같은 버전의 GitHub Release에서 `runtime-manifest.json`을 읽고, OS/아키텍처에 맞는 runtime ZIP을 내려받아 SHA-256 검증 후 설치합니다.
+Obst Terminal은 Claude Code 로그인/제어 흐름을 위해 native `node-pty` runtime이 필요합니다. runtime이 없거나 오래된 경우 같은 버전의 GitHub Release에서 `runtime-manifest.json`을 읽고, OS/아키텍처에 맞는 runtime ZIP을 내려받아 SHA-256 검증 후 설치합니다.
 
 관련 명령과 설정:
 
@@ -141,7 +129,7 @@ https://github.com/obst2580/obsidian-powershell
 ## Agent Console 사용
 
 1. Obsidian에서 프로젝트 볼트를 엽니다.
-2. 명령 팔레트에서 `Open terminal`을 실행하거나 우측 사이드바의 Obst Terminal 탭을 엽니다.
+2. 명령 팔레트에서 `Open AI workspace`를 실행하거나 우측 사이드바의 Obst Terminal 탭을 엽니다.
 3. 상단 provider 버튼에서 `Claude` 또는 `Codex`를 선택합니다.
 4. `Start`로 agent를 시작합니다.
 5. 필요하면 `Login`으로 로그인 흐름을 시작합니다.
@@ -175,7 +163,7 @@ Agent Console composer의 `Attach` 버튼으로 파일을 첨부할 수 있습�
 
 Codex app-server 경로에서는 이미지가 `localImage`, 일반 파일이 `mention` 입력으로 전달됩니다. Claude Code 경로에서는 prompt 하단에 `첨부 파일:` 목록을 붙여 전달합니다.
 
-Agent Console에서 이미지를 붙여넣으면 첨부 chip으로 추가합니다. Raw terminal에서 이미지나 스크린샷을 붙여넣으면 볼트의 attachment folder에 저장한 뒤 `@path` 참조를 입력합니다.
+Agent Console에서 이미지를 붙여넣으면 첨부 chip으로 추가합니다.
 
 기본 attachment folder:
 
@@ -189,24 +177,14 @@ Obst Terminal Attachments/
 Settings > Obst Terminal > Attachment folder
 ```
 
-현재 노트 참조는 명령 팔레트에서 넣을 수 있습니다.
-
-```text
-Command palette > Insert current note reference
-```
+현재 노트 참조는 Agent Console의 `Add current note` 버튼으로 넣을 수 있습니다.
 
 ## 주요 설정
 
 | 설정 | 동작 |
 | --- | --- |
-| `Shell executable` | Raw terminal에서 사용할 shell을 직접 지정합니다. |
 | `Node executable` | Node.js가 PATH에 없을 때 절대경로를 지정합니다. |
-| `Windows PTY backend` | Windows에서 `ConPTY` 또는 `winpty`를 선택합니다. |
-| `Terminal color scheme` | Obsidian 테마 추적 또는 light/dark 고정 색상을 선택합니다. |
-| `Shift+Enter behavior` | Claude multiline 입력 등 줄바꿈 방식을 선택합니다. |
-| `Run Codex without alternate screen` | PTY 경로의 Codex를 `--no-alt-screen`으로 실행합니다. |
-| `Stabilize Codex resize rendering` | PTY 경로의 Codex에 `tui.terminal_resize_reflow=false`를 적용합니다. |
-| `Preserve Codex scrollback` | Codex redraw가 scrollback을 지우는 escape를 제거합니다. |
+| `Windows PTY backend` | Windows에서 Claude Code 제어용 PTY backend를 선택합니다. |
 | `Install runtime automatically` | runtime이 없거나 오래된 경우 자동 설치를 허용합니다. |
 | `Use system certificate store` | Node 기반 CLI에 system CA store 옵션을 주입합니다. |
 | `Extra CA certificate` | 사용자 PEM 인증서 경로를 지정합니다. |
@@ -271,17 +249,17 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-git tag 0.6.27
-git push origin 0.6.27
+git tag 0.6.28
+git push origin 0.6.28
 ```
 
 릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.
 
 ## 보안
 
-Obst Terminal은 실제 로컬 shell과 별도 Node.js PTY host process를 실행합니다.
+Obst Terminal은 로컬 interactive shell을 기본으로 실행하지 않습니다. Claude Code 로그인/제어 흐름에서만 별도 Node.js PTY host process를 사용할 수 있습니다.
 
-- 명령은 사용자의 OS 계정 권한으로 실행됩니다.
+- Agent Console에서 시작한 Claude Code 또는 Codex CLI는 사용자의 OS 계정 권한으로 실행됩니다.
 - 실행한 CLI는 로컬 파일, 네트워크, 인증 정보에 접근할 수 있습니다.
 - Claude Code, Codex CLI, git, npm 등 외부 도구는 이 플러그인에 포함되지 않습니다.
 - native runtime은 전체 ZIP에 포함되거나 같은 버전 GitHub Release에서 SHA-256 검증 후 설치됩니다.

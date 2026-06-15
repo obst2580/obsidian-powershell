@@ -1,9 +1,9 @@
 {
   "id": "vault-terminal",
   "name": "Obst Terminal",
-  "version": "0.6.27",
+  "version": "0.6.28",
   "minAppVersion": "1.7.0",
-  "description": "Open a right-sidebar terminal rooted at the current vault.",
+  "description": "Open a right-sidebar multi-session AI Agent Console rooted at the current vault.",
   "author": "obst2580",
   "authorUrl": "https://github.com/obst2580",
   "isDesktopOnly": true

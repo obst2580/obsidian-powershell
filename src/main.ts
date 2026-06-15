@@ -16,8 +16,6 @@ import {
   WorkspaceLeaf
 } from "obsidian";
 import { clipboard } from "electron";
-import { Terminal, type ITheme } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
 import { unzipSync } from "fflate";
 import { ChildProcessWithoutNullStreams, spawn, spawnSync } from "child_process";
 import { createHash, randomUUID } from "crypto";
@@ -26,6 +24,12 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
 import { tmpdir } from "os";
 import { CodexAppServerBackend } from "./agent/codex/backend";
 import type { AgentAccessLevel, AgentAttachment, AgentBackend, AgentModelInfo, AgentStatus, AgentUiEvent, AgentUsageWindow, ApprovalRequest, TranscriptItem, TranscriptItemKind } from "./agent/types";
+
+type Terminal = any;
+type ITheme = Record<string, string>;
+type FitAddonLike = {
+  proposeDimensions(): { cols: number; rows: number } | undefined;
+};
 
 const VIEW_TYPE_POWERSHELL = "vault-powershell";
 const GITHUB_REPOSITORY = "obst2580/obsidian-powershell";
@@ -462,13 +466,13 @@ export default class VaultPowerShellPlugin extends Plugin {
       (leaf) => new VaultPowerShellView(leaf, this)
     );
 
-    this.addRibbonIcon(OBST_TERMINAL_ICON, "Open terminal", () => {
+    this.addRibbonIcon(OBST_TERMINAL_ICON, "Open AI workspace", () => {
       void this.activateView();
     });
 
     this.addCommand({
       id: "open-vault-powershell-view",
-      name: "Open terminal",
+      name: "Open AI workspace",
       callback: () => {
         void this.activateView();
       }
@@ -478,13 +482,6 @@ export default class VaultPowerShellPlugin extends Plugin {
       name: "Open new AI session",
       callback: () => {
         void this.activateNewSessionView();
-      }
-    });
-    this.addCommand({
-      id: "insert-current-note-reference",
-      name: "Insert current note reference",
-      callback: () => {
-        void this.insertCurrentNoteReference();
       }
     });
     this.addCommand({
@@ -930,13 +927,9 @@ export default class VaultPowerShellPlugin extends Plugin {
   }
 
   async insertVaultReferences(paths: string[]) {
-    const text = paths.map((path) => formatVaultFileReference(path)).join(" ");
-    if (!text) {
-      return;
+    if (paths.length > 0) {
+      new Notice("Use Agent Console > Add current note or Attach to send vault references.");
     }
-
-    const view = await this.getOrCreateTerminalView();
-    view.insertTerminalText(`${text} `);
   }
 
   async insertCurrentNoteReference() {
@@ -984,7 +977,7 @@ export default class VaultPowerShellPlugin extends Plugin {
 class VaultPowerShellView extends ItemView {
   private plugin: VaultPowerShellPlugin;
   private terminal: Terminal | null = null;
-  private fitAddon: FitAddon | null = null;
+  private fitAddon: FitAddonLike | null = null;
   private host: ChildProcessWithoutNullStreams | null = null;
   private hostReady = false;
   private hostStdoutBuffer = "";
@@ -1009,7 +1002,7 @@ class VaultPowerShellView extends ItemView {
   private inputLineReliable = true;
   private runtimePromptEl: HTMLElement | null = null;
   private pendingInsertTexts: string[] = [];
-  private activePane: ViewPane = "terminal";
+  private activePane: ViewPane = "agent";
   private paneTabEls: Record<ViewPane, HTMLElement | null> = { agent: null, terminal: null };
   private agentPaneEl: HTMLElement | null = null;
   private terminalPaneEl: HTMLElement | null = null;
@@ -1144,16 +1137,10 @@ class VaultPowerShellView extends ItemView {
     container.empty();
     container.addClass("vault-powershell-view");
 
-    const tabbar = container.createDiv("vault-terminal-tabbar");
-    this.paneTabEls.agent = this.createPaneTab(tabbar, "Agent", "agent", "bot");
-    this.paneTabEls.terminal = this.createPaneTab(tabbar, "Terminal", "terminal", "square-terminal");
+    this.paneTabEls = { agent: null, terminal: null };
 
     this.agentPaneEl = container.createDiv("vault-agent-pane");
     this.createAgentConsole(this.agentPaneEl);
-
-    this.terminalPaneEl = container.createDiv("vault-terminal-pane");
-    this.createTerminalToolbar(this.terminalPaneEl);
-    this.terminalHostEl = this.terminalPaneEl.createDiv("vault-powershell-terminal");
 
     this.showPane(this.activePane, false);
     return Promise.resolve();
@@ -1269,9 +1256,7 @@ class VaultPowerShellView extends ItemView {
       this.visibleAgentSessionKey = this.agentSessionKey;
     }
 
-    if (value.activePane === "agent" || value.activePane === "terminal") {
-      this.activePane = value.activePane;
-    }
+    this.activePane = "agent";
 
     this.ensureInternalAgentSessions();
   }
@@ -1895,86 +1880,25 @@ class VaultPowerShellView extends ItemView {
     return button;
   }
 
-  private createTerminalToolbar(container: HTMLElement) {
-    const toolbar = container.createDiv("vault-terminal-toolbar");
-    const titleWrap = toolbar.createDiv("vault-terminal-title-wrap");
-    titleWrap.createDiv({ cls: "vault-terminal-title", text: "Terminal" });
-    titleWrap.createDiv({
-      cls: "vault-terminal-subtitle",
-      text: this.plugin.getVaultPath() ?? "No local vault path"
-    });
-
-    const controls = toolbar.createDiv("vault-terminal-controls");
-    const profileSelect = controls.createEl("select", {
-      cls: "vault-terminal-shell-select",
-      attr: {
-        "aria-label": "Shell profile"
-      }
-    });
-    for (const option of getShellProfileOptions()) {
-      profileSelect.createEl("option", {
-        text: option.label,
-        value: option.value
-      });
-    }
-    profileSelect.value = normalizeShellProfile(this.plugin.settings.shellProfile);
-    profileSelect.addEventListener("change", () => {
-      this.plugin.settings.shellProfile = normalizeShellProfile(profileSelect.value);
-      void this.plugin.saveSettings();
-      this.restartShell();
-    });
-
-    const restartButton = controls.createEl("button", { text: "Restart" });
-    restartButton.addEventListener("click", () => {
-      this.restartShell();
-    });
-
-    const clearButton = controls.createEl("button", { text: "Clear" });
-    clearButton.addEventListener("click", () => {
-      this.terminal?.clear();
-      this.terminal?.focus();
-    });
-
-    const noteButton = controls.createEl("button", { text: "Add current note" });
-    noteButton.addEventListener("click", () => {
-      void this.plugin.insertCurrentNoteReference();
-    });
-  }
-
   private showPane(pane: ViewPane, persist = true) {
-    this.activePane = pane;
-    this.agentPaneEl?.toggleClass("vault-terminal-pane-hidden", pane !== "agent");
-    this.terminalPaneEl?.toggleClass("vault-terminal-pane-hidden", pane !== "terminal");
-    this.paneTabEls.agent?.toggleClass("is-active", pane === "agent");
-    this.paneTabEls.terminal?.toggleClass("is-active", pane === "terminal");
+    this.activePane = "agent";
+    this.agentPaneEl?.toggleClass("vault-terminal-pane-hidden", false);
+    this.terminalPaneEl?.addClass("vault-terminal-pane-hidden");
+    this.paneTabEls.agent?.toggleClass("is-active", true);
+    this.paneTabEls.terminal?.toggleClass("is-active", false);
 
-    if (pane === "terminal") {
-      this.ensureRawTerminal();
-      this.terminal?.focus();
-      this.scheduleTerminalFitStabilization();
-    } else {
-      this.agentInputEl?.focus();
-    }
+    this.agentInputEl?.focus();
     if (persist) {
       this.saveAgentViewState();
     }
   }
 
   private ensureRawTerminal() {
-    if (this.terminalStarted || !this.terminalHostEl) {
-      return;
-    }
-
-    this.terminalStarted = true;
-    this.createTerminal(this.terminalHostEl);
-    this.startShell();
+    new Notice("Raw terminal has been removed. Use Agent Console instead.");
   }
 
   private restartShell() {
-    this.disposeShell();
-    this.terminal?.clear();
-    this.startShell();
-    this.terminal?.focus();
+    new Notice("Raw terminal has been removed. Use Agent Console instead.");
   }
 
   private createAgentConsole(container: HTMLElement) {
@@ -2060,10 +1984,6 @@ class VaultPowerShellView extends ItemView {
         role: "system",
         text: "에이전트를 정지했습니다."
       });
-    });
-    const rawButton = actions.createEl("button", { text: "Raw" });
-    rawButton.addEventListener("click", () => {
-      this.showPane("terminal");
     });
     this.agentLoginButton = actions.createEl("button", { text: "Login" });
     this.agentLoginButton.addEventListener("click", () => {
@@ -4323,132 +4243,11 @@ class VaultPowerShellView extends ItemView {
   }
 
   private createTerminal(container: HTMLElement) {
-    const terminalTheme = buildTerminalTheme(this.plugin.settings.terminalColorScheme);
-    applyTerminalThemeVars(container, terminalTheme);
-
-    const terminal = new Terminal({
-      allowProposedApi: false,
-      convertEol: false,
-      cursorBlink: true,
-      cursorStyle: "block",
-      drawBoldTextInBrightColors: true,
-      fastScrollSensitivity: 12,
-      fontFamily: "D2Coding, NanumGothicCoding, GulimChe, 'MS Gothic', 'Cascadia Mono', 'JetBrains Mono', Menlo, Monaco, Consolas, monospace",
-      fontSize: 13,
-      letterSpacing: 0,
-      lineHeight: 1.22,
-      minimumContrastRatio: 4.5,
-      rightClickSelectsWord: false,
-      scrollback: 50000,
-      scrollOnEraseInDisplay: true,
-      scrollSensitivity: 3,
-      smoothScrollDuration: 0,
-      theme: terminalTheme,
-      windowsPty: process.platform === "win32"
-        ? { backend: this.plugin.settings.windowsPtyBackend }
-        : undefined
+    container.empty();
+    container.createDiv({
+      cls: "vault-terminal-removed",
+      text: "Raw terminal has been removed. Use Agent Console instead."
     });
-
-    const fitAddon = new FitAddon();
-    terminal.loadAddon(fitAddon);
-    terminal.open(container);
-    terminal.focus();
-
-    terminal.onData((data) => {
-      this.clearCachedClaudeSuggestion(true);
-      this.sendHostMessage({ type: "data", data: this.rewriteTerminalInput(data) });
-    });
-    terminal.onWriteParsed(() => {
-      this.scheduleTerminalRefresh();
-    });
-
-    terminal.attachCustomKeyEventHandler((event) => {
-      if (event.type !== "keydown") {
-        return true;
-      }
-
-      if (this.handleCopyPasteShortcut(event, terminal)) {
-        return false;
-      }
-
-      if (this.handleShiftEnter(event)) {
-        return false;
-      }
-
-      if (this.handleClaudeSuggestionEnter(event)) {
-        return false;
-      }
-
-      if (this.handleScrollKey(event, terminal)) {
-        return false;
-      }
-
-      return true;
-    });
-
-    container.addEventListener("mousedown", () => {
-      this.terminal?.focus();
-    });
-
-    container.addEventListener("wheel", (event) => {
-      this.handleTerminalWheel(event, terminal);
-    }, { passive: false, capture: true });
-
-    container.addEventListener("keydown", (event) => {
-      if (this.handleCopyPasteShortcut(event, terminal)) {
-        return;
-      }
-
-      this.handleShiftEnter(event);
-      this.handleClaudeSuggestionEnter(event);
-    }, { passive: false, capture: true });
-
-    container.addEventListener("paste", (event) => {
-      this.handleTerminalPaste(event);
-    }, { capture: true });
-
-    container.addEventListener("dragover", (event) => {
-      this.handleTerminalDragOver(event);
-    });
-    container.addEventListener("dragleave", () => {
-      container.removeClass("vault-terminal-drop-target");
-    });
-    container.addEventListener("drop", (event) => {
-      void this.handleTerminalDrop(event);
-    });
-
-    this.windowKeydownHandler = (event) => this.handleGlobalTerminalKeydown(event);
-    window.addEventListener("keydown", this.windowKeydownHandler, { capture: true });
-
-    container.addEventListener("contextmenu", (event) => {
-      this.showTerminalContextMenu(event, terminal);
-    });
-
-    this.terminal = terminal;
-    this.terminalContainer = container;
-    this.fitAddon = fitAddon;
-    this.resizeObserver = new ResizeObserver(() => {
-      this.scheduleFitTerminal();
-    });
-    this.resizeObserver.observe(container);
-    this.themeObserver = new MutationObserver(() => {
-      this.refreshTerminalTheme();
-    });
-    this.themeObserver.observe(document.body, {
-      attributes: true,
-      attributeFilter: ["class", "style"]
-    });
-
-    this.scheduleTerminalFitStabilization();
-    if (document.fonts) {
-      void document.fonts.ready.then(() => {
-        if (this.terminal) {
-          this.scheduleTerminalFitStabilization();
-        }
-      }).catch(() => {
-        // Font readiness is only a layout hint; the terminal can continue without it.
-      });
-    }
   }
 
   private handleShiftEnter(event: KeyboardEvent): boolean {
@@ -5300,8 +5099,7 @@ class VaultPowerShellView extends ItemView {
   }
 
   insertTerminalText(text: string) {
-    this.ensureRawTerminal();
-    this.sendTerminalInput(text);
+    new Notice("Raw terminal has been removed. Use Agent Console instead.");
   }
 
   private sendTerminalInput(text: string) {
@@ -5503,65 +5301,6 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
       .setHeading();
 
     new Setting(containerEl)
-      .setName("Shell profile")
-      .setDesc(process.platform === "win32"
-        ? "Choose the real shell opened in this pane. WSL requires an installed Linux distribution and starts at the vault path when supported."
-        : "Choose the real shell opened in this pane. macOS usually uses zsh by default.")
-      .addDropdown((dropdown) => {
-        for (const option of getShellProfileOptions()) {
-          dropdown.addOption(option.value, option.label);
-        }
-
-        dropdown
-          .setValue(normalizeShellProfile(this.plugin.settings.shellProfile))
-          .onChange((value) => {
-            this.plugin.settings.shellProfile = normalizeShellProfile(value);
-            void this.plugin.saveSettings();
-          });
-      });
-
-    if (process.platform === "win32") {
-      new Setting(containerEl)
-        .setName("WSL distribution")
-        .setDesc("Optional. Leave empty for the default WSL distribution, or enter a name such as Ubuntu.")
-        .addText((text) =>
-          text
-            .setPlaceholder("default")
-            .setValue(this.plugin.settings.wslDistro)
-            .onChange((value) => {
-              this.plugin.settings.wslDistro = value.trim();
-              void this.plugin.saveSettings();
-            })
-        );
-    }
-
-    new Setting(containerEl)
-      .setName("Custom shell executable")
-      .setDesc("Used only when Shell profile is Custom, or as the legacy Auto override. Leave empty for automatic selection.")
-      .addText((text) =>
-        text
-          .setPlaceholder("auto")
-          .setValue(this.plugin.settings.executable)
-          .onChange((value) => {
-            this.plugin.settings.executable = value.trim();
-            void this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("Custom shell arguments")
-      .setDesc("Used with the custom shell executable. Leave empty for automatic arguments.")
-      .addText((text) =>
-        text
-          .setPlaceholder("auto")
-          .setValue(this.plugin.settings.args)
-          .onChange((value) => {
-            this.plugin.settings.args = value.trim();
-            void this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
       .setName("Node executable")
       .setDesc("Used to run the PTY host process. VS Code extension bundled Node is not visible to Obsidian; install Node.js system-wide or set an absolute node path here.")
       .addText((text) =>
@@ -5602,7 +5341,7 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Install runtime automatically")
-      .setDesc("Optional. Downloads the verified OS-specific runtime package when the native terminal runtime is missing or out of date.")
+      .setDesc("Optional. Downloads the verified OS-specific runtime package when the Claude Code control runtime is missing or out of date.")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.autoInstallRuntime)
@@ -5614,7 +5353,7 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Attachment folder")
-      .setDesc("Clipboard images and dropped image data without a local path are saved here before their @path is inserted into the terminal.")
+      .setDesc("Agent Console clipboard images and dropped image data without a local path are saved here before they are attached.")
       .addText((text) =>
         text
           .setPlaceholder(DEFAULT_ATTACHMENT_FOLDER)
@@ -5625,81 +5364,10 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
-      .setName("Terminal color scheme")
-      .setDesc("Follows Obsidian by default while keeping a readable ANSI palette for agent CLIs such as Codex and Claude Code.")
-      .addDropdown((dropdown) =>
-        dropdown
-          .addOption("obsidian", "Follow Obsidian")
-          .addOption("light", "Light terminal")
-          .addOption("dark", "Dark terminal")
-          .setValue(this.plugin.settings.terminalColorScheme)
-          .onChange((value) => {
-            this.plugin.settings.terminalColorScheme = normalizeTerminalColorScheme(value);
-            void this.plugin.saveSettings();
-            new Notice("Reopen the terminal to apply the color scheme.");
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("Shift+Enter behavior")
-      .setDesc("Claude backslash newline is the default because it uses Claude Code's built-in multiline path. Reopen the terminal after changing this.")
-      .addDropdown((dropdown) =>
-        dropdown
-          .addOption("claude-backslash", "Claude backslash newline")
-          .addOption("bracketed-paste", "Bracketed newline paste")
-          .addOption("xterm-paste", "xterm paste newline")
-          .addOption("modified-enter", "Modified Enter")
-          .addOption("csi-u", "CSI-u Shift Enter")
-          .addOption("line-feed", "Line feed")
-          .setValue(this.plugin.settings.shiftEnterMode)
-          .onChange((value) => {
-            this.plugin.settings.shiftEnterMode = normalizeShiftEnterMode(value);
-            void this.plugin.saveSettings();
-            new Notice("Reopen the terminal to apply Shift+Enter behavior.");
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("Run Codex without alternate screen")
-      .setDesc("On by default. Obst Terminal submits codex as codex --no-alt-screen so long conversations stay in normal terminal scrollback instead of being redrawn in a fullscreen TUI buffer.")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.codexNoAltScreen)
-          .onChange((value) => {
-            this.plugin.settings.codexNoAltScreen = value;
-            void this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("Stabilize Codex resize rendering")
-      .setDesc("On by default. When you run codex, Obst Terminal adds -c tui.terminal_resize_reflow=false to reduce stale text and overwritten lines after pane resize or TUI redraw.")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.codexDisableResizeReflow)
-          .onChange((value) => {
-            this.plugin.settings.codexDisableResizeReflow = value;
-            void this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("Preserve Codex scrollback")
-      .setDesc("On by default. Strips the scrollback-clearing escape (CSI 3J) that Codex emits on every redraw, so earlier conversation stays scrollable in this xterm.js terminal. Turn off if you want clear/cls to also wipe scrollback.")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.codexPreserveScrollback)
-          .onChange((value) => {
-            this.plugin.settings.codexPreserveScrollback = value;
-            void this.plugin.saveSettings();
-          })
-      );
-
     if (process.platform === "win32") {
       new Setting(containerEl)
         .setName("Windows PTY backend")
-        .setDesc("ConPTY is the default because it handles fullscreen TUI rendering and resizing better on modern Windows. Try winpty only if a CLI has input compatibility issues.")
+        .setDesc("Used only for the background Claude Code control process. ConPTY is the default on modern Windows.")
         .addDropdown((dropdown) =>
           dropdown
             .addOption("conpty", "ConPTY")
@@ -5708,7 +5376,7 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
             .onChange((value) => {
               this.plugin.settings.windowsPtyBackend = normalizeWindowsPtyBackend(value);
               void this.plugin.saveSettings();
-              new Notice("Reopen the terminal to apply the PTY backend.");
+              new Notice("Restart the Claude Code agent to apply the PTY backend.");
             })
         );
     }
@@ -7073,7 +6741,7 @@ function parseCodexAuthCheck(result: CapturedCommandResult): AgentAuthCheck {
     return {
       checked: true,
       loggedIn: false,
-      summary: "Codex is not signed in. Start Codex login from the Raw terminal or run codex login, then restart the agent console."
+      summary: "Codex is not signed in. Use the Agent Console Login button or run codex login in an external terminal, then restart the agent console."
     };
   }
 

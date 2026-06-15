@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console + raw terminal** in the right sidebar. This branch currently reports version `0.6.27`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.28`.
 
 [한국어 README](README.ko.md)
 
@@ -22,7 +22,7 @@ Obst Terminal is not just a single chat console. It is designed as a **multi-ses
 
 The default pane is **Agent Console**. The toolbar lets you choose `Claude` or `Codex`, and the active provider is shown as `현재 Claude Code` or `현재 Codex`. Claude and Codex keep separate transcripts when you switch providers.
 
-You can split work across multiple AI sessions in the same vault. `Open terminal` keeps the existing single-view behavior, while `Open new AI session` or the Agent Console `+` button adds an AI session tab inside the plugin instead of opening a new Obsidian workspace tab. Each tab keeps its own Claude sessionId, Codex threadId, selected provider, editable title, visible transcript, and running backend/PTY state. Switching tabs does not stop the running agent; background sessions keep writing to their own transcripts. This is intended for project-management roles such as PM, Writer, Analyst, and Reviewer working beside the same vault documents. A session can delegate a prompt to other running tabs with `@all`, `@codex`, `@claude`, or `@"session title"`.
+You can split work across multiple AI sessions in the same vault. `Open AI workspace` reuses the first Obst Terminal view, while `Open new AI session` or the Agent Console `+` button adds an AI session tab inside the plugin instead of opening a new Obsidian workspace tab. Each tab keeps its own Claude sessionId, Codex threadId, selected provider, editable title, visible transcript, and running backend/PTY state. Switching tabs does not stop the running agent; background sessions keep writing to their own transcripts. This is intended for project-management roles such as PM, Writer, Analyst, and Reviewer working beside the same vault documents. A session can delegate a prompt to other running tabs with `@all`, `@codex`, `@claude`, or `@"session title"`.
 
 ### Codex
 
@@ -37,8 +37,6 @@ The Codex Agent Console uses `codex app-server` by default instead of embedding 
 - Shows a statusline with cwd, git branch, selected model, context usage, and 5h/7d rate-limit meters.
 - Buffers streaming deltas before rendering so Obsidian stays responsive during long answers.
 
-If the Agent Console falls back to the PTY path, or if you run `codex` manually in the raw terminal, the Codex scrollback settings such as `--no-alt-screen`, `tui.terminal_resize_reflow=false`, and scrollback preservation may apply.
-
 ### Claude Code
 
 The Claude Code Agent Console separates normal chat turns from login/control prompts.
@@ -49,21 +47,11 @@ The Claude Code Agent Console separates normal chat turns from login/control pro
 - Uses the background PTY host for `/login`, MCP connection prompts, permission prompts, and command-style control input.
 - Uses Claude session logs to track control flow and keep transcript offsets aligned.
 
-### Raw Terminal
-
-The raw terminal is a real xterm.js + node-pty terminal.
-
-- Windows: PowerShell 7 when available, otherwise Windows PowerShell.
-- macOS: `$SHELL`, then `zsh`, then `bash`.
-- Linux: `$SHELL`, then `bash`, then `sh`.
-- Runs normal CLI commands such as `git`, `npm`, `python`, `claude`, and `codex`.
-- Best used for login fallback, troubleshooting, and long shell commands.
-
 ## Requirements
 
 - Obsidian Desktop.
 - Node.js installed system-wide.
-- Any CLI you want to use, such as `claude`, `codex`, `git`, `npm`, or `python`.
+- Any CLI you want to use from Agent Console, such as `claude` or `codex`.
 
 CLI runtimes bundled inside editor extensions are not enough. Obsidian starts this plugin from the normal desktop environment, so these commands should work from PowerShell, Terminal, zsh, or bash:
 
@@ -122,7 +110,7 @@ main.js
 styles.css
 ```
 
-Obst Terminal also needs a native `node-pty` runtime. If the runtime is missing or out of date, the plugin reads `runtime-manifest.json` from the matching GitHub Release, downloads the OS-specific runtime ZIP, verifies size and SHA-256, and extracts it into the plugin folder.
+Obst Terminal also needs a native `node-pty` runtime for Claude Code login/control flows. If the runtime is missing or out of date, the plugin reads `runtime-manifest.json` from the matching GitHub Release, downloads the OS-specific runtime ZIP, verifies size and SHA-256, and extracts it into the plugin folder.
 
 Runtime commands and settings:
 
@@ -141,7 +129,7 @@ https://github.com/obst2580/obsidian-powershell
 ## Using Agent Console
 
 1. Open the project vault in Obsidian.
-2. Run `Open terminal` from the command palette or open the Obst Terminal right-sidebar tab.
+2. Run `Open AI workspace` from the command palette or open the Obst Terminal right-sidebar tab.
 3. Choose `Claude` or `Codex`.
 4. Press `Start`.
 5. Use `Login` if the selected provider needs authentication.
@@ -176,7 +164,7 @@ Use the composer `Attach` button to attach files.
 
 On the Codex app-server path, images are sent as `localImage` inputs and other files as `mention` inputs. On the Claude path, attachments are appended to the prompt as an `첨부 파일:` list.
 
-Pasting an image in Agent Console adds it as an attachment chip. Pasting an image in the raw terminal saves it into the vault attachment folder and inserts an `@path` reference.
+Pasting an image in Agent Console adds it as an attachment chip.
 
 Default attachment folder:
 
@@ -190,24 +178,14 @@ Setting:
 Settings > Obst Terminal > Attachment folder
 ```
 
-The current note can be inserted from the command palette:
-
-```text
-Command palette > Insert current note reference
-```
+The current note can be inserted with the Agent Console `Add current note` button.
 
 ## Settings
 
 | Setting | Behavior |
 | --- | --- |
-| `Shell executable` | Override the shell used by the raw terminal. |
 | `Node executable` | Point to Node.js when it is not on PATH. |
-| `Windows PTY backend` | Choose `ConPTY` or `winpty` on Windows. |
-| `Terminal color scheme` | Follow Obsidian or force light/dark terminal colors. |
-| `Shift+Enter behavior` | Choose multiline behavior, including Claude backslash newline. |
-| `Run Codex without alternate screen` | Adds `--no-alt-screen` on the Codex PTY path. |
-| `Stabilize Codex resize rendering` | Adds `tui.terminal_resize_reflow=false` on the Codex PTY path. |
-| `Preserve Codex scrollback` | Removes Codex redraw escapes that clear scrollback. |
+| `Windows PTY backend` | Choose the Claude Code control PTY backend on Windows. |
 | `Install runtime automatically` | Allows automatic native runtime installation. |
 | `Use system certificate store` | Injects Node system CA behavior for Node-based CLIs. |
 | `Extra CA certificate` | Provides a custom PEM certificate path. |
@@ -272,18 +250,18 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.27
-git push origin 0.6.27
+git tag 0.6.28
+git push origin 0.6.28
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.
 
 ## Security
 
-Obst Terminal starts a real local shell and a separate Node.js PTY host process.
+Obst Terminal no longer starts a raw local shell by default. It may use a separate Node.js PTY host process only for Claude Code login/control flows.
 
-- Commands run with your local OS user permissions.
-- Commands can access local files, network resources, and credentials according to the CLI and OS permissions.
+- Claude Code or Codex CLI processes started from Agent Console run with your local OS user permissions.
+- Those CLI processes can access local files, network resources, and credentials according to the CLI and OS permissions.
 - Claude Code, Codex CLI, git, npm, and other external tools are not bundled.
 - Native runtime files are included in full ZIPs or downloaded from the matching GitHub Release and verified with SHA-256.
 - TLS / CA environment variables are injected only when enabled in settings.
