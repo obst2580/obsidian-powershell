@@ -107,6 +107,7 @@ const AGENT_SESSION_TURN_CUTOFF_SLOP_MS = 2000;
 const CLAUDE_PRINT_TIMEOUT_MS = 10 * 60 * 1000;
 const AGENT_TRANSCRIPT_BOTTOM_EPSILON_PX = 96;
 const AGENT_TRANSCRIPT_CONTEXT_MAX_CHARS = 12000;
+const CODEX_TURN_COMPLETION_FALLBACK_MS = 15000;
 
 interface PowerShellSettings {
   settingsSchemaVersion: number;
@@ -186,6 +187,7 @@ interface AgentWorkspaceSessionState extends Record<string, unknown> {
   codexCurrentAnswerEl?: HTMLElement | null;
   codexTurnLoadingEl?: HTMLElement | null;
   codexTurnActive?: boolean;
+  codexTurnCompletionFallbackTimer?: number | null;
   codexQueuedInputs?: { text: string; attachments: AgentAttachment[] }[];
   codexContextPercent?: number | null;
   codexRateLimitWindows?: AgentUsageWindow[];
@@ -1034,6 +1036,7 @@ class VaultPowerShellView extends ItemView {
   private codexCurrentAnswerEl: HTMLElement | null = null;
   private codexTurnLoadingEl: HTMLElement | null = null;
   private codexTurnActive = false;
+  private codexTurnCompletionFallbackTimer: number | null = null;
   private codexQueuedInputs: { text: string; attachments: AgentAttachment[] }[] = [];
   private agentSendButton: HTMLButtonElement | null = null;
   private codexStatusLineEl: HTMLElement | null = null;
@@ -1366,8 +1369,8 @@ class VaultPowerShellView extends ItemView {
       agentProvider: this.agentProvider,
       claudeSessionId: this.agentClaudeSessionId,
       codexThreadId: this.agentCodexThreadId,
-      claudeTranscriptHtml: this.claudeTranscriptEl?.innerHTML ?? "",
-      codexTranscriptHtml: this.codexTranscriptEl?.innerHTML ?? "",
+      claudeTranscriptHtml: sanitizeAgentTranscriptHtml(this.claudeTranscriptEl?.innerHTML ?? ""),
+      codexTranscriptHtml: sanitizeAgentTranscriptHtml(this.codexTranscriptEl?.innerHTML ?? ""),
       claudeScrollTop: this.claudeTranscriptEl?.scrollTop ?? 0,
       codexScrollTop: this.codexTranscriptEl?.scrollTop ?? 0,
       inputText: this.agentInputEl?.value ?? "",
@@ -1408,6 +1411,7 @@ class VaultPowerShellView extends ItemView {
     session.codexCurrentAnswerEl ??= null;
     session.codexTurnLoadingEl ??= null;
     session.codexTurnActive ??= false;
+    session.codexTurnCompletionFallbackTimer ??= null;
     session.codexQueuedInputs ??= [];
     session.codexContextPercent ??= null;
     session.codexRateLimitWindows ??= [];
@@ -1468,6 +1472,7 @@ class VaultPowerShellView extends ItemView {
     this.codexCurrentAnswerEl = session.codexCurrentAnswerEl ?? null;
     this.codexTurnLoadingEl = session.codexTurnLoadingEl ?? null;
     this.codexTurnActive = session.codexTurnActive ?? false;
+    this.codexTurnCompletionFallbackTimer = session.codexTurnCompletionFallbackTimer ?? null;
     this.codexQueuedInputs = session.codexQueuedInputs ?? [];
     this.codexContextPercent = session.codexContextPercent ?? null;
     this.codexRateLimitWindows = session.codexRateLimitWindows ?? [];
@@ -1503,6 +1508,9 @@ class VaultPowerShellView extends ItemView {
     this.agentOpenedExternalUrls = session.agentOpenedExternalUrls ?? new Set<string>();
     this.agentStatusText = session.statusText ?? "Idle";
     this.agentTranscriptEl = this.agentProvider === "codex" ? this.codexTranscriptEl : this.claudeTranscriptEl;
+    if (!this.codexTurnActive) {
+      this.clearCodexTurnLoadingIndicators(this.codexTranscriptEl);
+    }
   }
 
   private captureActiveAgentSessionState() {
@@ -1515,11 +1523,11 @@ class VaultPowerShellView extends ItemView {
     session.claudeSessionId = this.agentClaudeSessionId;
     session.codexThreadId = this.agentCodexThreadId;
     if (this.claudeTranscriptEl) {
-      session.claudeTranscriptHtml = this.claudeTranscriptEl.innerHTML;
+      session.claudeTranscriptHtml = sanitizeAgentTranscriptHtml(this.claudeTranscriptEl.innerHTML);
       session.claudeScrollTop = this.claudeTranscriptEl.scrollTop;
     }
     if (this.codexTranscriptEl) {
-      session.codexTranscriptHtml = this.codexTranscriptEl.innerHTML;
+      session.codexTranscriptHtml = sanitizeAgentTranscriptHtml(this.codexTranscriptEl.innerHTML);
       session.codexScrollTop = this.codexTranscriptEl.scrollTop;
     }
     if (this.agentInputEl) {
@@ -1539,6 +1547,7 @@ class VaultPowerShellView extends ItemView {
     session.codexCurrentAnswerEl = this.codexCurrentAnswerEl;
     session.codexTurnLoadingEl = this.codexTurnLoadingEl;
     session.codexTurnActive = this.codexTurnActive;
+    session.codexTurnCompletionFallbackTimer = this.codexTurnCompletionFallbackTimer;
     session.codexQueuedInputs = this.codexQueuedInputs;
     session.codexContextPercent = this.codexContextPercent;
     session.codexRateLimitWindows = this.codexRateLimitWindows;
@@ -1584,8 +1593,8 @@ class VaultPowerShellView extends ItemView {
       agentProvider: session.agentProvider,
       claudeSessionId: session.claudeSessionId,
       codexThreadId: session.codexThreadId,
-      claudeTranscriptHtml: session.claudeTranscriptHtml ?? "",
-      codexTranscriptHtml: session.codexTranscriptHtml ?? "",
+      claudeTranscriptHtml: sanitizeAgentTranscriptHtml(session.claudeTranscriptHtml ?? ""),
+      codexTranscriptHtml: sanitizeAgentTranscriptHtml(session.codexTranscriptHtml ?? ""),
       claudeScrollTop: session.claudeScrollTop ?? 0,
       codexScrollTop: session.codexScrollTop ?? 0,
       inputText: session.inputText ?? "",
@@ -2282,6 +2291,13 @@ class VaultPowerShellView extends ItemView {
         this.setAgentStatus(formatBackendStatus(event.state, event.detail));
         if (event.state === "ready") {
           this.agentReadyForInput = true;
+          if (this.codexTurnActive) {
+            this.finishCodexTurn("Codex ready", true);
+          }
+        } else if (event.state === "stopped" || event.state === "error" || event.state === "idle") {
+          if (this.codexTurnActive || this.codexTurnLoadingEl) {
+            this.finishCodexTurn(formatBackendStatus(event.state, event.detail), false);
+          }
         }
         break;
       case "auth-required":
@@ -2310,6 +2326,7 @@ class VaultPowerShellView extends ItemView {
         break;
       case "fatal":
         this.setAgentStatus("Failed");
+        this.finishCodexTurn("Failed", false);
         this.appendAgentTranscript({
           id: this.nextLocalAgentEntryId("system"),
           role: "system",
@@ -2326,12 +2343,7 @@ class VaultPowerShellView extends ItemView {
         this.renderCodexItemComplete(event.item);
         break;
       case "turn-complete":
-        this.setAgentStatus("Codex ready");
-        this.codexTurnActive = false;
-        this.updateSendButtonMode();
-        this.codexTurnLoadingEl?.remove();
-        this.codexTurnLoadingEl = null;
-        this.flushQueuedInput();
+        this.finishCodexTurn("Codex ready", true);
         break;
       case "usage-update":
         if ("contextPercent" in event) {
@@ -2369,8 +2381,8 @@ class VaultPowerShellView extends ItemView {
     }
     // Claude has no explicit turn-complete signal, so opening a new turn closes
     // the previous one: clear any leftover thinking indicator first.
-    this.codexTurnLoadingEl?.remove();
-    this.codexTurnLoadingEl = null;
+    this.cancelCodexTurnCompletionFallback();
+    this.clearCodexTurnLoadingIndicators(this.agentTranscriptEl);
     const turn = this.agentTranscriptEl.createDiv("vault-agent-turn");
     if (question.trim()) {
       const q = turn.createDiv("vault-agent-turn-question");
@@ -2536,9 +2548,55 @@ class VaultPowerShellView extends ItemView {
     this.agentSendButton.toggleClass("mod-cta", !active);
   }
 
+  private cancelCodexTurnCompletionFallback() {
+    if (this.codexTurnCompletionFallbackTimer !== null) {
+      window.clearTimeout(this.codexTurnCompletionFallbackTimer);
+      this.codexTurnCompletionFallbackTimer = null;
+    }
+  }
+
+  private scheduleCodexTurnCompletionFallback() {
+    if (!this.codexTurnActive) {
+      return;
+    }
+
+    this.cancelCodexTurnCompletionFallback();
+    const sessionKey = this.activeAgentSessionKey;
+    this.codexTurnCompletionFallbackTimer = window.setTimeout(() => {
+      this.withAgentSession(sessionKey, () => {
+        this.codexTurnCompletionFallbackTimer = null;
+        if (!this.codexTurnActive) {
+          return;
+        }
+        this.finishCodexTurn("Codex ready", true);
+      });
+    }, CODEX_TURN_COMPLETION_FALLBACK_MS);
+  }
+
+  private clearCodexTurnLoadingIndicators(root: ParentNode | null | undefined = this.agentTranscriptEl ?? this.codexTranscriptEl) {
+    this.codexTurnLoadingEl?.remove();
+    this.codexTurnLoadingEl = null;
+    removeAgentThinkingIndicators(root);
+  }
+
+  private finishCodexTurn(statusText = "Codex ready", flushQueued = true) {
+    this.cancelCodexTurnCompletionFallback();
+    this.codexTurnActive = false;
+    this.updateSendButtonMode();
+    this.clearCodexTurnLoadingIndicators();
+    this.setAgentStatus(statusText);
+    if (flushQueued) {
+      this.flushQueuedInput();
+    }
+    this.captureActiveAgentSessionState();
+    this.saveAgentViewState();
+  }
+
   // In-chat "thinking" indicator pinned to the bottom of the active answer.
   private showTurnThinking(answer: HTMLElement) {
+    this.clearCodexTurnLoadingIndicators(answer);
     const thinking = answer.createDiv("vault-agent-thinking");
+    thinking.dataset.startedAt = String(Date.now());
     const dots = thinking.createDiv("vault-agent-thinking-dots");
     dots.createSpan();
     dots.createSpan();
@@ -2651,6 +2709,7 @@ class VaultPowerShellView extends ItemView {
     if (!answer) {
       return;
     }
+    this.cancelCodexTurnCompletionFallback();
     const shouldStickToBottom = this.shouldAutoScrollAgentTranscript();
     const block = answer.createDiv(`vault-agent-block vault-agent-block-${item.kind} vault-agent-block-role-${backendKindRole(item.kind)}`);
     if (item.kind !== "agentMessage" && item.kind !== "plan") {
@@ -2950,6 +3009,11 @@ class VaultPowerShellView extends ItemView {
     } else {
       this.renderAgentMessageBody(body, finalText);
     }
+    if (item.kind === "agentMessage") {
+      const answer = body.closest<HTMLElement>(".vault-agent-turn-answer") ?? this.codexCurrentAnswerEl;
+      this.clearCodexTurnLoadingIndicators(answer);
+      this.scheduleCodexTurnCompletionFallback();
+    }
     this.codexItemEls.delete(item.id);
     this.scrollCodexAnswer(shouldStickToBottom);
   }
@@ -3072,8 +3136,7 @@ class VaultPowerShellView extends ItemView {
           // so a response that landed right before the PTY died still appears.
           this.pollAgentSessionLog();
           // Host is gone — clear the "thinking" spinner so the turn isn't stuck.
-          this.codexTurnLoadingEl?.remove();
-          this.codexTurnLoadingEl = null;
+          this.clearCodexTurnLoadingIndicators();
           this.setAgentStatus(`Exited ${code ?? "unknown"}`);
           this.appendAgentTranscript({
             id: this.nextLocalAgentEntryId("system"),
@@ -5271,6 +5334,7 @@ class VaultPowerShellView extends ItemView {
       window.clearTimeout(this.codexDeltaFlushTimer);
       this.codexDeltaFlushTimer = null;
     }
+    this.cancelCodexTurnCompletionFallback();
     if (this.codexScrollFrame !== null) {
       window.cancelAnimationFrame(this.codexScrollFrame);
       this.codexScrollFrame = null;
@@ -5292,7 +5356,7 @@ class VaultPowerShellView extends ItemView {
     this.codexApprovalEls.clear();
     this.codexCurrentTurnEl = null;
     this.codexCurrentAnswerEl = null;
-    this.codexTurnLoadingEl = null;
+    this.clearCodexTurnLoadingIndicators(this.codexTranscriptEl);
     this.codexTurnActive = false;
     this.codexQueuedInputs = [];
     this.updateSendButtonMode();
@@ -6087,6 +6151,20 @@ function truncateStart(text: string, maxChars: number): string {
   return `[앞부분 ${text.length - maxChars}자 생략]\n${text.slice(-maxChars)}`;
 }
 
+function removeAgentThinkingIndicators(root: ParentNode | null | undefined): void {
+  root?.querySelectorAll?.(".vault-agent-thinking").forEach((el) => el.remove());
+}
+
+function sanitizeAgentTranscriptHtml(html: string): string {
+  if (!html || !html.includes("vault-agent-thinking")) {
+    return html;
+  }
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = html;
+  removeAgentThinkingIndicators(wrapper);
+  return wrapper.innerHTML;
+}
+
 function isTerminalCopyShortcut(event: KeyboardEvent, terminal: Terminal): boolean {
   const key = event.key.toLowerCase();
   if (key !== "c" || event.altKey) {
@@ -6707,8 +6785,8 @@ function normalizeAgentWorkspaceSessionState(value: unknown): AgentWorkspaceSess
     codexThreadId: typeof candidate.codexThreadId === "string" && candidate.codexThreadId.trim()
       ? candidate.codexThreadId.trim()
       : null,
-    claudeTranscriptHtml: typeof candidate.claudeTranscriptHtml === "string" ? candidate.claudeTranscriptHtml : "",
-    codexTranscriptHtml: typeof candidate.codexTranscriptHtml === "string" ? candidate.codexTranscriptHtml : "",
+    claudeTranscriptHtml: typeof candidate.claudeTranscriptHtml === "string" ? sanitizeAgentTranscriptHtml(candidate.claudeTranscriptHtml) : "",
+    codexTranscriptHtml: typeof candidate.codexTranscriptHtml === "string" ? sanitizeAgentTranscriptHtml(candidate.codexTranscriptHtml) : "",
     claudeScrollTop: typeof candidate.claudeScrollTop === "number" ? candidate.claudeScrollTop : 0,
     codexScrollTop: typeof candidate.codexScrollTop === "number" ? candidate.codexScrollTop : 0,
     inputText: typeof candidate.inputText === "string" ? candidate.inputText : "",
