@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **Agent Console + Raw terminal** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.18`입니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **Agent Console + Raw terminal** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.19`입니다.
 
 [English README](README.md)
 
@@ -21,7 +21,7 @@ Codex Agent Console은 기본적으로 fullscreen TUI가 아니라 `codex app-se
 - `codex app-server`와 JSON-RPC로 통신합니다.
 - ChatGPT 로그인 상태를 확인하고, 필요하면 브라우저 로그인 또는 device code 로그인을 시작합니다.
 - 모델, reasoning effort, access level을 Agent Console 안에서 선택합니다.
-- user turn, reasoning, command 실행, 파일 변경, approval 요청을 transcript 카드로 표시합니다.
+- 한 user turn의 reasoning, command 실행, tool 호출, 최종 답변을 하나의 transcript 카드 안에 표시합니다.
 - 응답 중에는 `Send` 버튼이 `Stop` 역할을 하며 현재 turn을 interrupt합니다.
 - 응답 중 새 메시지를 보내면 Codex app처럼 queue에 넣습니다.
 - statusline에는 현재 볼트 경로, git branch, 선택 모델, context 사용률, 5시간/7일 rate-limit meter를 표시합니다.
@@ -249,8 +249,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-git tag 0.6.18
-git push origin 0.6.18
+git tag 0.6.19
+git push origin 0.6.19
 ```
 
 릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.

@@ -2240,8 +2240,6 @@ class VaultPowerShellView extends ItemView {
         this.updateSendButtonMode();
         this.codexTurnLoadingEl?.remove();
         this.codexTurnLoadingEl = null;
-        this.codexCurrentTurnEl = null;
-        this.codexCurrentAnswerEl = null;
         this.flushQueuedInput();
         break;
       case "usage-update":
@@ -3787,6 +3785,17 @@ class VaultPowerShellView extends ItemView {
       // Same block class as Codex so the theme markdown + spacing apply identically.
       const block = answer.createDiv("vault-agent-block vault-agent-block-agentMessage");
       void this.renderCodexMarkdown(block.createDiv("vault-agent-block-body"), text);
+      this.scrollCodexAnswer();
+      return;
+    }
+
+    if (this.agentProvider === "codex" && this.codexCurrentAnswerEl && (entry.role === "system" || entry.role === "tool")) {
+      const block = this.codexCurrentAnswerEl.createDiv(`vault-agent-block vault-agent-block-${entry.role}`);
+      block.createDiv("vault-agent-block-label").setText(getTranscriptRoleLabel(entry.role));
+      this.renderAgentMessageBody(block.createDiv("vault-agent-block-body"), text);
+      if (this.codexTurnLoadingEl && this.codexTurnLoadingEl.parentElement === this.codexCurrentAnswerEl) {
+        this.codexCurrentAnswerEl.appendChild(this.codexTurnLoadingEl);
+      }
       this.scrollCodexAnswer();
       return;
     }
