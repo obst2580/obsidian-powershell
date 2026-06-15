@@ -168,6 +168,52 @@ interface AgentWorkspaceSessionState extends Record<string, unknown> {
   statusText?: string;
   createdAt: number;
   updatedAt: number;
+  claudeTranscriptEl?: HTMLElement | null;
+  codexTranscriptEl?: HTMLElement | null;
+  agentBackend?: AgentBackend | null;
+  agentBackendUnsubscribe?: (() => void) | null;
+  codexItemEls?: Map<string, HTMLElement>;
+  codexDeltaBuffers?: Map<string, string>;
+  codexDeltaFlushTimer?: number | null;
+  codexScrollFrame?: number | null;
+  codexApprovalEls?: Map<string, HTMLElement>;
+  codexCurrentTurnEl?: HTMLElement | null;
+  codexCurrentAnswerEl?: HTMLElement | null;
+  codexTurnLoadingEl?: HTMLElement | null;
+  codexTurnActive?: boolean;
+  codexQueuedInputs?: { text: string; attachments: AgentAttachment[] }[];
+  codexContextPercent?: number | null;
+  codexRateLimitWindows?: AgentUsageWindow[];
+  codexGitBranch?: string | null | undefined;
+  codexModels?: AgentModelInfo[];
+  codexPendingAttachments?: AgentAttachment[];
+  agentHost?: ChildProcessWithoutNullStreams | null;
+  agentHostReady?: boolean;
+  agentReadyForInput?: boolean;
+  agentStdoutBuffer?: string;
+  agentSessionPollTimer?: number | null;
+  agentReadyTimer?: number | null;
+  agentOutputIdleTimer?: number | null;
+  agentStartedAt?: number;
+  agentSessionPath?: string | null;
+  agentSessionOffset?: number;
+  agentCurrentTurnStartedAt?: number;
+  agentSessionBaselineOffsets?: Map<string, number>;
+  agentClaudePrintTurnActive?: boolean;
+  lastAgentLaunchCommand?: string;
+  agentSeenEntries?: Set<string>;
+  agentLocalMessageCounter?: number;
+  agentLastRawNotice?: string;
+  agentAuthState?: AgentAuthState;
+  agentConversationReady?: boolean;
+  agentReadyNoticeShown?: boolean;
+  agentAutoLoginAttempted?: boolean;
+  agentAutoLoginPending?: boolean;
+  agentAutoMcpAttempted?: boolean;
+  agentMcpAuthInProgress?: boolean;
+  agentNeedsAuth?: boolean;
+  agentPromptState?: AgentPromptState | null;
+  agentOpenedExternalUrls?: Set<string>;
 }
 
 interface PtyHostConfig {
@@ -934,8 +980,10 @@ class VaultPowerShellView extends ItemView {
   private terminalStarted = false;
   private agentSessions: AgentWorkspaceSessionState[] = [];
   private activeAgentSessionKey: string | null = null;
+  private visibleAgentSessionKey: string | null = null;
   private agentSessionTabsEl: HTMLElement | null = null;
   private agentSessionTabEls = new Map<string, HTMLElement>();
+  private agentTranscriptMountEl: HTMLElement | null = null;
   private agentSessionKey = createAgentSessionKey();
   private agentSessionLabel = createAgentSessionLabel(this.agentSessionKey);
   private agentSessionMode: AgentSessionMode = "legacy-latest";
@@ -1073,7 +1121,11 @@ class VaultPowerShellView extends ItemView {
 
   onClose(): Promise<void> {
     this.captureActiveAgentSessionState();
-    this.disposeAgent();
+    for (const session of [...this.agentSessions]) {
+      this.withAgentSession(session.agentSessionKey, () => {
+        this.disposeAgent();
+      });
+    }
     this.disposeShell();
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
@@ -1108,6 +1160,7 @@ class VaultPowerShellView extends ItemView {
     this.agentStatusEl = null;
     this.agentSessionTabsEl = null;
     this.agentSessionTabEls.clear();
+    this.agentTranscriptMountEl = null;
     this.agentSessionTitleInputEl = null;
     this.agentSessionSubtitleEl = null;
     this.agentTranscriptEl = null;
@@ -1143,6 +1196,7 @@ class VaultPowerShellView extends ItemView {
         storedSessions.some((session) => session.agentSessionKey === value.activeAgentSessionKey)
         ? value.activeAgentSessionKey
         : storedSessions[0].agentSessionKey;
+      this.visibleAgentSessionKey = this.activeAgentSessionKey;
       this.applyAgentSessionFields(this.getActiveAgentSessionState());
     } else {
       if (typeof value.agentSessionKey === "string" && value.agentSessionKey.trim()) {
@@ -1169,6 +1223,7 @@ class VaultPowerShellView extends ItemView {
       }
       this.agentSessions = [this.createSessionStateFromActiveFields()];
       this.activeAgentSessionKey = this.agentSessionKey;
+      this.visibleAgentSessionKey = this.agentSessionKey;
     }
 
     if (value.activePane === "agent" || value.activePane === "terminal") {
@@ -1183,6 +1238,9 @@ class VaultPowerShellView extends ItemView {
   }
 
   private refreshAgentSessionChrome() {
+    if (!this.isVisibleAgentSessionContext()) {
+      return;
+    }
     if (this.agentSessionTitleInputEl && this.agentSessionTitleInputEl.value !== this.agentSessionLabel) {
       this.agentSessionTitleInputEl.value = this.agentSessionLabel;
     }
@@ -1217,13 +1275,15 @@ class VaultPowerShellView extends ItemView {
 
   createInternalAgentSession() {
     this.ensureInternalAgentSessions();
-    this.stopActiveAgentForSessionSwitch();
     this.captureActiveAgentSessionState();
 
     const session = createAgentWorkspaceSessionState("isolated");
+    this.ensureAgentSessionRuntime(session);
     this.agentSessions.push(session);
     this.activeAgentSessionKey = session.agentSessionKey;
-    this.applyAgentSessionFields(session);
+    this.visibleAgentSessionKey = session.agentSessionKey;
+    this.applyAgentSessionRuntime(session);
+    this.mountVisibleAgentSessionTranscript();
     this.restoreActiveAgentSessionDom();
     this.renderAgentSessionTabs();
     this.showPane("agent");
@@ -1233,14 +1293,20 @@ class VaultPowerShellView extends ItemView {
   private ensureInternalAgentSessions() {
     if (this.agentSessions.length === 0) {
       const session = this.createSessionStateFromActiveFields();
+      this.ensureAgentSessionRuntime(session);
       this.agentSessions = [session];
       this.activeAgentSessionKey = session.agentSessionKey;
+      this.visibleAgentSessionKey = session.agentSessionKey;
       return;
     }
 
     if (!this.activeAgentSessionKey || !this.agentSessions.some((session) => session.agentSessionKey === this.activeAgentSessionKey)) {
       this.activeAgentSessionKey = this.agentSessions[0].agentSessionKey;
     }
+    if (!this.visibleAgentSessionKey || !this.agentSessions.some((session) => session.agentSessionKey === this.visibleAgentSessionKey)) {
+      this.visibleAgentSessionKey = this.activeAgentSessionKey;
+    }
+    this.agentSessions.forEach((session) => this.ensureAgentSessionRuntime(session));
   }
 
   private getActiveAgentSessionState(): AgentWorkspaceSessionState {
@@ -1285,6 +1351,120 @@ class VaultPowerShellView extends ItemView {
     this.agentCodexThreadId = session.codexThreadId;
   }
 
+  private ensureAgentSessionRuntime(session: AgentWorkspaceSessionState) {
+    session.claudeTranscriptEl ??= this.createDetachedAgentTranscriptEl();
+    session.codexTranscriptEl ??= this.createDetachedAgentTranscriptEl();
+    if (session.claudeTranscriptHtml && !session.claudeTranscriptEl.innerHTML.trim()) {
+      session.claudeTranscriptEl.innerHTML = session.claudeTranscriptHtml;
+    }
+    if (session.codexTranscriptHtml && !session.codexTranscriptEl.innerHTML.trim()) {
+      session.codexTranscriptEl.innerHTML = session.codexTranscriptHtml;
+    }
+    session.agentBackend ??= null;
+    session.agentBackendUnsubscribe ??= null;
+    session.codexItemEls ??= new Map<string, HTMLElement>();
+    session.codexDeltaBuffers ??= new Map<string, string>();
+    session.codexDeltaFlushTimer ??= null;
+    session.codexScrollFrame ??= null;
+    session.codexApprovalEls ??= new Map<string, HTMLElement>();
+    session.codexCurrentTurnEl ??= null;
+    session.codexCurrentAnswerEl ??= null;
+    session.codexTurnLoadingEl ??= null;
+    session.codexTurnActive ??= false;
+    session.codexQueuedInputs ??= [];
+    session.codexContextPercent ??= null;
+    session.codexRateLimitWindows ??= [];
+    session.codexGitBranch ??= undefined;
+    session.codexModels ??= [];
+    session.codexPendingAttachments ??= [];
+    session.agentHost ??= null;
+    session.agentHostReady ??= false;
+    session.agentReadyForInput ??= false;
+    session.agentStdoutBuffer ??= "";
+    session.agentSessionPollTimer ??= null;
+    session.agentReadyTimer ??= null;
+    session.agentOutputIdleTimer ??= null;
+    session.agentStartedAt ??= 0;
+    session.agentSessionPath ??= null;
+    session.agentSessionOffset ??= 0;
+    session.agentCurrentTurnStartedAt ??= 0;
+    session.agentSessionBaselineOffsets ??= new Map<string, number>();
+    session.agentClaudePrintTurnActive ??= false;
+    session.lastAgentLaunchCommand ??= "";
+    session.agentSeenEntries ??= new Set<string>();
+    session.agentLocalMessageCounter ??= 0;
+    session.agentLastRawNotice ??= "";
+    session.agentAuthState ??= "idle";
+    session.agentConversationReady ??= false;
+    session.agentReadyNoticeShown ??= false;
+    session.agentAutoLoginAttempted ??= false;
+    session.agentAutoLoginPending ??= false;
+    session.agentAutoMcpAttempted ??= false;
+    session.agentMcpAuthInProgress ??= false;
+    session.agentNeedsAuth ??= false;
+    session.agentPromptState ??= null;
+    session.agentOpenedExternalUrls ??= new Set<string>();
+  }
+
+  private createDetachedAgentTranscriptEl(): HTMLElement {
+    const el = document.createElement("div");
+    el.addClass("vault-agent-transcript");
+    return el;
+  }
+
+  private applyAgentSessionRuntime(session: AgentWorkspaceSessionState) {
+    this.ensureAgentSessionRuntime(session);
+    this.applyAgentSessionFields(session);
+    this.claudeTranscriptEl = session.claudeTranscriptEl ?? null;
+    this.codexTranscriptEl = session.codexTranscriptEl ?? null;
+    this.agentBackend = session.agentBackend ?? null;
+    this.agentBackendUnsubscribe = session.agentBackendUnsubscribe ?? null;
+    this.codexItemEls = session.codexItemEls ?? new Map<string, HTMLElement>();
+    this.codexDeltaBuffers = session.codexDeltaBuffers ?? new Map<string, string>();
+    this.codexDeltaFlushTimer = session.codexDeltaFlushTimer ?? null;
+    this.codexScrollFrame = session.codexScrollFrame ?? null;
+    this.codexApprovalEls = session.codexApprovalEls ?? new Map<string, HTMLElement>();
+    this.codexCurrentTurnEl = session.codexCurrentTurnEl ?? null;
+    this.codexCurrentAnswerEl = session.codexCurrentAnswerEl ?? null;
+    this.codexTurnLoadingEl = session.codexTurnLoadingEl ?? null;
+    this.codexTurnActive = session.codexTurnActive ?? false;
+    this.codexQueuedInputs = session.codexQueuedInputs ?? [];
+    this.codexContextPercent = session.codexContextPercent ?? null;
+    this.codexRateLimitWindows = session.codexRateLimitWindows ?? [];
+    this.codexGitBranch = session.codexGitBranch;
+    this.codexModels = session.codexModels ?? [];
+    this.codexPendingAttachments = session.codexPendingAttachments ?? [];
+    this.agentHost = session.agentHost ?? null;
+    this.agentHostReady = session.agentHostReady ?? false;
+    this.agentReadyForInput = session.agentReadyForInput ?? false;
+    this.agentStdoutBuffer = session.agentStdoutBuffer ?? "";
+    this.agentSessionPollTimer = session.agentSessionPollTimer ?? null;
+    this.agentReadyTimer = session.agentReadyTimer ?? null;
+    this.agentOutputIdleTimer = session.agentOutputIdleTimer ?? null;
+    this.agentStartedAt = session.agentStartedAt ?? 0;
+    this.agentSessionPath = session.agentSessionPath ?? null;
+    this.agentSessionOffset = session.agentSessionOffset ?? 0;
+    this.agentCurrentTurnStartedAt = session.agentCurrentTurnStartedAt ?? 0;
+    this.agentSessionBaselineOffsets = session.agentSessionBaselineOffsets ?? new Map<string, number>();
+    this.agentClaudePrintTurnActive = session.agentClaudePrintTurnActive ?? false;
+    this.lastAgentLaunchCommand = session.lastAgentLaunchCommand ?? "";
+    this.agentSeenEntries = session.agentSeenEntries ?? new Set<string>();
+    this.agentLocalMessageCounter = session.agentLocalMessageCounter ?? 0;
+    this.agentLastRawNotice = session.agentLastRawNotice ?? "";
+    this.agentAuthState = session.agentAuthState ?? "idle";
+    this.agentConversationReady = session.agentConversationReady ?? false;
+    this.agentReadyNoticeShown = session.agentReadyNoticeShown ?? false;
+    this.agentAutoLoginAttempted = session.agentAutoLoginAttempted ?? false;
+    this.agentAutoLoginPending = session.agentAutoLoginPending ?? false;
+    this.agentAutoMcpAttempted = session.agentAutoMcpAttempted ?? false;
+    this.agentMcpAuthInProgress = session.agentMcpAuthInProgress ?? false;
+    this.agentNeedsAuth = session.agentNeedsAuth ?? false;
+    this.agentPromptState = session.agentPromptState ?? null;
+    this.agentOpenedExternalUrls = session.agentOpenedExternalUrls ?? new Set<string>();
+    this.agentStatusText = session.statusText ?? "Idle";
+    this.agentTranscriptEl = this.agentProvider === "codex" ? this.codexTranscriptEl : this.claudeTranscriptEl;
+  }
+
   private captureActiveAgentSessionState() {
     this.ensureInternalAgentSessions();
     const session = this.getActiveAgentSessionState();
@@ -1304,6 +1484,52 @@ class VaultPowerShellView extends ItemView {
       session.inputText = this.agentInputEl.value;
     }
     session.statusText = this.agentStatusText;
+    session.claudeTranscriptEl = this.claudeTranscriptEl;
+    session.codexTranscriptEl = this.codexTranscriptEl;
+    session.agentBackend = this.agentBackend;
+    session.agentBackendUnsubscribe = this.agentBackendUnsubscribe;
+    session.codexItemEls = this.codexItemEls;
+    session.codexDeltaBuffers = this.codexDeltaBuffers;
+    session.codexDeltaFlushTimer = this.codexDeltaFlushTimer;
+    session.codexScrollFrame = this.codexScrollFrame;
+    session.codexApprovalEls = this.codexApprovalEls;
+    session.codexCurrentTurnEl = this.codexCurrentTurnEl;
+    session.codexCurrentAnswerEl = this.codexCurrentAnswerEl;
+    session.codexTurnLoadingEl = this.codexTurnLoadingEl;
+    session.codexTurnActive = this.codexTurnActive;
+    session.codexQueuedInputs = this.codexQueuedInputs;
+    session.codexContextPercent = this.codexContextPercent;
+    session.codexRateLimitWindows = this.codexRateLimitWindows;
+    session.codexGitBranch = this.codexGitBranch;
+    session.codexModels = this.codexModels;
+    session.codexPendingAttachments = this.codexPendingAttachments;
+    session.agentHost = this.agentHost;
+    session.agentHostReady = this.agentHostReady;
+    session.agentReadyForInput = this.agentReadyForInput;
+    session.agentStdoutBuffer = this.agentStdoutBuffer;
+    session.agentSessionPollTimer = this.agentSessionPollTimer;
+    session.agentReadyTimer = this.agentReadyTimer;
+    session.agentOutputIdleTimer = this.agentOutputIdleTimer;
+    session.agentStartedAt = this.agentStartedAt;
+    session.agentSessionPath = this.agentSessionPath;
+    session.agentSessionOffset = this.agentSessionOffset;
+    session.agentCurrentTurnStartedAt = this.agentCurrentTurnStartedAt;
+    session.agentSessionBaselineOffsets = this.agentSessionBaselineOffsets;
+    session.agentClaudePrintTurnActive = this.agentClaudePrintTurnActive;
+    session.lastAgentLaunchCommand = this.lastAgentLaunchCommand;
+    session.agentSeenEntries = this.agentSeenEntries;
+    session.agentLocalMessageCounter = this.agentLocalMessageCounter;
+    session.agentLastRawNotice = this.agentLastRawNotice;
+    session.agentAuthState = this.agentAuthState;
+    session.agentConversationReady = this.agentConversationReady;
+    session.agentReadyNoticeShown = this.agentReadyNoticeShown;
+    session.agentAutoLoginAttempted = this.agentAutoLoginAttempted;
+    session.agentAutoLoginPending = this.agentAutoLoginPending;
+    session.agentAutoMcpAttempted = this.agentAutoMcpAttempted;
+    session.agentMcpAuthInProgress = this.agentMcpAuthInProgress;
+    session.agentNeedsAuth = this.agentNeedsAuth;
+    session.agentPromptState = this.agentPromptState;
+    session.agentOpenedExternalUrls = this.agentOpenedExternalUrls;
     session.updatedAt = Date.now();
   }
 
@@ -1331,29 +1557,17 @@ class VaultPowerShellView extends ItemView {
     }
 
     const session = this.getActiveAgentSessionState();
-    this.applyAgentSessionFields(session);
-    if (this.claudeTranscriptEl) {
-      this.claudeTranscriptEl.innerHTML = session.claudeTranscriptHtml ?? "";
-    }
-    if (this.codexTranscriptEl) {
-      this.codexTranscriptEl.innerHTML = session.codexTranscriptHtml ?? "";
-    }
+    this.applyAgentSessionRuntime(session);
+    this.mountVisibleAgentSessionTranscript();
     this.agentInputEl && (this.agentInputEl.value = session.inputText ?? "");
-
-    this.codexItemEls.clear();
-    this.codexDeltaBuffers.clear();
-    this.codexApprovalEls.clear();
-    this.codexCurrentTurnEl = null;
-    this.codexCurrentAnswerEl = null;
-    this.codexTurnLoadingEl = null;
-    this.codexTurnActive = false;
-    this.codexQueuedInputs = [];
-    this.updateSendButtonMode();
 
     this.refreshAgentSessionChrome();
     this.refreshAgentProviderButtons();
     this.switchAgentTranscript(this.agentProvider);
     this.setAgentStatus(session.statusText ?? "Idle");
+    this.updateSendButtonMode();
+    this.renderAttachmentChips();
+    this.refreshAgentPromptActions();
 
     if (!this.claudeTranscriptEl?.innerHTML.trim() && !this.codexTranscriptEl?.innerHTML.trim()) {
       this.appendAgentTranscript({
@@ -1365,22 +1579,79 @@ class VaultPowerShellView extends ItemView {
     }
   }
 
-  private hasRunningAgent(): boolean {
-    return !!this.agentHost || !!this.agentBackend || this.agentClaudePrintTurnActive;
-  }
-
-  private stopActiveAgentForSessionSwitch() {
-    if (!this.hasRunningAgent()) {
+  private mountVisibleAgentSessionTranscript() {
+    if (!this.agentTranscriptMountEl || !this.claudeTranscriptEl || !this.codexTranscriptEl) {
       return;
     }
 
-    this.appendAgentTranscript({
-      id: this.nextLocalAgentEntryId("system"),
-      role: "system",
-      text: "세션 탭 전환을 위해 실행 중인 에이전트를 정지했습니다. 이 탭으로 돌아와 Start를 누르면 같은 Claude sessionId / Codex threadId로 이어서 시작합니다."
-    });
-    this.disposeAgent();
-    this.setAgentStatus("Idle");
+    this.agentTranscriptMountEl.empty();
+    this.agentTranscriptMountEl.appendChild(this.claudeTranscriptEl);
+    this.agentTranscriptMountEl.appendChild(this.codexTranscriptEl);
+    this.switchAgentTranscript(this.agentProvider);
+  }
+
+  private isVisibleAgentSessionContext(): boolean {
+    return !this.visibleAgentSessionKey || this.activeAgentSessionKey === this.visibleAgentSessionKey;
+  }
+
+  private withAgentSession<T>(sessionKey: string | null, action: () => T): T {
+    if (!sessionKey || sessionKey === this.activeAgentSessionKey) {
+      const result = action();
+      this.captureActiveAgentSessionState();
+      return result;
+    }
+
+    const previousKey = this.activeAgentSessionKey;
+    this.captureActiveAgentSessionState();
+    const session = this.agentSessions.find((candidate) => candidate.agentSessionKey === sessionKey);
+    if (!session) {
+      return action();
+    }
+
+    this.activeAgentSessionKey = sessionKey;
+    this.applyAgentSessionRuntime(session);
+    try {
+      const result = action();
+      this.captureActiveAgentSessionState();
+      return result;
+    } finally {
+      const previous = this.agentSessions.find((candidate) => candidate.agentSessionKey === previousKey);
+      if (previous) {
+        this.activeAgentSessionKey = previous.agentSessionKey;
+        this.applyAgentSessionRuntime(previous);
+        this.mountVisibleAgentSessionTranscript();
+      }
+    }
+  }
+
+  private async withAgentSessionAsync<T>(sessionKey: string | null, action: () => Promise<T>): Promise<T> {
+    if (!sessionKey || sessionKey === this.activeAgentSessionKey) {
+      const result = await action();
+      this.captureActiveAgentSessionState();
+      return result;
+    }
+
+    const previousKey = this.activeAgentSessionKey;
+    this.captureActiveAgentSessionState();
+    const session = this.agentSessions.find((candidate) => candidate.agentSessionKey === sessionKey);
+    if (!session) {
+      return action();
+    }
+
+    this.activeAgentSessionKey = sessionKey;
+    this.applyAgentSessionRuntime(session);
+    try {
+      const result = await action();
+      this.captureActiveAgentSessionState();
+      return result;
+    } finally {
+      const previous = this.agentSessions.find((candidate) => candidate.agentSessionKey === previousKey);
+      if (previous) {
+        this.activeAgentSessionKey = previous.agentSessionKey;
+        this.applyAgentSessionRuntime(previous);
+        this.mountVisibleAgentSessionTranscript();
+      }
+    }
   }
 
   private switchInternalAgentSession(sessionKey: string) {
@@ -1394,10 +1665,11 @@ class VaultPowerShellView extends ItemView {
       return;
     }
 
-    this.stopActiveAgentForSessionSwitch();
     this.captureActiveAgentSessionState();
     this.activeAgentSessionKey = sessionKey;
-    this.applyAgentSessionFields(this.getActiveAgentSessionState());
+    this.visibleAgentSessionKey = sessionKey;
+    this.applyAgentSessionRuntime(this.getActiveAgentSessionState());
+    this.mountVisibleAgentSessionTranscript();
     this.restoreActiveAgentSessionDom();
     this.renderAgentSessionTabs();
     this.showPane("agent");
@@ -1412,9 +1684,11 @@ class VaultPowerShellView extends ItemView {
 
     const closingActive = sessionKey === this.activeAgentSessionKey;
     if (closingActive) {
-      this.stopActiveAgentForSessionSwitch();
+      this.disposeAgent();
     } else {
-      this.captureActiveAgentSessionState();
+      this.withAgentSession(sessionKey, () => {
+        this.disposeAgent();
+      });
     }
 
     const closingIndex = this.agentSessions.findIndex((session) => session.agentSessionKey === sessionKey);
@@ -1426,7 +1700,9 @@ class VaultPowerShellView extends ItemView {
     if (closingActive) {
       const next = this.agentSessions[Math.max(0, closingIndex - 1)] ?? this.agentSessions[0];
       this.activeAgentSessionKey = next.agentSessionKey;
-      this.applyAgentSessionFields(next);
+      this.visibleAgentSessionKey = next.agentSessionKey;
+      this.applyAgentSessionRuntime(next);
+      this.mountVisibleAgentSessionTranscript();
       this.restoreActiveAgentSessionDom();
     }
 
@@ -1694,10 +1970,11 @@ class VaultPowerShellView extends ItemView {
     });
     this.refreshAgentLoginButton();
 
-    // Separate transcript per provider so Claude/Codex don't mix when switching.
-    this.claudeTranscriptEl = container.createDiv("vault-agent-transcript");
-    this.codexTranscriptEl = container.createDiv("vault-agent-transcript");
-    this.switchAgentTranscript(this.agentProvider);
+    // Separate transcript DOM per AI session/provider so internal tabs can keep
+    // running while hidden and re-mount without losing output.
+    this.agentTranscriptMountEl = container.createDiv("vault-agent-transcript-mount");
+    this.applyAgentSessionRuntime(this.getActiveAgentSessionState());
+    this.mountVisibleAgentSessionTranscript();
 
     this.agentLoadingEl = container.createDiv("vault-agent-loading is-hidden");
     const loadingDots = this.agentLoadingEl.createSpan("vault-agent-loading-dots");
@@ -1805,6 +2082,9 @@ class VaultPowerShellView extends ItemView {
   }
 
   private refreshAgentProviderButtons() {
+    if (!this.isVisibleAgentSessionContext()) {
+      return;
+    }
     this.agentProviderButtons.claude?.toggleClass("is-active", this.agentProvider === "claude");
     this.agentProviderButtons.codex?.toggleClass("is-active", this.agentProvider === "codex");
     this.renderAgentProviderIndicator();
@@ -1812,7 +2092,7 @@ class VaultPowerShellView extends ItemView {
   }
 
   private renderAgentProviderIndicator() {
-    if (!this.agentProviderIndicatorEl) {
+    if (!this.agentProviderIndicatorEl || !this.isVisibleAgentSessionContext()) {
       return;
     }
     const label = getAgentProviderLabel(this.agentProvider);
@@ -1846,11 +2126,12 @@ class VaultPowerShellView extends ItemView {
   }
 
   private async startCodexBackend(cwd: string) {
+    const sessionKey = this.activeAgentSessionKey;
     this.codexContextPercent = null;
     this.codexRateLimitWindows = [];
     this.codexGitBranch = null;
     this.refreshCodexStatusLine();
-    void this.refreshCodexGitBranch(cwd);
+    void this.refreshCodexGitBranch(cwd, sessionKey);
 
     const env = buildProcessEnv({
       useSystemCa: this.plugin.settings.useSystemCa,
@@ -1871,7 +2152,9 @@ class VaultPowerShellView extends ItemView {
       approvalPolicy: this.plugin.settings.codexApprovalPolicy
     });
     this.agentBackend = backend;
-    this.agentBackendUnsubscribe = backend.on((event) => this.handleBackendEvent(event));
+    this.agentBackendUnsubscribe = backend.on((event) => {
+      this.withAgentSession(sessionKey, () => this.handleBackendEvent(event));
+    });
     this.appendAgentTranscript({
       id: this.nextLocalAgentEntryId("system"),
       role: "system",
@@ -1888,14 +2171,16 @@ class VaultPowerShellView extends ItemView {
         sessionName: this.agentSessionLabel,
         model: this.plugin.settings.codexModel || undefined
       });
-      await this.populateCodexModels();
+      await this.withAgentSessionAsync(sessionKey, () => this.populateCodexModels());
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.setAgentStatus("Failed");
-      this.appendAgentTranscript({
-        id: this.nextLocalAgentEntryId("system"),
-        role: "system",
-        text: `Failed to start Codex app-server: ${message}`
+      this.withAgentSession(sessionKey, () => {
+        this.setAgentStatus("Failed");
+        this.appendAgentTranscript({
+          id: this.nextLocalAgentEntryId("system"),
+          role: "system",
+          text: `Failed to start Codex app-server: ${message}`
+        });
       });
     }
   }
@@ -2021,9 +2306,12 @@ class VaultPowerShellView extends ItemView {
     if (this.codexScrollFrame !== null) {
       return;
     }
+    const sessionKey = this.activeAgentSessionKey;
     this.codexScrollFrame = window.requestAnimationFrame(() => {
-      this.codexScrollFrame = null;
-      this.scrollCodexAnswerNow();
+      this.withAgentSession(sessionKey, () => {
+        this.codexScrollFrame = null;
+        this.scrollCodexAnswerNow();
+      });
     });
   }
 
@@ -2060,7 +2348,7 @@ class VaultPowerShellView extends ItemView {
   }
 
   private updateSendButtonMode() {
-    if (!this.agentSendButton) {
+    if (!this.agentSendButton || !this.isVisibleAgentSessionContext()) {
       return;
     }
     const active = this.codexTurnActive;
@@ -2081,7 +2369,7 @@ class VaultPowerShellView extends ItemView {
   }
 
   private refreshCodexStatusLine() {
-    if (!this.codexStatusLineEl) {
+    if (!this.codexStatusLineEl || !this.isVisibleAgentSessionContext()) {
       return;
     }
     const visible = this.agentProvider === "codex";
@@ -2105,9 +2393,12 @@ class VaultPowerShellView extends ItemView {
     if (this.codexStatusLineFrame !== null) {
       return;
     }
+    const sessionKey = this.activeAgentSessionKey;
     this.codexStatusLineFrame = window.requestAnimationFrame(() => {
-      this.codexStatusLineFrame = null;
-      this.refreshCodexStatusLine();
+      this.withAgentSession(sessionKey, () => {
+        this.codexStatusLineFrame = null;
+        this.refreshCodexStatusLine();
+      });
     });
   }
 
@@ -2147,13 +2438,15 @@ class VaultPowerShellView extends ItemView {
     return this.codexGitBranch ? `${path}  git:${this.codexGitBranch}` : path;
   }
 
-  private async refreshCodexGitBranch(cwd: string) {
+  private async refreshCodexGitBranch(cwd: string, sessionKey: string | null = this.activeAgentSessionKey) {
     const branch = await readGitBranchAsync(cwd);
-    if (this.agentProvider !== "codex" || this.plugin.getVaultPath() !== cwd) {
-      return;
-    }
-    this.codexGitBranch = branch;
-    this.refreshCodexStatusLine();
+    this.withAgentSession(sessionKey, () => {
+      if (this.agentProvider !== "codex" || this.plugin.getVaultPath() !== cwd) {
+        return;
+      }
+      this.codexGitBranch = branch;
+      this.refreshCodexStatusLine();
+    });
   }
 
   private getSelectedCodexModelLabel(): string {
@@ -2209,9 +2502,12 @@ class VaultPowerShellView extends ItemView {
     if (this.codexDeltaFlushTimer !== null) {
       return;
     }
+    const sessionKey = this.activeAgentSessionKey;
     this.codexDeltaFlushTimer = window.setTimeout(() => {
-      this.codexDeltaFlushTimer = null;
-      this.flushCodexDeltaBuffers();
+      this.withAgentSession(sessionKey, () => {
+        this.codexDeltaFlushTimer = null;
+        this.flushCodexDeltaBuffers();
+      });
     }, 50);
   }
 
@@ -2265,25 +2561,35 @@ class VaultPowerShellView extends ItemView {
   }
 
   private async populateCodexModels() {
+    const sessionKey = this.activeAgentSessionKey;
     if (!this.agentBackend || !this.codexModelSelect) {
       return;
     }
     const models = await this.agentBackend.listModels();
-    this.codexModels = models;
-    if (models.length === 0) {
-      return;
-    }
-    this.codexModelSelect.empty();
-    for (const model of models) {
-      this.codexModelSelect.createEl("option", { value: model.id, text: model.displayName });
-    }
-    this.codexModelSelect.value = models[0].id;
-    this.codexOptionsRow?.removeClass("is-hidden");
-    this.onCodexModelChange();
-    this.refreshCodexStatusLine();
+    this.withAgentSession(sessionKey, () => {
+      this.codexModels = models;
+      if (models.length === 0) {
+        return;
+      }
+      if (this.isVisibleAgentSessionContext()) {
+        this.codexModelSelect?.empty();
+        for (const model of models) {
+          this.codexModelSelect?.createEl("option", { value: model.id, text: model.displayName });
+        }
+        if (this.codexModelSelect) {
+          this.codexModelSelect.value = models[0].id;
+        }
+        this.codexOptionsRow?.removeClass("is-hidden");
+      }
+      this.onCodexModelChange();
+      this.refreshCodexStatusLine();
+    });
   }
 
   private onCodexModelChange() {
+    if (!this.isVisibleAgentSessionContext()) {
+      return;
+    }
     if (!this.codexModelSelect || !this.codexEffortSelect) {
       return;
     }
@@ -2300,6 +2606,9 @@ class VaultPowerShellView extends ItemView {
   }
 
   private applyCodexTurnOptions() {
+    if (!this.isVisibleAgentSessionContext()) {
+      return;
+    }
     this.agentBackend?.setTurnOptions({
       model: this.codexModelSelect?.value || undefined,
       effort: this.codexEffortSelect?.value || undefined,
@@ -2355,7 +2664,7 @@ class VaultPowerShellView extends ItemView {
   }
 
   private renderAttachmentChips() {
-    if (!this.codexAttachmentsEl) {
+    if (!this.codexAttachmentsEl || !this.isVisibleAgentSessionContext()) {
       return;
     }
     this.codexAttachmentsEl.empty();
@@ -2459,6 +2768,7 @@ class VaultPowerShellView extends ItemView {
   }
 
   private async startAgent(provider: AgentProvider) {
+    const sessionKey = this.activeAgentSessionKey;
     const cwd = this.plugin.getVaultPath();
     if (!cwd) {
       new Notice("This vault does not expose a local file-system path.");
@@ -2511,7 +2821,7 @@ class VaultPowerShellView extends ItemView {
         }
 
         await this.plugin.installRuntimeIfNeeded((message) => {
-          this.setAgentStatus(message);
+          this.withAgentSession(sessionKey, () => this.setAgentStatus(message));
         });
       }
 
@@ -2537,57 +2847,67 @@ class VaultPowerShellView extends ItemView {
         windowsHide: true
       });
 
-      this.agentHost = host;
-      this.agentHostReady = false;
-      this.startAgentSessionPolling();
+      this.withAgentSession(sessionKey, () => {
+        this.agentHost = host;
+        this.agentHostReady = false;
+        this.startAgentSessionPolling();
+      });
 
       host.stdout.on("data", (chunk: Buffer) => {
-        this.handleAgentHostStdout(chunk.toString());
+        this.withAgentSession(sessionKey, () => this.handleAgentHostStdout(chunk.toString()));
       });
 
       host.stderr.on("data", (chunk: Buffer) => {
-        this.appendAgentTranscript({
-          id: this.nextLocalAgentEntryId("system"),
-          role: "system",
-          text: stripTerminalControlSequences(chunk.toString()).trim() || chunk.toString()
+        this.withAgentSession(sessionKey, () => {
+          this.appendAgentTranscript({
+            id: this.nextLocalAgentEntryId("system"),
+            role: "system",
+            text: stripTerminalControlSequences(chunk.toString()).trim() || chunk.toString()
+          });
         });
       });
 
       host.on("error", (error: Error) => {
-        const message = formatTerminalHostError(error, this.plugin);
-        this.setAgentStatus("Failed");
-        this.appendAgentTranscript({
-          id: this.nextLocalAgentEntryId("system"),
-          role: "system",
-          text: `Failed to start agent host: ${message}`
+        this.withAgentSession(sessionKey, () => {
+          const message = formatTerminalHostError(error, this.plugin);
+          this.setAgentStatus("Failed");
+          this.appendAgentTranscript({
+            id: this.nextLocalAgentEntryId("system"),
+            role: "system",
+            text: `Failed to start agent host: ${message}`
+          });
         });
       });
 
       host.on("close", (code: number | null) => {
-        // Flush any answer already written to the session log before teardown,
-        // so a response that landed right before the PTY died still appears.
-        this.pollAgentSessionLog();
-        // Host is gone — clear the "thinking" spinner so the turn isn't stuck.
-        this.codexTurnLoadingEl?.remove();
-        this.codexTurnLoadingEl = null;
-        this.setAgentStatus(`Exited ${code ?? "unknown"}`);
-        this.appendAgentTranscript({
-          id: this.nextLocalAgentEntryId("system"),
-          role: "system",
-          text: `에이전트 호스트가 종료되었습니다 (코드 ${code ?? "알 수 없음"}).`
+        this.withAgentSession(sessionKey, () => {
+          // Flush any answer already written to the session log before teardown,
+          // so a response that landed right before the PTY died still appears.
+          this.pollAgentSessionLog();
+          // Host is gone — clear the "thinking" spinner so the turn isn't stuck.
+          this.codexTurnLoadingEl?.remove();
+          this.codexTurnLoadingEl = null;
+          this.setAgentStatus(`Exited ${code ?? "unknown"}`);
+          this.appendAgentTranscript({
+            id: this.nextLocalAgentEntryId("system"),
+            role: "system",
+            text: `에이전트 호스트가 종료되었습니다 (코드 ${code ?? "알 수 없음"}).`
+          });
+          this.agentHost = null;
+          this.agentHostReady = false;
+          this.agentReadyForInput = false;
+          this.stopAgentSessionPolling();
         });
-        this.agentHost = null;
-        this.agentHostReady = false;
-        this.agentReadyForInput = false;
-        this.stopAgentSessionPolling();
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.setAgentStatus("Failed");
-      this.appendAgentTranscript({
-        id: this.nextLocalAgentEntryId("system"),
-        role: "system",
-        text: `Failed to start ${getAgentProviderLabel(provider)}: ${message}`
+      this.withAgentSession(sessionKey, () => {
+        this.setAgentStatus("Failed");
+        this.appendAgentTranscript({
+          id: this.nextLocalAgentEntryId("system"),
+          role: "system",
+          text: `Failed to start ${getAgentProviderLabel(provider)}: ${message}`
+        });
       });
       new Notice(`Failed to start ${getAgentProviderLabel(provider)}: ${message}`);
     }
@@ -2636,6 +2956,7 @@ class VaultPowerShellView extends ItemView {
   }
 
   private launchAgentCli() {
+    const sessionKey = this.activeAgentSessionKey;
     const claudeSessionId = this.agentProvider === "claude" ? this.ensureClaudeSessionId() : undefined;
     let command = getAgentLaunchCommand(this.agentProvider, this.plugin.settings, {
       claudeSessionId,
@@ -2652,31 +2973,33 @@ class VaultPowerShellView extends ItemView {
     }
 
     this.agentReadyTimer = window.setTimeout(() => {
-      this.agentReadyTimer = null;
-      if (!this.agentHost) {
-        return;
-      }
+      this.withAgentSession(sessionKey, () => {
+        this.agentReadyTimer = null;
+        if (!this.agentHost) {
+          return;
+        }
 
-      this.agentReadyForInput = true;
-      if (this.agentAutoLoginPending && this.agentAuthState === "login-required") {
-        this.startAgentLoginFlow(`${getAgentProviderLabel(this.agentProvider)} login status reports not signed in.`);
-        return;
-      }
+        this.agentReadyForInput = true;
+        if (this.agentAutoLoginPending && this.agentAuthState === "login-required") {
+          this.startAgentLoginFlow(`${getAgentProviderLabel(this.agentProvider)} login status reports not signed in.`);
+          return;
+        }
 
-      if (this.agentAuthState === "authenticated" || this.agentAuthState === "ready") {
-        this.markAgentConversationReady(`${getAgentProviderLabel(this.agentProvider)} 로그인이 확인되었습니다. 이제 대화를 시작할 수 있습니다.`);
-        return;
-      }
+        if (this.agentAuthState === "authenticated" || this.agentAuthState === "ready") {
+          this.markAgentConversationReady(`${getAgentProviderLabel(this.agentProvider)} 로그인이 확인되었습니다. 이제 대화를 시작할 수 있습니다.`);
+          return;
+        }
 
-      if (this.agentAuthState === "checking") {
-        this.setAgentStatus(`Checking ${getAgentProviderLabel(this.agentProvider)} login...`);
-      } else {
-        this.refreshAgentAuthStatus();
-      }
-      this.appendAgentTranscript({
-        id: this.nextLocalAgentEntryId("system"),
-        role: "system",
-        text: `${getAgentProviderLabel(this.agentProvider)} is running. This console will detect login prompts and start the login flow automatically when required. MCP connection screens are handled separately with /mcp when the CLI reports them.`
+        if (this.agentAuthState === "checking") {
+          this.setAgentStatus(`Checking ${getAgentProviderLabel(this.agentProvider)} login...`);
+        } else {
+          this.refreshAgentAuthStatus();
+        }
+        this.appendAgentTranscript({
+          id: this.nextLocalAgentEntryId("system"),
+          role: "system",
+          text: `${getAgentProviderLabel(this.agentProvider)} is running. This console will detect login prompts and start the login flow automatically when required. MCP connection screens are handled separately with /mcp when the CLI reports them.`
+        });
       });
     }, AGENT_READY_DELAY_MS);
   }
@@ -2767,10 +3090,13 @@ class VaultPowerShellView extends ItemView {
     }
 
     if (promptMode === "continue" && !text.startsWith("/")) {
+      const sessionKey = this.activeAgentSessionKey;
       this.clearAgentPromptState();
       this.sendAgentHostMessage({ type: "data", data: ESCAPE_SEQUENCE });
       window.setTimeout(() => {
-        this.sendAgentHostMessage({ type: "data", data: `${formatTerminalPasteData(textWithAttachments)}\r` });
+        this.withAgentSession(sessionKey, () => {
+          this.sendAgentHostMessage({ type: "data", data: `${formatTerminalPasteData(textWithAttachments)}\r` });
+        });
       }, 100);
       this.setAgentStatus("Waiting for response...");
       return;
@@ -2785,6 +3111,7 @@ class VaultPowerShellView extends ItemView {
   }
 
   private async sendClaudePrintTurn(text: string) {
+    const sessionKey = this.activeAgentSessionKey;
     const cwd = this.plugin.getVaultPath();
     if (!cwd) {
       this.appendAgentTranscript({
@@ -2808,20 +3135,24 @@ class VaultPowerShellView extends ItemView {
         sessionId,
         sessionName: this.agentSessionLabel
       });
-      const output = formatClaudePrintOutput(result);
-      this.appendAgentTranscript({
-        id: this.nextLocalAgentEntryId("assistant"),
-        role: "assistant",
-        text: output
+      this.withAgentSession(sessionKey, () => {
+        const output = formatClaudePrintOutput(result);
+        this.appendAgentTranscript({
+          id: this.nextLocalAgentEntryId("assistant"),
+          role: "assistant",
+          text: output
+        });
+        if (isAgentSessionLimitText(output)) {
+          this.setAgentStatus("Claude session limit");
+        } else {
+          this.markAgentConversationReady();
+        }
+        this.syncAgentSessionOffsetToLatestEnd();
       });
-      if (isAgentSessionLimitText(output)) {
-        this.setAgentStatus("Claude session limit");
-      } else {
-        this.markAgentConversationReady();
-      }
-      this.syncAgentSessionOffsetToLatestEnd();
     } finally {
-      this.agentClaudePrintTurnActive = false;
+      this.withAgentSession(sessionKey, () => {
+        this.agentClaudePrintTurnActive = false;
+      });
     }
   }
 
@@ -2895,36 +3226,39 @@ class VaultPowerShellView extends ItemView {
   }
 
   private async checkAgentLoginStatus(provider: AgentProvider, cwd: string, env: { [key: string]: string | undefined }) {
+    const sessionKey = this.activeAgentSessionKey;
     this.setAgentStatus(`Checking ${getAgentProviderLabel(provider)} login...`);
     const status = await getAgentAuthCheck(provider, cwd, env);
-    this.appendAgentTranscript({
-      id: this.nextLocalAgentEntryId("system"),
-      role: "system",
-      text: status.summary
-    });
+    this.withAgentSession(sessionKey, () => {
+      this.appendAgentTranscript({
+        id: this.nextLocalAgentEntryId("system"),
+        role: "system",
+        text: status.summary
+      });
 
-    if (status.loggedIn === true) {
-      this.agentAuthState = "authenticated";
+      if (status.loggedIn === true) {
+        this.agentAuthState = "authenticated";
+        this.agentConversationReady = false;
+        this.agentNeedsAuth = false;
+        this.agentAutoLoginPending = false;
+        this.setAgentStatus(`${getAgentProviderLabel(provider)} login confirmed`);
+        return;
+      }
+
+      if (status.loggedIn === false) {
+        this.agentAuthState = "login-required";
+        this.agentConversationReady = false;
+        this.agentNeedsAuth = provider === "claude";
+        this.agentAutoLoginPending = provider === "claude";
+        this.refreshAgentAuthStatus();
+        return;
+      }
+
+      this.agentAuthState = "checking";
       this.agentConversationReady = false;
-      this.agentNeedsAuth = false;
       this.agentAutoLoginPending = false;
-      this.setAgentStatus(`${getAgentProviderLabel(provider)} login confirmed`);
-      return;
-    }
-
-    if (status.loggedIn === false) {
-      this.agentAuthState = "login-required";
-      this.agentConversationReady = false;
-      this.agentNeedsAuth = provider === "claude";
-      this.agentAutoLoginPending = provider === "claude";
       this.refreshAgentAuthStatus();
-      return;
-    }
-
-    this.agentAuthState = "checking";
-    this.agentConversationReady = false;
-    this.agentAutoLoginPending = false;
-    this.refreshAgentAuthStatus();
+    });
   }
 
   private setAgentPromptState(prompt: AgentPromptState) {
@@ -2942,7 +3276,9 @@ class VaultPowerShellView extends ItemView {
     this.agentPromptState = prompt;
     this.agentNeedsAuth = this.agentNeedsAuth || prompt.requiresAuth;
     this.refreshAgentPromptActions();
-    this.agentInputEl?.focus();
+    if (this.isVisibleAgentSessionContext()) {
+      this.agentInputEl?.focus();
+    }
 
     if (prompt.mode === "auth" || prompt.mode === "auth-code") {
       const loginUrl = prompt.urls.find((url) => isAgentLoginUrl(url));
@@ -2989,7 +3325,7 @@ class VaultPowerShellView extends ItemView {
 
   private refreshAgentPromptActions() {
     const container = this.agentPromptActionsEl;
-    if (!container) {
+    if (!container || !this.isVisibleAgentSessionContext()) {
       return;
     }
 
@@ -3039,7 +3375,7 @@ class VaultPowerShellView extends ItemView {
 
   private refreshAgentLoginButton() {
     const button = this.agentLoginButton;
-    if (!button) {
+    if (!button || !this.isVisibleAgentSessionContext()) {
       return;
     }
 
@@ -3200,8 +3536,9 @@ class VaultPowerShellView extends ItemView {
 
   private startAgentSessionPolling() {
     this.stopAgentSessionPolling();
+    const sessionKey = this.activeAgentSessionKey;
     this.agentSessionPollTimer = window.setInterval(() => {
-      this.pollAgentSessionLog();
+      this.withAgentSession(sessionKey, () => this.pollAgentSessionLog());
     }, AGENT_SESSION_POLL_MS);
   }
 
@@ -3368,6 +3705,7 @@ class VaultPowerShellView extends ItemView {
   }
 
   private markAgentOutputActive() {
+    const sessionKey = this.activeAgentSessionKey;
     if (this.agentOutputIdleTimer !== null) {
       window.clearTimeout(this.agentOutputIdleTimer);
       this.agentOutputIdleTimer = null;
@@ -3378,8 +3716,10 @@ class VaultPowerShellView extends ItemView {
     }
 
     this.agentOutputIdleTimer = window.setTimeout(() => {
-      this.agentOutputIdleTimer = null;
-      this.refreshAgentAuthStatus();
+      this.withAgentSession(sessionKey, () => {
+        this.agentOutputIdleTimer = null;
+        this.refreshAgentAuthStatus();
+      });
     }, 1800);
   }
 
@@ -3465,6 +3805,9 @@ class VaultPowerShellView extends ItemView {
 
   private setAgentStatus(text: string) {
     this.agentStatusText = text;
+    if (!this.isVisibleAgentSessionContext()) {
+      return;
+    }
     const loading = isAgentLoadingStatus(text);
     this.agentStatusEl?.setText(text);
     this.agentStatusEl?.toggleClass("is-loading", loading);

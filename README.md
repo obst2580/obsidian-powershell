@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **Agent Console + raw terminal** in the right sidebar. This branch currently reports version `0.6.17`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **Agent Console + raw terminal** in the right sidebar. This branch currently reports version `0.6.18`.
 
 [한국어 README](README.ko.md)
 
@@ -12,7 +12,7 @@ Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **Agent Co
 
 The default pane is **Agent Console**. The toolbar lets you choose `Claude` or `Codex`, and the active provider is shown as `현재 Claude Code` or `현재 Codex`. Claude and Codex keep separate transcripts when you switch providers.
 
-You can split work across multiple AI sessions in the same vault. `Open terminal` keeps the existing single-view behavior, while `Open new AI session` or the Agent Console `+` button adds an AI session tab inside the plugin instead of opening a new Obsidian workspace tab. Each tab keeps its own Claude sessionId, Codex threadId, selected provider, editable title, and visible transcript. Because these tabs live inside one plugin view, switching tabs stops a running agent; press `Start` after returning to continue with the same session ID/thread. This is intended for project-management roles such as PM, Writer, Analyst, and Reviewer working beside the same vault documents.
+You can split work across multiple AI sessions in the same vault. `Open terminal` keeps the existing single-view behavior, while `Open new AI session` or the Agent Console `+` button adds an AI session tab inside the plugin instead of opening a new Obsidian workspace tab. Each tab keeps its own Claude sessionId, Codex threadId, selected provider, editable title, visible transcript, and running backend/PTY state. Switching tabs does not stop the running agent; background sessions keep writing to their own transcripts. This is intended for project-management roles such as PM, Writer, Analyst, and Reviewer working beside the same vault documents.
 
 ### Codex
 
@@ -250,8 +250,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.17
-git push origin 0.6.17
+git tag 0.6.18
+git push origin 0.6.18
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.
