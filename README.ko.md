@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.32`입니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.33`입니다.
 
 [English README](README.md)
 
@@ -46,6 +46,7 @@ Claude Code Agent Console은 로그인/제어 흐름과 일반 대화 흐름을 
 - 시작 시 `claude auth status --json`으로 로그인 상태를 확인합니다.
 - 일반 메시지는 AI 세션별 `claude --session-id <uuid> --strict-mcp-config --permission-mode bypassPermissions --output-format text -p`로 실행하고 prompt를 stdin으로 전달합니다.
 - Claude 응답은 `claude` 프로세스가 종료될 때까지 기다립니다. 전사나 대용량 문서 분석처럼 10분 이상 걸릴 수 있는 장시간 스킬도 중간에 강제 종료하지 않습니다.
+- Claude가 session ID 사용 중 오류를 반환하면 Claude chat sessionId를 새로 발급하고 해당 turn을 한 번 자동 재시도합니다.
 - `/login`, MCP 연결, permission 또는 command prompt처럼 interactive 응답이 필요한 경우에는 뒤쪽 PTY host를 통해 입력을 전달합니다.
 - Claude Code 세션 로그는 login/control 흐름 추적과 transcript 보정에 사용합니다.
 
@@ -262,8 +263,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-git tag 0.6.32
-git push origin 0.6.32
+git tag 0.6.33
+git push origin 0.6.33
 ```
 
 릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.

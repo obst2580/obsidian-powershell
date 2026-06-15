@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.32`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.33`.
 
 [한국어 README](README.ko.md)
 
@@ -46,6 +46,7 @@ The Claude Code Agent Console separates normal chat turns from login/control pro
 - Checks login with `claude auth status --json`.
 - Sends normal prompts through a session-specific `claude --session-id <uuid> --strict-mcp-config --permission-mode bypassPermissions --output-format text -p`.
 - Passes the prompt through stdin and waits for the `claude` process to finish, allowing long-running skills such as audio transcription or large document analysis.
+- If Claude reports that the session ID is already in use, the console rotates the Claude chat sessionId and retries the turn once.
 - Uses the background PTY host for `/login`, MCP connection prompts, permission prompts, and command-style control input.
 - Uses Claude session logs to track control flow and keep transcript offsets aligned.
 
@@ -263,8 +264,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.32
-git push origin 0.6.32
+git tag 0.6.33
+git push origin 0.6.33
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.

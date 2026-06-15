@@ -3571,6 +3571,11 @@ class VaultPowerShellView extends ItemView {
       return;
     }
 
+    if (this.agentClaudePrintTurnActive) {
+      new Notice("Claude 응답을 기다리는 중입니다.");
+      return;
+    }
+
     this.agentClaudePrintTurnActive = true;
     this.clearAgentPromptState();
     this.setAgentStatus("Waiting for Claude response...");
@@ -3579,11 +3584,32 @@ class VaultPowerShellView extends ItemView {
         useSystemCa: this.plugin.settings.useSystemCa,
         extraCaCertPath: this.plugin.getExtraCaCertPath()
       });
-      const sessionId = this.ensureClaudeSessionId();
-      const result = await runClaudePrintCommand(text, cwd, env, CLAUDE_PRINT_TIMEOUT_MS, {
+      let sessionId = this.ensureClaudeSessionId();
+      let result = await runClaudePrintCommand(text, cwd, env, CLAUDE_PRINT_TIMEOUT_MS, {
         sessionId,
         sessionName: this.agentSessionLabel
       });
+      if (isClaudeSessionInUseResult(result)) {
+        const previousSessionId = sessionId;
+        sessionId = randomUUID();
+        this.withAgentSession(sessionKey, () => {
+          this.agentClaudeSessionId = sessionId;
+          this.agentSessionPath = null;
+          this.agentSessionOffset = 0;
+          this.refreshAgentSessionChrome();
+          this.setAgentStatus("Retrying Claude with a new session...");
+          this.appendAgentTranscript({
+            id: this.nextLocalAgentEntryId("system"),
+            role: "system",
+            text: `Claude sessionId가 이미 사용 중이라 새 sessionId로 한 번 재시도합니다.\n이전 sessionId: ${shortSessionId(previousSessionId)}\n새 sessionId: ${shortSessionId(sessionId)}`
+          });
+          this.saveAgentViewState();
+        });
+        result = await runClaudePrintCommand(text, cwd, env, CLAUDE_PRINT_TIMEOUT_MS, {
+          sessionId,
+          sessionName: this.agentSessionLabel
+        });
+      }
       this.withAgentSession(sessionKey, () => {
         const output = formatClaudePrintOutput(result);
         this.appendAgentTranscript({
@@ -6920,6 +6946,11 @@ function formatClaudePrintOutput(result: CapturedCommandResult): string {
   }
 
   return "Claude가 빈 응답을 반환했습니다.";
+}
+
+function isClaudeSessionInUseResult(result: CapturedCommandResult): boolean {
+  const output = stripTerminalControlSequences(`${result.stdout}\n${result.stderr}`);
+  return /Session ID\s+[0-9a-f-]+\s+is already in use/i.test(output);
 }
 
 function removeClaudeNoStdinWarning(text: string): string {
