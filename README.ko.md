@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **Agent Console + Raw terminal** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.16`입니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **Agent Console + Raw terminal** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.17`입니다.
 
 [English README](README.md)
 
@@ -12,7 +12,7 @@ Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 �
 
 Obst Terminal을 열면 기본 화면은 **Agent Console**입니다. 상단에서 `Claude`와 `Codex`를 선택할 수 있고, 현재 선택된 provider는 `현재 Claude Code` 또는 `현재 Codex` chip으로 표시됩니다. Claude와 Codex transcript는 서로 섞이지 않고 따로 유지됩니다.
 
-한 볼트 안에서 여러 AI 세션을 동시에 열 수 있습니다. 기존 `Open terminal` 명령은 첫 Obst Terminal pane을 재사용하고, `Open new AI session` 명령이나 Agent Console의 `+` 버튼은 같은 Obst Terminal 탭 그룹에 새 tab을 만들어 독립 Claude sessionId / Codex threadId를 유지합니다. Agent Console 헤더에서 세션 제목도 바로 수정할 수 있습니다. 이 구조는 PM, Writer, Reviewer처럼 역할이 다른 여러 AI를 같은 프로젝트 문서 옆에 띄워두는 용도입니다.
+한 볼트 안에서 여러 AI 세션을 나눠 사용할 수 있습니다. 기존 `Open terminal` 명령은 첫 Obst Terminal 뷰를 재사용하고, `Open new AI session` 명령이나 Agent Console의 `+` 버튼은 Obsidian 탭을 새로 만들지 않고 플러그인 내부 상단에 AI 세션 탭을 추가합니다. 각 탭은 독립 Claude sessionId / Codex threadId, 선택 provider, 수정 가능한 제목, 표시 중인 transcript를 유지합니다. 단일 플러그인 뷰 안에서 동작하므로 탭을 바꿀 때 실행 중인 에이전트는 정지되며, 돌아와서 `Start`를 누르면 같은 세션 ID/thread로 이어서 시작합니다. 이 구조는 PM, Writer, Reviewer처럼 역할이 다른 여러 AI를 같은 프로젝트 문서 옆에 나눠두는 용도입니다.
 
 ### Codex
 
@@ -34,7 +34,7 @@ Agent Console의 fallback PTY 경로를 쓰거나 Raw terminal에서 `codex`를 
 Claude Code Agent Console은 로그인/제어 흐름과 일반 대화 흐름을 분리합니다.
 
 - 시작 시 `claude auth status --json`으로 로그인 상태를 확인합니다.
-- 일반 메시지는 pane별 `claude --session-id <uuid> --strict-mcp-config --permission-mode bypassPermissions --output-format text -p`로 실행하고 prompt를 stdin으로 전달합니다.
+- 일반 메시지는 AI 세션별 `claude --session-id <uuid> --strict-mcp-config --permission-mode bypassPermissions --output-format text -p`로 실행하고 prompt를 stdin으로 전달합니다.
 - Claude 응답은 최대 10분까지 기다립니다. 초과하면 timeout 메시지를 transcript에 표시합니다.
 - `/login`, MCP 연결, permission 또는 command prompt처럼 interactive 응답이 필요한 경우에는 뒤쪽 PTY host를 통해 입력을 전달합니다.
 - Claude Code 세션 로그는 login/control 흐름 추적과 transcript 보정에 사용합니다.
@@ -139,7 +139,7 @@ https://github.com/obst2580/obsidian-powershell
 
 Codex가 응답 중일 때 `Send`는 `Stop`으로 동작합니다. 응답 중 새 메시지를 보내면 현재 turn이 끝난 뒤 이어서 실행되도록 queue에 들어갑니다.
 
-여러 AI를 함께 쓸 때는 명령 팔레트의 `Open new AI session` 또는 Agent Console 상단의 `+` 버튼으로 새 tab을 엽니다. 각 세션은 수정 가능한 제목을 갖고, subtitle에 Claude sessionId와 Codex threadId의 짧은 값이 표시됩니다.
+여러 AI를 함께 쓸 때는 명령 팔레트의 `Open new AI session` 또는 Agent Console 상단의 `+` 버튼으로 플러그인 내부 AI 세션 탭을 추가합니다. 각 세션은 수정 가능한 제목을 갖고, subtitle에 Claude sessionId와 Codex threadId의 짧은 값이 표시됩니다.
 
 ## 첨부 파일과 이미지
 
@@ -249,8 +249,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-git tag 0.6.16
-git push origin 0.6.16
+git tag 0.6.17
+git push origin 0.6.17
 ```
 
 릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.

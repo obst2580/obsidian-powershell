@@ -475,6 +475,97 @@
   color: var(--text-normal);
 }
 
+.vault-agent-session-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  overflow: hidden;
+}
+
+.vault-agent-session-tab-list {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.vault-agent-session-tab-item {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 220px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 7px;
+  background: var(--background-primary);
+  overflow: hidden;
+}
+
+.vault-agent-session-tab-item:has(.vault-agent-session-tab.is-active) {
+  border-color: var(--interactive-accent);
+  background: var(--background-primary-alt);
+}
+
+.vault-agent-session-tab {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.vault-agent-session-tab.is-active {
+  color: var(--text-normal);
+  font-weight: 600;
+}
+
+.vault-agent-session-tab-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vault-agent-session-tab-close,
+.vault-agent-session-add {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.vault-agent-session-tab-close:hover,
+.vault-agent-session-add:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.vault-agent-session-add {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 7px;
+  background: var(--background-primary);
+}
+
 .vault-agent-header {
   flex: 0 0 auto;
   display: flex;

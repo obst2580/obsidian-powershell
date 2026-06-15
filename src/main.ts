@@ -144,6 +144,8 @@ type AgentPromptMode = "auth" | "auth-code" | "mcp" | "menu" | "confirmation" | 
 type AgentAuthState = "idle" | "checking" | "authenticated" | "ready" | "login-required" | "login-in-progress";
 
 interface AgentViewSessionState extends Record<string, unknown> {
+  agentSessions?: AgentWorkspaceSessionState[];
+  activeAgentSessionKey?: string;
   agentSessionKey?: string;
   agentSessionLabel?: string;
   agentSessionMode?: AgentSessionMode;
@@ -151,6 +153,21 @@ interface AgentViewSessionState extends Record<string, unknown> {
   activePane?: ViewPane;
   claudeSessionId?: string;
   codexThreadId?: string | null;
+}
+
+interface AgentWorkspaceSessionState extends Record<string, unknown> {
+  agentSessionKey: string;
+  agentSessionLabel: string;
+  agentSessionMode: AgentSessionMode;
+  agentProvider: AgentProvider;
+  claudeSessionId: string | null;
+  codexThreadId: string | null;
+  claudeTranscriptHtml?: string;
+  codexTranscriptHtml?: string;
+  inputText?: string;
+  statusText?: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 interface PtyHostConfig {
@@ -876,16 +893,8 @@ export default class VaultPowerShellPlugin extends Plugin {
   }
 
   async activateNewSessionView() {
-    const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_POWERSHELL)[0];
-    const leaf = existing
-      ? await this.app.workspace.duplicateLeaf(existing, "tab")
-      : this.app.workspace.getRightLeaf(false) ?? this.app.workspace.getLeaf("tab");
-    await leaf.setViewState({
-      type: VIEW_TYPE_POWERSHELL,
-      state: createAgentViewSessionState("isolated"),
-      active: true
-    });
-    await this.app.workspace.revealLeaf(leaf);
+    const view = await this.getOrCreateTerminalView();
+    view.createInternalAgentSession();
   }
 }
 
@@ -923,6 +932,10 @@ class VaultPowerShellView extends ItemView {
   private terminalPaneEl: HTMLElement | null = null;
   private terminalHostEl: HTMLElement | null = null;
   private terminalStarted = false;
+  private agentSessions: AgentWorkspaceSessionState[] = [];
+  private activeAgentSessionKey: string | null = null;
+  private agentSessionTabsEl: HTMLElement | null = null;
+  private agentSessionTabEls = new Map<string, HTMLElement>();
   private agentSessionKey = createAgentSessionKey();
   private agentSessionLabel = createAgentSessionLabel(this.agentSessionKey);
   private agentSessionMode: AgentSessionMode = "legacy-latest";
@@ -961,6 +974,7 @@ class VaultPowerShellView extends ItemView {
   private agentReadyForInput = false;
   private agentStdoutBuffer = "";
   private agentStatusEl: HTMLElement | null = null;
+  private agentStatusText = "Idle";
   private agentTranscriptEl: HTMLElement | null = null;
   private claudeTranscriptEl: HTMLElement | null = null;
   private codexTranscriptEl: HTMLElement | null = null;
@@ -1014,7 +1028,10 @@ class VaultPowerShellView extends ItemView {
   }
 
   getState(): Record<string, unknown> {
+    this.captureActiveAgentSessionState();
     return {
+      agentSessions: this.cloneAgentSessionsForState(),
+      activeAgentSessionKey: this.activeAgentSessionKey,
       agentSessionKey: this.agentSessionKey,
       agentSessionLabel: this.agentSessionLabel,
       agentSessionMode: this.agentSessionMode,
@@ -1027,11 +1044,14 @@ class VaultPowerShellView extends ItemView {
 
   setState(state: unknown): Promise<void> {
     this.applyAgentViewState(state);
+    this.renderAgentSessionTabs();
+    this.restoreActiveAgentSessionDom();
     this.refreshAgentSessionChrome();
     return Promise.resolve();
   }
 
   onOpen(): Promise<void> {
+    this.ensureInternalAgentSessions();
     const container = this.containerEl.children[1] as HTMLElement;
     container.empty();
     container.addClass("vault-powershell-view");
@@ -1052,6 +1072,7 @@ class VaultPowerShellView extends ItemView {
   }
 
   onClose(): Promise<void> {
+    this.captureActiveAgentSessionState();
     this.disposeAgent();
     this.disposeShell();
     this.resizeObserver?.disconnect();
@@ -1085,6 +1106,8 @@ class VaultPowerShellView extends ItemView {
     this.terminalPaneEl = null;
     this.terminalHostEl = null;
     this.agentStatusEl = null;
+    this.agentSessionTabsEl = null;
+    this.agentSessionTabEls.clear();
     this.agentSessionTitleInputEl = null;
     this.agentSessionSubtitleEl = null;
     this.agentTranscriptEl = null;
@@ -1103,34 +1126,56 @@ class VaultPowerShellView extends ItemView {
 
   private applyAgentViewState(state: unknown) {
     if (!state || typeof state !== "object") {
+      this.ensureInternalAgentSessions();
       return;
     }
     const value = state as AgentViewSessionState;
-    if (typeof value.agentSessionKey === "string" && value.agentSessionKey.trim()) {
-      this.agentSessionKey = value.agentSessionKey.trim();
+
+    const storedSessions = Array.isArray(value.agentSessions)
+      ? value.agentSessions
+        .map((session) => normalizeAgentWorkspaceSessionState(session))
+        .filter((session): session is AgentWorkspaceSessionState => session !== null)
+      : [];
+
+    if (storedSessions.length > 0) {
+      this.agentSessions = storedSessions;
+      this.activeAgentSessionKey = typeof value.activeAgentSessionKey === "string" &&
+        storedSessions.some((session) => session.agentSessionKey === value.activeAgentSessionKey)
+        ? value.activeAgentSessionKey
+        : storedSessions[0].agentSessionKey;
+      this.applyAgentSessionFields(this.getActiveAgentSessionState());
+    } else {
+      if (typeof value.agentSessionKey === "string" && value.agentSessionKey.trim()) {
+        this.agentSessionKey = value.agentSessionKey.trim();
+      }
+      if (typeof value.agentSessionLabel === "string" && value.agentSessionLabel.trim()) {
+        this.agentSessionLabel = value.agentSessionLabel.trim();
+      } else if (!this.agentSessionLabel) {
+        this.agentSessionLabel = createAgentSessionLabel(this.agentSessionKey);
+      }
+      if (value.agentSessionMode === "isolated" || value.agentSessionMode === "legacy-latest") {
+        this.agentSessionMode = value.agentSessionMode;
+      }
+      if (value.agentProvider === "claude" || value.agentProvider === "codex") {
+        this.agentProvider = value.agentProvider;
+      }
+      if (typeof value.claudeSessionId === "string" && value.claudeSessionId.trim()) {
+        this.agentClaudeSessionId = value.claudeSessionId.trim();
+      }
+      if (typeof value.codexThreadId === "string" && value.codexThreadId.trim()) {
+        this.agentCodexThreadId = value.codexThreadId.trim();
+      } else if (value.codexThreadId === null) {
+        this.agentCodexThreadId = null;
+      }
+      this.agentSessions = [this.createSessionStateFromActiveFields()];
+      this.activeAgentSessionKey = this.agentSessionKey;
     }
-    if (typeof value.agentSessionLabel === "string" && value.agentSessionLabel.trim()) {
-      this.agentSessionLabel = value.agentSessionLabel.trim();
-    } else if (!this.agentSessionLabel) {
-      this.agentSessionLabel = createAgentSessionLabel(this.agentSessionKey);
-    }
-    if (value.agentSessionMode === "isolated" || value.agentSessionMode === "legacy-latest") {
-      this.agentSessionMode = value.agentSessionMode;
-    }
-    if (value.agentProvider === "claude" || value.agentProvider === "codex") {
-      this.agentProvider = value.agentProvider;
-    }
+
     if (value.activePane === "agent" || value.activePane === "terminal") {
       this.activePane = value.activePane;
     }
-    if (typeof value.claudeSessionId === "string" && value.claudeSessionId.trim()) {
-      this.agentClaudeSessionId = value.claudeSessionId.trim();
-    }
-    if (typeof value.codexThreadId === "string" && value.codexThreadId.trim()) {
-      this.agentCodexThreadId = value.codexThreadId.trim();
-    } else if (value.codexThreadId === null) {
-      this.agentCodexThreadId = null;
-    }
+
+    this.ensureInternalAgentSessions();
   }
 
   private saveAgentViewState() {
@@ -1155,6 +1200,8 @@ class VaultPowerShellView extends ItemView {
       return;
     }
     this.agentSessionLabel = next;
+    this.captureActiveAgentSessionState();
+    this.renderAgentSessionTabs();
     this.saveAgentViewState();
     this.refreshAgentSessionChrome();
   }
@@ -1166,6 +1213,283 @@ class VaultPowerShellView extends ItemView {
       this.refreshAgentSessionChrome();
     }
     return this.agentClaudeSessionId;
+  }
+
+  createInternalAgentSession() {
+    this.ensureInternalAgentSessions();
+    this.stopActiveAgentForSessionSwitch();
+    this.captureActiveAgentSessionState();
+
+    const session = createAgentWorkspaceSessionState("isolated");
+    this.agentSessions.push(session);
+    this.activeAgentSessionKey = session.agentSessionKey;
+    this.applyAgentSessionFields(session);
+    this.restoreActiveAgentSessionDom();
+    this.renderAgentSessionTabs();
+    this.showPane("agent");
+    this.saveAgentViewState();
+  }
+
+  private ensureInternalAgentSessions() {
+    if (this.agentSessions.length === 0) {
+      const session = this.createSessionStateFromActiveFields();
+      this.agentSessions = [session];
+      this.activeAgentSessionKey = session.agentSessionKey;
+      return;
+    }
+
+    if (!this.activeAgentSessionKey || !this.agentSessions.some((session) => session.agentSessionKey === this.activeAgentSessionKey)) {
+      this.activeAgentSessionKey = this.agentSessions[0].agentSessionKey;
+    }
+  }
+
+  private getActiveAgentSessionState(): AgentWorkspaceSessionState {
+    this.ensureInternalAgentSessions();
+    const session = this.agentSessions.find((candidate) => candidate.agentSessionKey === this.activeAgentSessionKey);
+    if (session) {
+      return session;
+    }
+
+    const fallback = this.agentSessions[0] ?? this.createSessionStateFromActiveFields();
+    if (this.agentSessions.length === 0) {
+      this.agentSessions.push(fallback);
+    }
+    this.activeAgentSessionKey = fallback.agentSessionKey;
+    return fallback;
+  }
+
+  private createSessionStateFromActiveFields(): AgentWorkspaceSessionState {
+    const now = Date.now();
+    return {
+      agentSessionKey: this.agentSessionKey,
+      agentSessionLabel: this.agentSessionLabel || createAgentSessionLabel(this.agentSessionKey),
+      agentSessionMode: this.agentSessionMode,
+      agentProvider: this.agentProvider,
+      claudeSessionId: this.agentClaudeSessionId,
+      codexThreadId: this.agentCodexThreadId,
+      claudeTranscriptHtml: this.claudeTranscriptEl?.innerHTML ?? "",
+      codexTranscriptHtml: this.codexTranscriptEl?.innerHTML ?? "",
+      inputText: this.agentInputEl?.value ?? "",
+      statusText: this.agentStatusText,
+      createdAt: now,
+      updatedAt: now
+    };
+  }
+
+  private applyAgentSessionFields(session: AgentWorkspaceSessionState) {
+    this.agentSessionKey = session.agentSessionKey;
+    this.agentSessionLabel = session.agentSessionLabel || createAgentSessionLabel(session.agentSessionKey);
+    this.agentSessionMode = session.agentSessionMode;
+    this.agentProvider = session.agentProvider;
+    this.agentClaudeSessionId = session.claudeSessionId;
+    this.agentCodexThreadId = session.codexThreadId;
+  }
+
+  private captureActiveAgentSessionState() {
+    this.ensureInternalAgentSessions();
+    const session = this.getActiveAgentSessionState();
+    session.agentSessionKey = this.agentSessionKey;
+    session.agentSessionLabel = this.agentSessionLabel || createAgentSessionLabel(this.agentSessionKey);
+    session.agentSessionMode = this.agentSessionMode;
+    session.agentProvider = this.agentProvider;
+    session.claudeSessionId = this.agentClaudeSessionId;
+    session.codexThreadId = this.agentCodexThreadId;
+    if (this.claudeTranscriptEl) {
+      session.claudeTranscriptHtml = this.claudeTranscriptEl.innerHTML;
+    }
+    if (this.codexTranscriptEl) {
+      session.codexTranscriptHtml = this.codexTranscriptEl.innerHTML;
+    }
+    if (this.agentInputEl) {
+      session.inputText = this.agentInputEl.value;
+    }
+    session.statusText = this.agentStatusText;
+    session.updatedAt = Date.now();
+  }
+
+  private cloneAgentSessionsForState(): AgentWorkspaceSessionState[] {
+    this.ensureInternalAgentSessions();
+    return this.agentSessions.map((session) => ({
+      agentSessionKey: session.agentSessionKey,
+      agentSessionLabel: session.agentSessionLabel,
+      agentSessionMode: session.agentSessionMode,
+      agentProvider: session.agentProvider,
+      claudeSessionId: session.claudeSessionId,
+      codexThreadId: session.codexThreadId,
+      claudeTranscriptHtml: session.claudeTranscriptHtml ?? "",
+      codexTranscriptHtml: session.codexTranscriptHtml ?? "",
+      inputText: session.inputText ?? "",
+      statusText: session.statusText ?? "Idle",
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt
+    }));
+  }
+
+  private restoreActiveAgentSessionDom() {
+    if (!this.agentPaneEl) {
+      return;
+    }
+
+    const session = this.getActiveAgentSessionState();
+    this.applyAgentSessionFields(session);
+    if (this.claudeTranscriptEl) {
+      this.claudeTranscriptEl.innerHTML = session.claudeTranscriptHtml ?? "";
+    }
+    if (this.codexTranscriptEl) {
+      this.codexTranscriptEl.innerHTML = session.codexTranscriptHtml ?? "";
+    }
+    this.agentInputEl && (this.agentInputEl.value = session.inputText ?? "");
+
+    this.codexItemEls.clear();
+    this.codexDeltaBuffers.clear();
+    this.codexApprovalEls.clear();
+    this.codexCurrentTurnEl = null;
+    this.codexCurrentAnswerEl = null;
+    this.codexTurnLoadingEl = null;
+    this.codexTurnActive = false;
+    this.codexQueuedInputs = [];
+    this.updateSendButtonMode();
+
+    this.refreshAgentSessionChrome();
+    this.refreshAgentProviderButtons();
+    this.switchAgentTranscript(this.agentProvider);
+    this.setAgentStatus(session.statusText ?? "Idle");
+
+    if (!this.claudeTranscriptEl?.innerHTML.trim() && !this.codexTranscriptEl?.innerHTML.trim()) {
+      this.appendAgentTranscript({
+        id: this.nextLocalAgentEntryId("system"),
+        role: "system",
+        text: `${this.agentSessionLabel} 세션입니다. Claude 또는 Codex를 시작하세요. 이 플러그인 안의 각 탭은 고유 Claude sessionId / Codex threadId를 유지합니다.`
+      });
+      this.captureActiveAgentSessionState();
+    }
+  }
+
+  private hasRunningAgent(): boolean {
+    return !!this.agentHost || !!this.agentBackend || this.agentClaudePrintTurnActive;
+  }
+
+  private stopActiveAgentForSessionSwitch() {
+    if (!this.hasRunningAgent()) {
+      return;
+    }
+
+    this.appendAgentTranscript({
+      id: this.nextLocalAgentEntryId("system"),
+      role: "system",
+      text: "세션 탭 전환을 위해 실행 중인 에이전트를 정지했습니다. 이 탭으로 돌아와 Start를 누르면 같은 Claude sessionId / Codex threadId로 이어서 시작합니다."
+    });
+    this.disposeAgent();
+    this.setAgentStatus("Idle");
+  }
+
+  private switchInternalAgentSession(sessionKey: string) {
+    this.ensureInternalAgentSessions();
+    if (sessionKey === this.activeAgentSessionKey) {
+      this.agentInputEl?.focus();
+      return;
+    }
+
+    if (!this.agentSessions.some((session) => session.agentSessionKey === sessionKey)) {
+      return;
+    }
+
+    this.stopActiveAgentForSessionSwitch();
+    this.captureActiveAgentSessionState();
+    this.activeAgentSessionKey = sessionKey;
+    this.applyAgentSessionFields(this.getActiveAgentSessionState());
+    this.restoreActiveAgentSessionDom();
+    this.renderAgentSessionTabs();
+    this.showPane("agent");
+    this.saveAgentViewState();
+  }
+
+  private closeInternalAgentSession(sessionKey: string) {
+    this.ensureInternalAgentSessions();
+    if (this.agentSessions.length <= 1) {
+      return;
+    }
+
+    const closingActive = sessionKey === this.activeAgentSessionKey;
+    if (closingActive) {
+      this.stopActiveAgentForSessionSwitch();
+    } else {
+      this.captureActiveAgentSessionState();
+    }
+
+    const closingIndex = this.agentSessions.findIndex((session) => session.agentSessionKey === sessionKey);
+    if (closingIndex === -1) {
+      return;
+    }
+
+    this.agentSessions.splice(closingIndex, 1);
+    if (closingActive) {
+      const next = this.agentSessions[Math.max(0, closingIndex - 1)] ?? this.agentSessions[0];
+      this.activeAgentSessionKey = next.agentSessionKey;
+      this.applyAgentSessionFields(next);
+      this.restoreActiveAgentSessionDom();
+    }
+
+    this.renderAgentSessionTabs();
+    this.saveAgentViewState();
+  }
+
+  private renderAgentSessionTabs() {
+    if (!this.agentSessionTabsEl) {
+      return;
+    }
+
+    this.ensureInternalAgentSessions();
+    this.agentSessionTabsEl.empty();
+    this.agentSessionTabEls.clear();
+
+    const list = this.agentSessionTabsEl.createDiv("vault-agent-session-tab-list");
+    for (const session of this.agentSessions) {
+      const item = list.createDiv("vault-agent-session-tab-item");
+      const tab = item.createEl("button", {
+        cls: "vault-agent-session-tab",
+        attr: {
+          "aria-label": `AI session: ${session.agentSessionLabel}`,
+          title: session.agentSessionLabel
+        }
+      });
+      tab.toggleClass("is-active", session.agentSessionKey === this.activeAgentSessionKey);
+      tab.createSpan({
+        cls: "vault-agent-session-tab-title",
+        text: session.agentSessionLabel
+      });
+      tab.addEventListener("click", () => {
+        this.switchInternalAgentSession(session.agentSessionKey);
+      });
+      this.agentSessionTabEls.set(session.agentSessionKey, tab);
+
+      if (this.agentSessions.length > 1) {
+        const close = item.createEl("button", {
+          cls: "vault-agent-session-tab-close",
+          attr: {
+            "aria-label": `Close ${session.agentSessionLabel}`,
+            title: "Close session"
+          }
+        });
+        setIcon(close, "x");
+        close.addEventListener("click", (event) => {
+          event.stopPropagation();
+          this.closeInternalAgentSession(session.agentSessionKey);
+        });
+      }
+    }
+
+    const add = this.agentSessionTabsEl.createEl("button", {
+      cls: "vault-agent-session-add",
+      attr: {
+        "aria-label": "New AI session",
+        title: "New AI session"
+      }
+    });
+    setIcon(add, "plus");
+    add.addEventListener("click", () => {
+      this.createInternalAgentSession();
+    });
   }
 
   private createPaneTab(container: Element, label: string, pane: ViewPane, icon: string): HTMLElement {
@@ -1265,6 +1589,10 @@ class VaultPowerShellView extends ItemView {
 
   private createAgentConsole(container: HTMLElement) {
     container.empty();
+    this.ensureInternalAgentSessions();
+
+    this.agentSessionTabsEl = container.createDiv("vault-agent-session-tabs");
+    this.renderAgentSessionTabs();
 
     const header = container.createDiv("vault-agent-header");
     const titleWrap = header.createDiv("vault-agent-title-wrap");
@@ -1370,11 +1698,6 @@ class VaultPowerShellView extends ItemView {
     this.claudeTranscriptEl = container.createDiv("vault-agent-transcript");
     this.codexTranscriptEl = container.createDiv("vault-agent-transcript");
     this.switchAgentTranscript(this.agentProvider);
-    this.appendAgentTranscript({
-      id: this.nextLocalAgentEntryId("system"),
-      role: "system",
-      text: `${this.agentSessionLabel} 세션입니다. Claude 또는 Codex를 시작하세요. 각 Obst Terminal pane은 고유 Claude sessionId / Codex threadId를 유지합니다.`
-    });
 
     this.agentLoadingEl = container.createDiv("vault-agent-loading is-hidden");
     const loadingDots = this.agentLoadingEl.createSpan("vault-agent-loading-dots");
@@ -1453,6 +1776,9 @@ class VaultPowerShellView extends ItemView {
         void this.sendAgentInput();
       }
     });
+
+    this.restoreActiveAgentSessionDom();
+    this.renderAgentSessionTabs();
   }
 
   private createAgentProviderButton(container: HTMLElement, label: string, provider: AgentProvider, iconPath: string): HTMLElement {
@@ -1469,6 +1795,7 @@ class VaultPowerShellView extends ItemView {
       }
 
       this.agentProvider = provider;
+      this.captureActiveAgentSessionState();
       this.saveAgentViewState();
       this.refreshAgentProviderButtons();
       this.switchAgentTranscript(provider);
@@ -1644,6 +1971,7 @@ class VaultPowerShellView extends ItemView {
       case "thread-ready":
         this.agentCodexThreadId = event.threadId;
         this.agentSessionMode = "isolated";
+        this.captureActiveAgentSessionState();
         this.saveAgentViewState();
         this.refreshAgentSessionChrome();
         break;
@@ -3136,6 +3464,7 @@ class VaultPowerShellView extends ItemView {
   }
 
   private setAgentStatus(text: string) {
+    this.agentStatusText = text;
     const loading = isAgentLoadingStatus(text);
     this.agentStatusEl?.setText(text);
     this.agentStatusEl?.toggleClass("is-loading", loading);
@@ -5476,15 +5805,76 @@ function createAgentSessionLabel(sessionKey: string): string {
 }
 
 function createAgentViewSessionState(mode: AgentSessionMode): AgentViewSessionState {
+  const session = createAgentWorkspaceSessionState(mode);
+  return {
+    agentSessions: [session],
+    activeAgentSessionKey: session.agentSessionKey,
+    agentSessionKey: session.agentSessionKey,
+    agentSessionLabel: session.agentSessionLabel,
+    agentSessionMode: session.agentSessionMode,
+    agentProvider: session.agentProvider,
+    activePane: "agent",
+    claudeSessionId: session.claudeSessionId ?? undefined,
+    codexThreadId: session.codexThreadId
+  };
+}
+
+function createAgentWorkspaceSessionState(mode: AgentSessionMode): AgentWorkspaceSessionState {
   const sessionKey = createAgentSessionKey();
+  const now = Date.now();
   return {
     agentSessionKey: sessionKey,
     agentSessionLabel: createAgentSessionLabel(sessionKey),
     agentSessionMode: mode,
     agentProvider: "claude",
-    activePane: "agent",
     claudeSessionId: randomUUID(),
-    codexThreadId: null
+    codexThreadId: null,
+    claudeTranscriptHtml: "",
+    codexTranscriptHtml: "",
+    inputText: "",
+    statusText: "Idle",
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+function normalizeAgentWorkspaceSessionState(value: unknown): AgentWorkspaceSessionState | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const candidate = value as Partial<AgentWorkspaceSessionState>;
+  const key = typeof candidate.agentSessionKey === "string" && candidate.agentSessionKey.trim()
+    ? candidate.agentSessionKey.trim()
+    : createAgentSessionKey();
+  const label = typeof candidate.agentSessionLabel === "string" && candidate.agentSessionLabel.trim()
+    ? candidate.agentSessionLabel.trim()
+    : createAgentSessionLabel(key);
+  const mode = candidate.agentSessionMode === "isolated" || candidate.agentSessionMode === "legacy-latest"
+    ? candidate.agentSessionMode
+    : "isolated";
+  const provider = candidate.agentProvider === "codex" || candidate.agentProvider === "claude"
+    ? candidate.agentProvider
+    : "claude";
+  const now = Date.now();
+
+  return {
+    agentSessionKey: key,
+    agentSessionLabel: label,
+    agentSessionMode: mode,
+    agentProvider: provider,
+    claudeSessionId: typeof candidate.claudeSessionId === "string" && candidate.claudeSessionId.trim()
+      ? candidate.claudeSessionId.trim()
+      : randomUUID(),
+    codexThreadId: typeof candidate.codexThreadId === "string" && candidate.codexThreadId.trim()
+      ? candidate.codexThreadId.trim()
+      : null,
+    claudeTranscriptHtml: typeof candidate.claudeTranscriptHtml === "string" ? candidate.claudeTranscriptHtml : "",
+    codexTranscriptHtml: typeof candidate.codexTranscriptHtml === "string" ? candidate.codexTranscriptHtml : "",
+    inputText: typeof candidate.inputText === "string" ? candidate.inputText : "",
+    statusText: typeof candidate.statusText === "string" && candidate.statusText.trim() ? candidate.statusText : "Idle",
+    createdAt: typeof candidate.createdAt === "number" ? candidate.createdAt : now,
+    updatedAt: typeof candidate.updatedAt === "number" ? candidate.updatedAt : now
   };
 }
 
