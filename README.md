@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.28`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.29`.
 
 [한국어 README](README.ko.md)
 
@@ -15,6 +15,7 @@ Obst Terminal is not just a single chat console. It is designed as a **multi-ses
 - Add AI session tabs with the plugin `+` button or the `Open new AI session` command.
 - Each tab keeps its own Claude sessionId, Codex threadId, provider, editable title, transcript, and running state.
 - Switching tabs does not stop the running agent; background sessions continue writing to their own transcripts.
+- Claude and Codex transcripts preserve their scroll positions per session/provider, so background updates and tab switches do not pull the view back to the top.
 - Use role-based sessions such as PM, Writer, Reviewer, and Researcher next to the same project documents.
 - Delegate prompts to other running AI sessions with `@all`, `@codex`, `@claude`, or `@"session title"`.
 
@@ -43,7 +44,7 @@ The Claude Code Agent Console separates normal chat turns from login/control pro
 
 - Checks login with `claude auth status --json`.
 - Sends normal prompts through a session-specific `claude --session-id <uuid> --strict-mcp-config --permission-mode bypassPermissions --output-format text -p`.
-- Passes the prompt through stdin and waits up to 10 minutes for the response.
+- Passes the prompt through stdin and waits for the `claude` process to finish, allowing long-running skills such as audio transcription or large document analysis.
 - Uses the background PTY host for `/login`, MCP connection prompts, permission prompts, and command-style control input.
 - Uses Claude session logs to track control flow and keep transcript offsets aligned.
 
@@ -250,8 +251,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.28
-git push origin 0.6.28
+git tag 0.6.29
+git push origin 0.6.29
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.

@@ -108,7 +108,7 @@ const AGENT_SESSION_LOOKBACK_MS = 30000;
 const AGENT_SESSION_MATCH_BYTES = 262144;
 const AGENT_SESSION_MAX_READ_BYTES = 1024 * 1024;
 const AGENT_SESSION_TURN_CUTOFF_SLOP_MS = 2000;
-const CLAUDE_PRINT_TIMEOUT_MS = 10 * 60 * 1000;
+const CLAUDE_PRINT_TIMEOUT_MS: number | null = null;
 const AGENT_TRANSCRIPT_BOTTOM_EPSILON_PX = 96;
 const AGENT_TRANSCRIPT_CONTEXT_MAX_CHARS = 12000;
 const CODEX_TURN_COMPLETION_FALLBACK_MS = 15000;
@@ -1057,6 +1057,7 @@ class VaultPowerShellView extends ItemView {
   private agentTranscriptEl: HTMLElement | null = null;
   private claudeTranscriptEl: HTMLElement | null = null;
   private codexTranscriptEl: HTMLElement | null = null;
+  private suppressAgentTranscriptScrollMemory = false;
   private agentLoadingEl: HTMLElement | null = null;
   private agentLoadingTextEl: HTMLElement | null = null;
   private agentPromptActionsEl: HTMLElement | null = null;
@@ -1653,14 +1654,23 @@ class VaultPowerShellView extends ItemView {
       ? this.codexTranscriptEl.scrollTop
       : session.codexScrollTop ?? this.codexTranscriptEl.scrollTop;
 
-    this.agentTranscriptMountEl.empty();
-    this.agentTranscriptMountEl.appendChild(this.claudeTranscriptEl);
-    this.agentTranscriptMountEl.appendChild(this.codexTranscriptEl);
-    this.switchAgentTranscript(this.agentProvider);
-    this.restoreAgentTranscriptScrollPositions(claudeScrollTop, codexScrollTop);
+    this.suppressAgentTranscriptScrollMemory = true;
+    try {
+      this.agentTranscriptMountEl.empty();
+      this.agentTranscriptMountEl.appendChild(this.claudeTranscriptEl);
+      this.agentTranscriptMountEl.appendChild(this.codexTranscriptEl);
+      this.switchAgentTranscript(this.agentProvider);
+      this.restoreAgentTranscriptScrollPositions(claudeScrollTop, codexScrollTop);
+    } finally {
+      this.suppressAgentTranscriptScrollMemory = false;
+    }
   }
 
   private rememberAgentTranscriptScrollPosition(el: HTMLElement) {
+    if (this.suppressAgentTranscriptScrollMemory) {
+      return;
+    }
+
     if (!this.isVisibleAgentSessionContext()) {
       return;
     }
@@ -1674,11 +1684,15 @@ class VaultPowerShellView extends ItemView {
   }
 
   private restoreAgentTranscriptScrollPositions(claudeScrollTop: number, codexScrollTop: number) {
-    this.setTranscriptScrollTop(this.claudeTranscriptEl, claudeScrollTop);
-    this.setTranscriptScrollTop(this.codexTranscriptEl, codexScrollTop);
-    window.requestAnimationFrame(() => {
+    this.withSuppressedAgentTranscriptScrollMemory(() => {
       this.setTranscriptScrollTop(this.claudeTranscriptEl, claudeScrollTop);
       this.setTranscriptScrollTop(this.codexTranscriptEl, codexScrollTop);
+    });
+    window.requestAnimationFrame(() => {
+      this.withSuppressedAgentTranscriptScrollMemory(() => {
+        this.setTranscriptScrollTop(this.claudeTranscriptEl, claudeScrollTop);
+        this.setTranscriptScrollTop(this.codexTranscriptEl, codexScrollTop);
+      });
     });
   }
 
@@ -1687,6 +1701,32 @@ class VaultPowerShellView extends ItemView {
       return;
     }
     el.scrollTop = Math.max(0, value);
+  }
+
+  private withSuppressedAgentTranscriptScrollMemory(action: () => void) {
+    const previous = this.suppressAgentTranscriptScrollMemory;
+    this.suppressAgentTranscriptScrollMemory = true;
+    try {
+      action();
+    } finally {
+      this.suppressAgentTranscriptScrollMemory = previous;
+    }
+  }
+
+  private restoreVisibleAgentTranscriptScrollPosition(provider: AgentProvider) {
+    const session = this.getActiveAgentSessionState();
+    const el = provider === "codex" ? this.codexTranscriptEl : this.claudeTranscriptEl;
+    const scrollTop = provider === "codex"
+      ? session.codexScrollTop ?? el?.scrollTop ?? 0
+      : session.claudeScrollTop ?? el?.scrollTop ?? 0;
+    this.withSuppressedAgentTranscriptScrollMemory(() => {
+      this.setTranscriptScrollTop(el, scrollTop);
+    });
+    window.requestAnimationFrame(() => {
+      this.withSuppressedAgentTranscriptScrollMemory(() => {
+        this.setTranscriptScrollTop(el, scrollTop);
+      });
+    });
   }
 
   private isVisibleAgentSessionContext(): boolean {
@@ -2153,9 +2193,13 @@ class VaultPowerShellView extends ItemView {
       : this.agentTranscriptEl === this.claudeTranscriptEl
         ? "claude"
         : null;
+    if (this.agentTranscriptEl) {
+      this.rememberAgentTranscriptScrollPosition(this.agentTranscriptEl);
+    }
     this.claudeTranscriptEl?.toggleClass("is-hidden", provider !== "claude");
     this.codexTranscriptEl?.toggleClass("is-hidden", provider !== "codex");
     this.agentTranscriptEl = provider === "codex" ? this.codexTranscriptEl : this.claudeTranscriptEl;
+    this.restoreVisibleAgentTranscriptScrollPosition(provider);
     // Restore/render paths can call this with the same provider while a Codex
     // turn is still streaming. Preserve the current turn in that case; otherwise
     // later system/tool events lose their parent card and render as top-level
@@ -2322,6 +2366,7 @@ class VaultPowerShellView extends ItemView {
     if (!this.agentTranscriptEl) {
       return null;
     }
+    const shouldStickToBottom = this.shouldAutoScrollAgentTranscript();
     // Claude has no explicit turn-complete signal, so opening a new turn closes
     // the previous one: clear any leftover thinking indicator first.
     this.cancelCodexTurnCompletionFallback();
@@ -2335,7 +2380,9 @@ class VaultPowerShellView extends ItemView {
     this.codexCurrentTurnEl = turn;
     this.codexCurrentAnswerEl = answer;
     this.showTurnThinking(answer);
-    this.agentTranscriptEl.scrollTop = this.agentTranscriptEl.scrollHeight;
+    if (shouldStickToBottom) {
+      this.scrollAgentTranscriptToBottom(this.agentTranscriptEl);
+    }
     return answer;
   }
 
@@ -2390,13 +2437,17 @@ class VaultPowerShellView extends ItemView {
       this.codexCurrentAnswerEl.scrollTop = this.codexCurrentAnswerEl.scrollHeight;
     }
     if (this.agentTranscriptEl && shouldStickToBottom) {
-      this.agentTranscriptEl.scrollTop = this.agentTranscriptEl.scrollHeight;
-      this.rememberAgentTranscriptScrollPosition(this.agentTranscriptEl);
+      this.scrollAgentTranscriptToBottom(this.agentTranscriptEl);
     }
   }
 
   private shouldAutoScrollAgentTranscript(): boolean {
-    return !this.agentTranscriptEl || isElementScrolledNearBottom(this.agentTranscriptEl);
+    return this.agentTranscriptEl ? isElementScrolledNearBottom(this.agentTranscriptEl) : false;
+  }
+
+  private scrollAgentTranscriptToBottom(el: HTMLElement) {
+    el.scrollTop = el.scrollHeight;
+    this.rememberAgentTranscriptScrollPosition(el);
   }
 
   private buildContextualAgentPrompt(text: string): string {
@@ -2648,12 +2699,12 @@ class VaultPowerShellView extends ItemView {
   }
 
   private renderCodexItemStart(item: TranscriptItem) {
+    const shouldStickToBottom = this.shouldAutoScrollAgentTranscript();
     const answer = this.ensureCodexAnswerEl();
     if (!answer) {
       return;
     }
     this.cancelCodexTurnCompletionFallback();
-    const shouldStickToBottom = this.shouldAutoScrollAgentTranscript();
     const block = answer.createDiv(`vault-agent-block vault-agent-block-${item.kind} vault-agent-block-role-${backendKindRole(item.kind)}`);
     if (item.kind !== "agentMessage" && item.kind !== "plan") {
       block.createDiv("vault-agent-block-label").setText(backendKindLabel(item.kind));
@@ -2711,11 +2762,11 @@ class VaultPowerShellView extends ItemView {
   }
 
   private renderCodexApproval(req: ApprovalRequest) {
+    const shouldStickToBottom = this.shouldAutoScrollAgentTranscript();
     const answer = this.ensureCodexAnswerEl();
     if (!answer) {
       return;
     }
-    const shouldStickToBottom = this.shouldAutoScrollAgentTranscript();
     const card = answer.createDiv("vault-agent-approval");
     card.createDiv({
       cls: "vault-agent-approval-title",
@@ -4152,11 +4203,11 @@ class VaultPowerShellView extends ItemView {
       return;
     }
     if (entry.role === "assistant") {
+      const shouldStickToBottom = this.shouldAutoScrollAgentTranscript();
       const answer = this.ensureCodexAnswerEl();
       if (!answer) {
         return;
       }
-      const shouldStickToBottom = this.shouldAutoScrollAgentTranscript();
       // The visible answer arrived — drop the thinking indicator.
       this.codexTurnLoadingEl?.remove();
       this.codexTurnLoadingEl = null;
@@ -6774,7 +6825,7 @@ function runClaudePrintCommand(
   prompt: string,
   cwd: string,
   env: { [key: string]: string | undefined },
-  timeoutMs: number,
+  timeoutMs: number | null,
   options: { sessionId?: string; sessionName?: string } = {}
 ): Promise<CapturedCommandResult> {
   const args = [
@@ -6797,7 +6848,7 @@ function formatClaudePrintOutput(result: CapturedCommandResult): string {
   }
 
   if (result.timedOut) {
-    return "Claude 응답 시간이 10분을 초과했습니다.";
+    return "Claude 응답 대기 시간이 초과되었습니다.";
   }
 
   if (result.error) {
@@ -6846,12 +6897,13 @@ function truncateStatusOutput(text: string): string {
   return normalized.length > 240 ? `${normalized.slice(0, 237)}...` : normalized;
 }
 
-function runCapturedCommand(command: string, args: string[], cwd: string, env: { [key: string]: string | undefined }, timeoutMs: number, stdinText?: string): Promise<CapturedCommandResult> {
+function runCapturedCommand(command: string, args: string[], cwd: string, env: { [key: string]: string | undefined }, timeoutMs: number | null, stdinText?: string): Promise<CapturedCommandResult> {
   return new Promise((resolvePromise) => {
     let stdout = "";
     let stderr = "";
     let settled = false;
     let child: ChildProcessWithoutNullStreams | null = null;
+    let timeout: number | null = null;
 
     const finish = (result: Partial<CapturedCommandResult>) => {
       if (settled) {
@@ -6859,7 +6911,9 @@ function runCapturedCommand(command: string, args: string[], cwd: string, env: {
       }
 
       settled = true;
-      window.clearTimeout(timeout);
+      if (timeout !== null) {
+        window.clearTimeout(timeout);
+      }
       resolvePromise({
         stdout,
         stderr,
@@ -6869,10 +6923,12 @@ function runCapturedCommand(command: string, args: string[], cwd: string, env: {
       });
     };
 
-    const timeout = window.setTimeout(() => {
-      killCapturedCommandProcess(child);
-      finish({ timedOut: true });
-    }, timeoutMs);
+    if (typeof timeoutMs === "number" && timeoutMs > 0) {
+      timeout = window.setTimeout(() => {
+        killCapturedCommandProcess(child);
+        finish({ timedOut: true });
+      }, timeoutMs);
+    }
 
     try {
       child = spawn(command, args, {

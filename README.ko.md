@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.28`입니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.29`입니다.
 
 [English README](README.md)
 
@@ -15,6 +15,7 @@ Obst Terminal은 한 명의 AI와만 대화하는 단일 콘솔이 아니라, **
 - 플러그인 내부 `+` 버튼 또는 `Open new AI session` 명령으로 AI 세션 탭을 추가합니다.
 - 각 탭은 독립적인 Claude sessionId / Codex threadId, provider, 제목, transcript, 실행 상태를 유지합니다.
 - 탭을 전환해도 실행 중인 에이전트는 멈추지 않고 자기 transcript에 계속 기록합니다.
+- Claude와 Codex transcript는 세션/provider별 스크롤 위치를 보존하므로, 백그라운드 업데이트나 탭 전환 때문에 화면이 맨 위로 튀지 않습니다.
 - PM, Writer, Reviewer, Researcher처럼 역할별 AI 직원을 같은 프로젝트 문서 옆에 나눠둘 수 있습니다.
 - 한 세션에서 `@all`, `@codex`, `@claude`, `@"세션 제목"`으로 다른 실행 중인 AI 세션에 지시를 전달할 수 있습니다.
 
@@ -43,7 +44,7 @@ Claude Code Agent Console은 로그인/제어 흐름과 일반 대화 흐름을 
 
 - 시작 시 `claude auth status --json`으로 로그인 상태를 확인합니다.
 - 일반 메시지는 AI 세션별 `claude --session-id <uuid> --strict-mcp-config --permission-mode bypassPermissions --output-format text -p`로 실행하고 prompt를 stdin으로 전달합니다.
-- Claude 응답은 최대 10분까지 기다립니다. 초과하면 timeout 메시지를 transcript에 표시합니다.
+- Claude 응답은 `claude` 프로세스가 종료될 때까지 기다립니다. 전사나 대용량 문서 분석처럼 10분 이상 걸릴 수 있는 장시간 스킬도 중간에 강제 종료하지 않습니다.
 - `/login`, MCP 연결, permission 또는 command prompt처럼 interactive 응답이 필요한 경우에는 뒤쪽 PTY host를 통해 입력을 전달합니다.
 - Claude Code 세션 로그는 login/control 흐름 추적과 transcript 보정에 사용합니다.
 
@@ -249,8 +250,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-git tag 0.6.28
-git push origin 0.6.28
+git tag 0.6.29
+git push origin 0.6.29
 ```
 
 릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.
