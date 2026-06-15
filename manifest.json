@@ -1,7 +1,7 @@
 {
   "id": "vault-terminal",
   "name": "Obst Terminal",
-  "version": "0.6.19",
+  "version": "0.6.20",
   "minAppVersion": "1.7.0",
   "description": "Open a right-sidebar terminal rooted at the current vault.",
   "author": "obst2580",

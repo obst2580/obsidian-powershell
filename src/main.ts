@@ -216,6 +216,19 @@ interface AgentWorkspaceSessionState extends Record<string, unknown> {
   agentOpenedExternalUrls?: Set<string>;
 }
 
+interface AgentDelegationCommand {
+  targetText: string;
+  message: string;
+  targets: AgentWorkspaceSessionState[];
+}
+
+interface AgentDelegationDeliveryResult {
+  sessionLabel: string;
+  provider: AgentProvider;
+  status: "sent" | "queued" | "failed";
+  reason?: string;
+}
+
 interface PtyHostConfig {
   shell: string;
   args: string[];
@@ -2088,7 +2101,7 @@ class VaultPowerShellView extends ItemView {
     this.agentProviderButtons.claude?.toggleClass("is-active", this.agentProvider === "claude");
     this.agentProviderButtons.codex?.toggleClass("is-active", this.agentProvider === "codex");
     this.renderAgentProviderIndicator();
-    this.agentInputEl?.setAttr("placeholder", `Message to ${getAgentProviderLabel(this.agentProvider)}. Shift+Enter inserts a new line.`);
+    this.agentInputEl?.setAttr("placeholder", `Message to ${getAgentProviderLabel(this.agentProvider)}. @all, @codex, @claude, or @"session title" delegates to other tabs.`);
   }
 
   private renderAgentProviderIndicator() {
@@ -3002,6 +3015,159 @@ class VaultPowerShellView extends ItemView {
     }, AGENT_READY_DELAY_MS);
   }
 
+  private parseAgentDelegationCommand(text: string): AgentDelegationCommand | null {
+    const trimmed = text.trim();
+    const explicitCommand = /^\/(?:send|to|delegate)\s+/i.test(trimmed);
+    const body = trimmed.replace(/^\/(?:send|to|delegate)\s+/i, "");
+    if (!body.startsWith("@")) {
+      return null;
+    }
+
+    const quoted = body.match(/^@"([^"]+)"\s+([\s\S]+)$/);
+    const bare = quoted ? null : body.match(/^@(\S+)\s+([\s\S]+)$/);
+    const targetText = (quoted?.[1] ?? bare?.[1] ?? "").trim();
+    const message = (quoted?.[2] ?? bare?.[2] ?? "").trim();
+    if (!targetText || !message) {
+      return null;
+    }
+
+    this.ensureInternalAgentSessions();
+    const targets = this.findAgentDelegationTargets(targetText);
+    if (!explicitCommand && !quoted && targets.length === 0 && !isKnownAgentDelegationTarget(targetText)) {
+      return null;
+    }
+
+    return {
+      targetText,
+      message,
+      targets
+    };
+  }
+
+  private findAgentDelegationTargets(targetText: string): AgentWorkspaceSessionState[] {
+    const target = normalizeAgentRouteToken(targetText);
+    const otherSessions = this.agentSessions.filter((session) => session.agentSessionKey !== this.activeAgentSessionKey);
+
+    if (target === "all" || target === "others" || target === "전체" || target === "나머지") {
+      return otherSessions;
+    }
+
+    if (target === "codex" || target === "코덱스") {
+      return otherSessions.filter((session) => session.agentProvider === "codex");
+    }
+
+    if (target === "claude" || target === "claudecode" || target === "클로드" || target === "클로드코드") {
+      return otherSessions.filter((session) => session.agentProvider === "claude");
+    }
+
+    return otherSessions.filter((session) => agentSessionMatchesDelegationTarget(session, targetText));
+  }
+
+  private dispatchAgentDelegation(command: AgentDelegationCommand, attachments: AgentAttachment[]) {
+    const sourceLabel = this.agentSessionLabel || createAgentSessionLabel(this.agentSessionKey);
+    const targetLabels = command.targets.map((session) => this.formatAgentRouteLabel(session)).join(", ");
+    this.appendAgentTranscript({
+      id: this.nextLocalAgentEntryId("system"),
+      role: "system",
+      text: `다른 AI 세션으로 지시를 전달합니다: ${targetLabels}`
+    });
+
+    const results = command.targets.map((target) =>
+      this.withAgentSession(target.agentSessionKey, () =>
+        this.deliverAgentDelegation(command.message, attachments, sourceLabel)
+      )
+    );
+    const delivered = results.filter((result) => result.status !== "failed").length;
+    const summary = results
+      .map((result) => `- ${result.sessionLabel}: ${formatDelegationDeliveryStatus(result)}`)
+      .join("\n");
+    this.appendAgentTranscript({
+      id: this.nextLocalAgentEntryId("system"),
+      role: "system",
+      text: `전달 결과: ${delivered}/${results.length}\n${summary}`
+    });
+    this.saveAgentViewState();
+    new Notice(`AI 세션 전달: ${delivered}/${results.length}`);
+  }
+
+  private deliverAgentDelegation(message: string, attachments: AgentAttachment[], sourceLabel: string): AgentDelegationDeliveryResult {
+    const sessionLabel = this.agentSessionLabel || createAgentSessionLabel(this.agentSessionKey);
+    const provider = this.agentProvider;
+    const routedText = formatDelegatedAgentPrompt(sourceLabel, message);
+    const visibleText = routedText + (attachments.length ? `\n\n[${attachments.length} file(s) attached]` : "");
+
+    if (this.agentBackend) {
+      if (this.codexTurnActive) {
+        this.codexQueuedInputs.push({ text: routedText, attachments });
+        this.appendAgentTranscript({
+          id: this.nextLocalAgentEntryId("system"),
+          role: "system",
+          text: `${sourceLabel}에서 전달된 지시를 Codex 대기열에 추가했습니다.`
+        });
+        return { sessionLabel, provider, status: "queued", reason: "Codex is answering" };
+      }
+
+      this.beginCodexTurn(routedText, attachments);
+      return { sessionLabel, provider, status: "sent" };
+    }
+
+    if (!this.agentHost || !this.agentHostReady || !this.agentReadyForInput) {
+      const reason = `${getAgentProviderLabel(provider)} is not running`;
+      this.appendDelegationFailure(sourceLabel, reason, message);
+      return { sessionLabel, provider, status: "failed", reason };
+    }
+
+    if (this.agentProvider === "claude" && this.agentClaudePrintTurnActive) {
+      const reason = "Claude is answering";
+      this.appendDelegationFailure(sourceLabel, reason, message);
+      return { sessionLabel, provider, status: "failed", reason };
+    }
+
+    const promptMode = this.agentPromptState?.mode;
+    if (this.agentPromptState && promptMode !== "text") {
+      const reason = "Agent is waiting for an interactive prompt";
+      this.appendDelegationFailure(sourceLabel, reason, message);
+      return { sessionLabel, provider, status: "failed", reason };
+    }
+
+    if (this.agentNeedsAuth && !this.isAgentInteractiveReplyAllowed(routedText)) {
+      const reason = `${getAgentProviderLabel(provider)} login is required`;
+      this.appendDelegationFailure(sourceLabel, reason, message);
+      return { sessionLabel, provider, status: "failed", reason };
+    }
+
+    const textWithAttachments = appendAgentAttachmentPrompt(routedText, attachments);
+    this.agentCurrentTurnStartedAt = Date.now();
+    this.appendAgentTranscript({
+      id: this.nextLocalAgentEntryId("user"),
+      role: "user",
+      text: visibleText
+    });
+
+    const useClaudePrintMode = this.agentProvider === "claude" && !!textWithAttachments && (!this.agentPromptState || promptMode === "text");
+    if (useClaudePrintMode) {
+      void this.sendClaudePrintTurn(textWithAttachments);
+      return { sessionLabel, provider, status: "sent" };
+    }
+
+    this.clearAgentPromptState();
+    this.sendAgentHostMessage({ type: "data", data: `${formatTerminalPasteData(textWithAttachments)}\r` });
+    this.setAgentStatus("Waiting for response...");
+    return { sessionLabel, provider, status: "sent" };
+  }
+
+  private appendDelegationFailure(sourceLabel: string, reason: string, message: string) {
+    this.appendAgentTranscript({
+      id: this.nextLocalAgentEntryId("system"),
+      role: "system",
+      text: `${sourceLabel}에서 지시가 도착했지만 전달하지 못했습니다: ${reason}\n\n${message}`
+    });
+  }
+
+  private formatAgentRouteLabel(session: AgentWorkspaceSessionState): string {
+    return `${session.agentSessionLabel} (${getAgentProviderLabel(session.agentProvider)})`;
+  }
+
   private async sendAgentInput() {
     const inputEl = this.agentInputEl;
     if (!inputEl) {
@@ -3011,6 +3177,30 @@ class VaultPowerShellView extends ItemView {
     const text = inputEl.value.trim();
     const attachments = this.codexPendingAttachments.slice();
     if (!text && attachments.length === 0 && !this.agentPromptState?.allowEmptySubmit) {
+      return;
+    }
+
+    const delegation = this.parseAgentDelegationCommand(text);
+    if (delegation) {
+      if (delegation.targets.length === 0) {
+        new Notice(`No target matched: ${delegation.targetText}`);
+        this.appendAgentTranscript({
+          id: this.nextLocalAgentEntryId("system"),
+          role: "system",
+          text: `대상 AI 세션을 찾지 못했습니다: ${delegation.targetText}`
+        });
+        return;
+      }
+
+      inputEl.value = "";
+      this.codexPendingAttachments = [];
+      this.renderAttachmentChips();
+      this.dispatchAgentDelegation(delegation, attachments);
+      return;
+    }
+
+    if (isAgentDelegationAttempt(text)) {
+      new Notice("Use @all, @codex, @claude, or @\"session title\" followed by a message.");
       return;
     }
 
@@ -6142,6 +6332,67 @@ function stripScrollbackClear(data: string): string {
 
 function getAgentProviderLabel(provider: AgentProvider): string {
   return provider === "claude" ? "Claude Code" : "Codex";
+}
+
+function isAgentDelegationAttempt(text: string): boolean {
+  const trimmed = text.trim();
+  const explicit = /^\/(?:send|to|delegate)\s+@/i.test(trimmed);
+  const body = trimmed.replace(/^\/(?:send|to|delegate)\s+/i, "");
+  const selector = body.match(/^@("[^"]*"?|\S*)/);
+  const target = selector?.[1]?.replace(/^"|"$/g, "") ?? "";
+  return explicit || /^@"/.test(body) || isKnownAgentDelegationTarget(target);
+}
+
+function normalizeAgentRouteToken(text: string): string {
+  return text.trim().toLowerCase().replace(/^@/, "").replace(/\s+/g, "");
+}
+
+function isKnownAgentDelegationTarget(text: string): boolean {
+  const target = normalizeAgentRouteToken(text);
+  return target === "all" ||
+    target === "others" ||
+    target === "전체" ||
+    target === "나머지" ||
+    target === "codex" ||
+    target === "코덱스" ||
+    target === "claude" ||
+    target === "claudecode" ||
+    target === "클로드" ||
+    target === "클로드코드";
+}
+
+function agentSessionMatchesDelegationTarget(session: AgentWorkspaceSessionState, targetText: string): boolean {
+  const target = normalizeAgentRouteToken(targetText);
+  if (!target) {
+    return false;
+  }
+
+  const candidates = [
+    session.agentSessionLabel,
+    shortSessionId(session.agentSessionKey),
+    session.claudeSessionId ? shortSessionId(session.claudeSessionId) : "",
+    session.codexThreadId ? shortSessionId(session.codexThreadId) : ""
+  ]
+    .filter(Boolean)
+    .map(normalizeAgentRouteToken);
+
+  return candidates.some((candidate) =>
+    candidate === target || (target.length >= 3 && candidate.startsWith(target))
+  );
+}
+
+function formatDelegatedAgentPrompt(sourceLabel: string, message: string): string {
+  return `[${sourceLabel}에서 전달된 지시]\n${message.trim()}`;
+}
+
+function formatDelegationDeliveryStatus(result: AgentDelegationDeliveryResult): string {
+  if (result.status === "sent") {
+    return `${getAgentProviderLabel(result.provider)}로 전달됨`;
+  }
+  if (result.status === "queued") {
+    return `${getAgentProviderLabel(result.provider)} 대기열에 추가됨`;
+  }
+  return `실패${result.reason ? ` (${result.reason})` : ""}`;
 }
 
 function createAgentSessionKey(): string {

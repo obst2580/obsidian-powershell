@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **Agent Console + raw terminal** in the right sidebar. This branch currently reports version `0.6.19`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **Agent Console + raw terminal** in the right sidebar. This branch currently reports version `0.6.20`.
 
 [한국어 README](README.ko.md)
 
@@ -12,7 +12,7 @@ Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **Agent Co
 
 The default pane is **Agent Console**. The toolbar lets you choose `Claude` or `Codex`, and the active provider is shown as `현재 Claude Code` or `현재 Codex`. Claude and Codex keep separate transcripts when you switch providers.
 
-You can split work across multiple AI sessions in the same vault. `Open terminal` keeps the existing single-view behavior, while `Open new AI session` or the Agent Console `+` button adds an AI session tab inside the plugin instead of opening a new Obsidian workspace tab. Each tab keeps its own Claude sessionId, Codex threadId, selected provider, editable title, visible transcript, and running backend/PTY state. Switching tabs does not stop the running agent; background sessions keep writing to their own transcripts. This is intended for project-management roles such as PM, Writer, Analyst, and Reviewer working beside the same vault documents.
+You can split work across multiple AI sessions in the same vault. `Open terminal` keeps the existing single-view behavior, while `Open new AI session` or the Agent Console `+` button adds an AI session tab inside the plugin instead of opening a new Obsidian workspace tab. Each tab keeps its own Claude sessionId, Codex threadId, selected provider, editable title, visible transcript, and running backend/PTY state. Switching tabs does not stop the running agent; background sessions keep writing to their own transcripts. This is intended for project-management roles such as PM, Writer, Analyst, and Reviewer working beside the same vault documents. A session can delegate a prompt to other running tabs with `@all`, `@codex`, `@claude`, or `@"session title"`.
 
 ### Codex
 
@@ -141,6 +141,18 @@ When Codex is answering, `Send` acts as `Stop`. Additional messages are queued u
 
 For multiple AI collaborators, run `Open new AI session` from the command palette or press the Agent Console `+` button. Each session appears as an internal Agent Console tab, gets an editable title, and shows short Claude/Codex session identifiers in the subtitle.
 
+Delegation commands are typed in the same composer:
+
+```text
+@all Review the current project plan and list risks.
+@codex Check whether the implementation looks consistent.
+@claude Draft the handoff note.
+@"Reviewer" Summarize open questions from this vault.
+/send @"PM" Turn this into a task list.
+```
+
+Delegation sends text and selected attachments to matching tabs that are already running. If a target is stopped, waiting for login, or blocked on an interactive prompt, both the sender and target transcripts record the failed delivery instead of starting or approving anything automatically.
+
 ## Attachments
 
 Use the composer `Attach` button to attach files.
@@ -250,8 +262,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.19
-git push origin 0.6.19
+git tag 0.6.20
+git push origin 0.6.20
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.
