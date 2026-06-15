@@ -2127,14 +2127,23 @@ class VaultPowerShellView extends ItemView {
 
   // Show only the active provider's transcript; each keeps its own conversation.
   private switchAgentTranscript(provider: AgentProvider) {
+    const previousProvider = this.agentTranscriptEl === this.codexTranscriptEl
+      ? "codex"
+      : this.agentTranscriptEl === this.claudeTranscriptEl
+        ? "claude"
+        : null;
     this.claudeTranscriptEl?.toggleClass("is-hidden", provider !== "claude");
     this.codexTranscriptEl?.toggleClass("is-hidden", provider !== "codex");
     this.agentTranscriptEl = provider === "codex" ? this.codexTranscriptEl : this.claudeTranscriptEl;
-    // The active turn belonged to the previous provider's transcript; reset so a
-    // new turn attaches to the now-visible one.
-    this.codexCurrentTurnEl = null;
-    this.codexCurrentAnswerEl = null;
-    this.codexTurnLoadingEl = null;
+    // Restore/render paths can call this with the same provider while a Codex
+    // turn is still streaming. Preserve the current turn in that case; otherwise
+    // later system/tool events lose their parent card and render as top-level
+    // boxes.
+    if (previousProvider !== provider) {
+      this.codexCurrentTurnEl = null;
+      this.codexCurrentAnswerEl = null;
+      this.codexTurnLoadingEl = null;
+    }
     this.refreshCodexStatusLine();
   }
 
@@ -2307,10 +2316,36 @@ class VaultPowerShellView extends ItemView {
   }
 
   private ensureCodexAnswerEl(): HTMLElement | null {
-    if (this.codexCurrentAnswerEl) {
+    if (this.codexCurrentAnswerEl && this.agentTranscriptEl?.contains(this.codexCurrentAnswerEl)) {
       return this.codexCurrentAnswerEl;
     }
+    const rebound = this.rebindLastCodexTurnAnswerEl();
+    if (rebound) {
+      return rebound;
+    }
     return this.startCodexTurn("");
+  }
+
+  private rebindLastCodexTurnAnswerEl(): HTMLElement | null {
+    if (!this.agentTranscriptEl) {
+      return null;
+    }
+
+    const turns = Array.from(this.agentTranscriptEl.querySelectorAll<HTMLElement>(".vault-agent-turn"));
+    const turn = turns[turns.length - 1] ?? null;
+    const answer = Array.from(turn?.children ?? []).find((child): child is HTMLElement =>
+      child instanceof HTMLElement && child.hasClass("vault-agent-turn-answer")
+    ) ?? null;
+    if (!turn || !answer) {
+      return null;
+    }
+
+    this.codexCurrentTurnEl = turn;
+    this.codexCurrentAnswerEl = answer;
+    this.codexTurnLoadingEl = Array.from(answer.children).find((child): child is HTMLElement =>
+      child instanceof HTMLElement && child.hasClass("vault-agent-thinking")
+    ) ?? null;
+    return answer;
   }
 
   private scrollCodexAnswer() {
@@ -2746,12 +2781,15 @@ class VaultPowerShellView extends ItemView {
 
   private renderCodexItemComplete(item: TranscriptItem) {
     this.flushCodexDeltaBuffers();
-    const body = this.codexItemEls.get(item.id);
+    let body = this.codexItemEls.get(item.id);
     if (!body) {
       if (item.text.trim()) {
         this.renderCodexItemStart(item);
+        body = this.codexItemEls.get(item.id);
       }
-      return;
+      if (!body) {
+        return;
+      }
     }
     // Codex-app style: command execution is transient progress. Once it
     // finishes, drop the whole block so only the final answer remains.
@@ -3979,12 +4017,16 @@ class VaultPowerShellView extends ItemView {
       return;
     }
 
-    if (this.agentProvider === "codex" && this.codexCurrentAnswerEl && (entry.role === "system" || entry.role === "tool")) {
-      const block = this.codexCurrentAnswerEl.createDiv(`vault-agent-block vault-agent-block-${entry.role}`);
+    if (this.agentProvider === "codex" && this.codexTurnActive && (entry.role === "system" || entry.role === "tool")) {
+      const answer = this.ensureCodexAnswerEl();
+      if (!answer) {
+        return;
+      }
+      const block = answer.createDiv(`vault-agent-block vault-agent-block-${entry.role}`);
       block.createDiv("vault-agent-block-label").setText(getTranscriptRoleLabel(entry.role));
       this.renderAgentMessageBody(block.createDiv("vault-agent-block-body"), text);
-      if (this.codexTurnLoadingEl && this.codexTurnLoadingEl.parentElement === this.codexCurrentAnswerEl) {
-        this.codexCurrentAnswerEl.appendChild(this.codexTurnLoadingEl);
+      if (this.codexTurnLoadingEl && this.codexTurnLoadingEl.parentElement === answer) {
+        answer.appendChild(this.codexTurnLoadingEl);
       }
       this.scrollCodexAnswer();
       return;
