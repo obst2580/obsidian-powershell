@@ -491,6 +491,23 @@
   font-weight: 700;
 }
 
+.vault-agent-title-input {
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.vault-agent-title-input:hover,
+.vault-agent-title-input:focus {
+  border-color: var(--background-modifier-border);
+  background: var(--background-primary);
+}
+
 .vault-agent-subtitle {
   margin-top: 2px;
   color: var(--text-muted);
@@ -801,7 +818,8 @@
 
 .vault-agent-input {
   width: 100%;
-  min-height: 82px;
+  min-height: 48px;
+  max-height: 35vh;
   resize: vertical;
   border: 1px solid var(--background-modifier-border);
   border-radius: 8px;

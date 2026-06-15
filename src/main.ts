@@ -876,7 +876,10 @@ export default class VaultPowerShellPlugin extends Plugin {
   }
 
   async activateNewSessionView() {
-    const leaf = this.app.workspace.getRightLeaf(true) ?? this.app.workspace.getLeaf(true);
+    const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_POWERSHELL)[0];
+    const leaf = existing
+      ? await this.app.workspace.duplicateLeaf(existing, "tab")
+      : this.app.workspace.getRightLeaf(false) ?? this.app.workspace.getLeaf("tab");
     await leaf.setViewState({
       type: VIEW_TYPE_POWERSHELL,
       state: createAgentViewSessionState("isolated"),
@@ -924,7 +927,7 @@ class VaultPowerShellView extends ItemView {
   private agentSessionLabel = createAgentSessionLabel(this.agentSessionKey);
   private agentSessionMode: AgentSessionMode = "legacy-latest";
   private agentCodexThreadId: string | null = null;
-  private agentSessionTitleEl: HTMLElement | null = null;
+  private agentSessionTitleInputEl: HTMLInputElement | null = null;
   private agentSessionSubtitleEl: HTMLElement | null = null;
   private agentProvider: AgentProvider = "claude";
   private agentBackend: AgentBackend | null = null;
@@ -1082,7 +1085,7 @@ class VaultPowerShellView extends ItemView {
     this.terminalPaneEl = null;
     this.terminalHostEl = null;
     this.agentStatusEl = null;
-    this.agentSessionTitleEl = null;
+    this.agentSessionTitleInputEl = null;
     this.agentSessionSubtitleEl = null;
     this.agentTranscriptEl = null;
     this.agentLoadingEl = null;
@@ -1135,13 +1138,25 @@ class VaultPowerShellView extends ItemView {
   }
 
   private refreshAgentSessionChrome() {
-    const title = `Agent console · ${this.agentSessionLabel}`;
-    this.agentSessionTitleEl?.setText(title);
+    if (this.agentSessionTitleInputEl && this.agentSessionTitleInputEl.value !== this.agentSessionLabel) {
+      this.agentSessionTitleInputEl.value = this.agentSessionLabel;
+    }
     const path = this.plugin.getVaultPath() ?? "No local vault path";
     const mode = this.agentSessionMode === "isolated" ? "isolated" : "latest fallback";
     const codex = this.agentCodexThreadId ? ` · codex:${shortSessionId(this.agentCodexThreadId)}` : "";
     const claude = this.agentClaudeSessionId ? ` · claude:${shortSessionId(this.agentClaudeSessionId)}` : "";
     this.agentSessionSubtitleEl?.setText(`${path} · ${mode}${claude}${codex}`);
+  }
+
+  private commitAgentSessionLabel(value: string) {
+    const next = value.trim() || createAgentSessionLabel(this.agentSessionKey);
+    if (next === this.agentSessionLabel) {
+      this.refreshAgentSessionChrome();
+      return;
+    }
+    this.agentSessionLabel = next;
+    this.saveAgentViewState();
+    this.refreshAgentSessionChrome();
   }
 
   private ensureClaudeSessionId(): string {
@@ -1253,7 +1268,33 @@ class VaultPowerShellView extends ItemView {
 
     const header = container.createDiv("vault-agent-header");
     const titleWrap = header.createDiv("vault-agent-title-wrap");
-    this.agentSessionTitleEl = titleWrap.createEl("div", { cls: "vault-agent-title" });
+    this.agentSessionTitleInputEl = titleWrap.createEl("input", {
+      cls: "vault-agent-title vault-agent-title-input",
+      attr: {
+        type: "text",
+        "aria-label": "AI session title",
+        title: "AI session title"
+      }
+    });
+    this.agentSessionTitleInputEl.value = this.agentSessionLabel;
+    this.agentSessionTitleInputEl.addEventListener("change", () => {
+      this.commitAgentSessionLabel(this.agentSessionTitleInputEl?.value ?? "");
+    });
+    this.agentSessionTitleInputEl.addEventListener("blur", () => {
+      this.commitAgentSessionLabel(this.agentSessionTitleInputEl?.value ?? "");
+    });
+    this.agentSessionTitleInputEl.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        this.commitAgentSessionLabel(this.agentSessionTitleInputEl?.value ?? "");
+        this.agentSessionTitleInputEl?.blur();
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        this.refreshAgentSessionChrome();
+        this.agentSessionTitleInputEl?.blur();
+      }
+    });
     this.agentSessionSubtitleEl = titleWrap.createEl("div", {
       cls: "vault-agent-subtitle",
     });
@@ -1353,7 +1394,7 @@ class VaultPowerShellView extends ItemView {
     this.agentInputEl = composer.createEl("textarea", {
       cls: "vault-agent-input",
       attr: {
-        rows: "4",
+        rows: "2",
         placeholder: "Message to the selected agent. Shift+Enter inserts a new line."
       }
     });
