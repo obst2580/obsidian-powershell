@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.31`입니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.32`입니다.
 
 [English README](README.md)
 
@@ -120,6 +120,7 @@ Obst Terminal은 Claude Code 로그인/제어 흐름을 위해 native `node-pty`
 Command palette > Update runtime files
 Settings > Obst Terminal > Runtime files > Install runtime
 Settings > Obst Terminal > Install runtime automatically
+Settings > Obst Terminal > Advanced runtime and network settings
 ```
 
 BRAT으로 테스트 설치할 때는 아래 저장소를 추가합니다.
@@ -183,9 +184,19 @@ Settings > Obst Terminal > Attachment folder
 
 ## 주요 설정
 
+기본 설정 화면에는 평소 사용하는 Agent Console 설정만 보입니다. Runtime, PTY, Node.js, 사내 인증서 관련 항목은 `Advanced runtime and network settings` 안에 접어둡니다.
+
+| 설정 | 동작 |
+| --- | --- |
+| `Attachment folder` | Codex에 전달하기 전 붙여넣기/드롭 첨부 파일을 저장합니다. |
+| `Persist Agent transcript snapshots` | 명시적으로 켠 경우에만 보이는 transcript HTML을 플러그인 `data.json`에 저장합니다. |
+
+고급 설정:
+
 | 설정 | 동작 |
 | --- | --- |
 | `Node executable` | Node.js가 PATH에 없을 때 절대경로를 지정합니다. |
+| `Runtime files` | Claude Code 로그인/제어 흐름에만 쓰는 native runtime을 설치/재설치합니다. |
 | `Windows PTY backend` | Windows에서 Claude Code 제어용 PTY backend를 선택합니다. |
 | `Install runtime automatically` | runtime이 없거나 오래된 경우 자동 설치를 허용합니다. |
 | `Use system certificate store` | Node 기반 CLI에 system CA store 옵션을 주입합니다. |
@@ -251,8 +262,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-git tag 0.6.31
-git push origin 0.6.31
+git tag 0.6.32
+git push origin 0.6.32
 ```
 
 릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.

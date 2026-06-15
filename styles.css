@@ -40,6 +40,30 @@
   color: var(--text-normal);
 }
 
+.vault-terminal-advanced-settings {
+  margin-top: 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+}
+
+.vault-terminal-advanced-settings > summary {
+  cursor: pointer;
+  padding: 12px 16px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+}
+
+.vault-terminal-advanced-settings[open] > summary {
+  border-bottom: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
+.vault-terminal-advanced-settings-body {
+  padding: 0 12px 4px;
+}
+
 .vault-terminal-pane-hidden {
   display: none !important;
 }

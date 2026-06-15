@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.31`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.32`.
 
 [한국어 README](README.ko.md)
 
@@ -120,6 +120,7 @@ Runtime commands and settings:
 Command palette > Update runtime files
 Settings > Obst Terminal > Runtime files > Install runtime
 Settings > Obst Terminal > Install runtime automatically
+Settings > Obst Terminal > Advanced runtime and network settings
 ```
 
 For BRAT testing, add this repository:
@@ -184,9 +185,19 @@ The current note can be inserted with the Agent Console `Add current note` butto
 
 ## Settings
 
+The default settings screen shows only day-to-day Agent Console options. Runtime, PTY, Node.js, and custom CA controls are kept under `Advanced runtime and network settings`.
+
+| Setting | Behavior |
+| --- | --- |
+| `Attachment folder` | Stores pasted or dropped attachment files before they are sent to Codex. |
+| `Persist Agent transcript snapshots` | Saves visible transcript HTML to plugin `data.json` only when explicitly enabled. |
+
+Advanced settings:
+
 | Setting | Behavior |
 | --- | --- |
 | `Node executable` | Point to Node.js when it is not on PATH. |
+| `Runtime files` | Install or reinstall the native runtime used only for Claude Code login/control flows. |
 | `Windows PTY backend` | Choose the Claude Code control PTY backend on Windows. |
 | `Install runtime automatically` | Allows automatic native runtime installation. |
 | `Use system certificate store` | Injects Node system CA behavior for Node-based CLIs. |
@@ -252,8 +263,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.31
-git push origin 0.6.31
+git tag 0.6.32
+git push origin 0.6.32
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.

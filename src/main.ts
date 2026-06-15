@@ -5375,57 +5375,6 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
       .setHeading();
 
     new Setting(containerEl)
-      .setName("Node executable")
-      .setDesc("Used to run the PTY host process. VS Code extension bundled Node is not visible to Obsidian; install Node.js system-wide or set an absolute node path here.")
-      .addText((text) =>
-        text
-          .setPlaceholder("auto")
-          .setValue(this.plugin.settings.nodeExecutable)
-          .onChange((value) => {
-            this.plugin.settings.nodeExecutable = value.trim();
-            void this.plugin.saveSettings();
-          })
-      );
-
-    const runtimeMissingFiles = this.plugin.getRuntimeMissingFiles();
-    const runtimeUpdateReasons = this.plugin.getRuntimeUpdateReasons();
-    new Setting(containerEl)
-      .setName("Runtime files")
-      .setDesc(runtimeMissingFiles.length === 0
-        ? (runtimeUpdateReasons.length === 0 ? "Runtime files are installed." : "Runtime files are installed. A runtime update is available.")
-        : "Runtime files are missing. Install the verified OS-specific runtime package from GitHub Releases.")
-      .addButton((button) =>
-        button
-          .setButtonText(getRuntimeActionLabel(runtimeMissingFiles.length, runtimeUpdateReasons.length))
-          .onClick(() => {
-            button.setDisabled(true);
-            button.setButtonText("Installing...");
-            void this.plugin.updateRuntimeFromUserAction()
-              .then(() => {
-                this.display();
-              })
-              .catch((error) => {
-                const message = error instanceof Error ? error.message : String(error);
-                new Notice(`Runtime installation failed: ${message}`);
-                button.setButtonText(getRuntimeActionLabel(runtimeMissingFiles.length, runtimeUpdateReasons.length));
-                button.setDisabled(false);
-              });
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("Install runtime automatically")
-      .setDesc("Optional. Downloads the verified OS-specific runtime package when the Claude Code control runtime is missing or out of date.")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.autoInstallRuntime)
-          .onChange((value) => {
-            this.plugin.settings.autoInstallRuntime = value;
-            void this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
       .setName("Attachment folder")
       .setDesc("Agent Console clipboard images and dropped image data without a local path are saved here before they are attached.")
       .addText((text) =>
@@ -5453,8 +5402,63 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
           })
       );
 
+    const advancedDetails = containerEl.createEl("details", { cls: "vault-terminal-advanced-settings" });
+    advancedDetails.createEl("summary", { text: "Advanced runtime and network settings" });
+    const advancedEl = advancedDetails.createDiv("vault-terminal-advanced-settings-body");
+
+    new Setting(advancedEl)
+      .setName("Node executable")
+      .setDesc("Used to run the PTY host process. VS Code extension bundled Node is not visible to Obsidian; install Node.js system-wide or set an absolute node path here.")
+      .addText((text) =>
+        text
+          .setPlaceholder("auto")
+          .setValue(this.plugin.settings.nodeExecutable)
+          .onChange((value) => {
+            this.plugin.settings.nodeExecutable = value.trim();
+            void this.plugin.saveSettings();
+          })
+      );
+
+    const runtimeMissingFiles = this.plugin.getRuntimeMissingFiles();
+    const runtimeUpdateReasons = this.plugin.getRuntimeUpdateReasons();
+    new Setting(advancedEl)
+      .setName("Runtime files")
+      .setDesc(runtimeMissingFiles.length === 0
+        ? (runtimeUpdateReasons.length === 0 ? "Runtime files are installed." : "Runtime files are installed. A runtime update is available.")
+        : "Runtime files are missing. Install the verified OS-specific runtime package from GitHub Releases.")
+      .addButton((button) =>
+        button
+          .setButtonText(getRuntimeActionLabel(runtimeMissingFiles.length, runtimeUpdateReasons.length))
+          .onClick(() => {
+            button.setDisabled(true);
+            button.setButtonText("Installing...");
+            void this.plugin.updateRuntimeFromUserAction()
+              .then(() => {
+                this.display();
+              })
+              .catch((error) => {
+                const message = error instanceof Error ? error.message : String(error);
+                new Notice(`Runtime installation failed: ${message}`);
+                button.setButtonText(getRuntimeActionLabel(runtimeMissingFiles.length, runtimeUpdateReasons.length));
+                button.setDisabled(false);
+              });
+          })
+      );
+
+    new Setting(advancedEl)
+      .setName("Install runtime automatically")
+      .setDesc("Optional. Downloads the verified OS-specific runtime package when the Claude Code control runtime is missing or out of date.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.autoInstallRuntime)
+          .onChange((value) => {
+            this.plugin.settings.autoInstallRuntime = value;
+            void this.plugin.saveSettings();
+          })
+      );
+
     if (process.platform === "win32") {
-      new Setting(containerEl)
+      new Setting(advancedEl)
         .setName("Windows PTY backend")
         .setDesc("Used only for the background Claude Code control process. ConPTY is the default on modern Windows.")
         .addDropdown((dropdown) =>
@@ -5470,7 +5474,7 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
         );
     }
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("Use system certificate store")
       .setDesc("Off by default. Enable only when a corporate TLS proxy requires Node CLIs to trust the OS certificate store.")
       .addToggle((toggle) =>
@@ -5482,7 +5486,7 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("Extra CA certificate")
       .setDesc("Optional PEM file path for TLS inspection. Leave empty to auto-detect a shared PEM file, or use a relative path such as certs/extra-ca.pem.")
       .addText((text) =>
