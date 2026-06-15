@@ -106,6 +106,7 @@ const AGENT_SESSION_MAX_READ_BYTES = 1024 * 1024;
 const AGENT_SESSION_TURN_CUTOFF_SLOP_MS = 2000;
 const CLAUDE_PRINT_TIMEOUT_MS = 10 * 60 * 1000;
 const AGENT_TRANSCRIPT_BOTTOM_EPSILON_PX = 96;
+const AGENT_TRANSCRIPT_CONTEXT_MAX_CHARS = 12000;
 
 interface PowerShellSettings {
   settingsSchemaVersion: number;
@@ -2443,6 +2444,64 @@ class VaultPowerShellView extends ItemView {
     return !this.agentTranscriptEl || isElementScrolledNearBottom(this.agentTranscriptEl);
   }
 
+  private buildContextualAgentPrompt(text: string): string {
+    const trimmed = text.trim();
+    if (!trimmed || trimmed.startsWith("/")) {
+      return text;
+    }
+
+    const context = this.getAgentTranscriptContextText();
+    if (!context) {
+      return text;
+    }
+
+    return [
+      "[이전 대화 컨텍스트]",
+      "아래는 같은 Obst Terminal AI 세션의 이전 transcript입니다. 이 내용을 현재 대화의 맥락으로 간주하고 이어서 답하세요.",
+      context,
+      "",
+      "[현재 사용자 요청]",
+      text
+    ].join("\n");
+  }
+
+  private getAgentTranscriptContextText(): string {
+    if (!this.agentTranscriptEl) {
+      return "";
+    }
+
+    const parts: string[] = [];
+    for (const child of Array.from(this.agentTranscriptEl.children)) {
+      if (!(child instanceof HTMLElement)) {
+        continue;
+      }
+
+      if (child.hasClass("vault-agent-turn")) {
+        const question = child.querySelector<HTMLElement>(".vault-agent-turn-question-text")?.textContent?.trim() ?? "";
+        const answer = child.querySelector<HTMLElement>(".vault-agent-turn-answer")?.textContent?.replace(/\s*생각 중\s*$/g, "").trim() ?? "";
+        if (question) {
+          parts.push(`User: ${question}`);
+        }
+        if (answer) {
+          parts.push(`${getAgentProviderLabel(this.agentProvider)}: ${answer}`);
+        }
+        continue;
+      }
+
+      if (child.hasClass("vault-agent-message")) {
+        const role = child.querySelector<HTMLElement>(".vault-agent-message-role")?.textContent?.trim() ?? "";
+        const body = child.querySelector<HTMLElement>(".vault-agent-message-body")?.textContent?.trim() ?? "";
+        if (!body || /^system$/i.test(role)) {
+          continue;
+        }
+        parts.push(`${role || "Message"}: ${body}`);
+      }
+    }
+
+    const context = parts.join("\n\n").trim();
+    return truncateStart(context, AGENT_TRANSCRIPT_CONTEXT_MAX_CHARS);
+  }
+
   // Start one Codex turn and mark it active so further input queues instead of
   // opening a second concurrent turn.
   private beginCodexTurn(text: string, attachments: AgentAttachment[]) {
@@ -2452,8 +2511,9 @@ class VaultPowerShellView extends ItemView {
     this.codexTurnActive = true;
     this.updateSendButtonMode();
     const noteSuffix = attachments.length ? `\n\n[${attachments.length} file(s) attached]` : "";
+    const sendText = this.buildContextualAgentPrompt(text);
     this.startCodexTurn((text || "(attachments)") + noteSuffix);
-    void this.agentBackend.sendUserMessage({ text, attachments });
+    void this.agentBackend.sendUserMessage({ text: sendText, attachments });
   }
 
   private flushQueuedInput() {
@@ -3252,7 +3312,8 @@ class VaultPowerShellView extends ItemView {
       return { sessionLabel, provider, status: "failed", reason };
     }
 
-    const textWithAttachments = appendAgentAttachmentPrompt(routedText, attachments);
+    const contextualRoutedText = this.buildContextualAgentPrompt(routedText);
+    const textWithAttachments = appendAgentAttachmentPrompt(contextualRoutedText, attachments);
     this.agentCurrentTurnStartedAt = Date.now();
     this.appendAgentTranscript({
       id: this.nextLocalAgentEntryId("user"),
@@ -3372,7 +3433,8 @@ class VaultPowerShellView extends ItemView {
       return;
     }
 
-    const textWithAttachments = appendAgentAttachmentPrompt(text, attachments);
+    const contextualText = this.buildContextualAgentPrompt(text);
+    const textWithAttachments = appendAgentAttachmentPrompt(contextualText, attachments);
     const useClaudePrintMode = this.agentProvider === "claude" &&
       !!textWithAttachments &&
       !text.startsWith("/") &&
@@ -6016,6 +6078,13 @@ function hasLineBreak(text: string): boolean {
 
 function isElementScrolledNearBottom(el: HTMLElement): boolean {
   return el.scrollHeight - el.scrollTop - el.clientHeight <= AGENT_TRANSCRIPT_BOTTOM_EPSILON_PX;
+}
+
+function truncateStart(text: string, maxChars: number): string {
+  if (text.length <= maxChars) {
+    return text;
+  }
+  return `[앞부분 ${text.length - maxChars}자 생략]\n${text.slice(-maxChars)}`;
 }
 
 function isTerminalCopyShortcut(event: KeyboardEvent, terminal: Terminal): boolean {
