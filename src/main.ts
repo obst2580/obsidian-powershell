@@ -1321,7 +1321,6 @@ class VaultPowerShellView extends ItemView {
     this.activeAgentSessionKey = session.agentSessionKey;
     this.visibleAgentSessionKey = session.agentSessionKey;
     this.applyAgentSessionRuntime(session);
-    this.mountVisibleAgentSessionTranscript();
     this.restoreActiveAgentSessionDom();
     this.renderAgentSessionTabs();
     this.showPane("agent");
@@ -1374,8 +1373,8 @@ class VaultPowerShellView extends ItemView {
       codexThreadId: this.agentCodexThreadId,
       claudeTranscriptHtml: sanitizeAgentTranscriptHtml(this.claudeTranscriptEl?.innerHTML ?? ""),
       codexTranscriptHtml: sanitizeAgentTranscriptHtml(this.codexTranscriptEl?.innerHTML ?? ""),
-      claudeScrollTop: this.claudeTranscriptEl?.scrollTop ?? 0,
-      codexScrollTop: this.codexTranscriptEl?.scrollTop ?? 0,
+      claudeScrollTop: this.getReadableAgentTranscriptScrollTop(this.claudeTranscriptEl, 0),
+      codexScrollTop: this.getReadableAgentTranscriptScrollTop(this.codexTranscriptEl, 0),
       inputText: this.agentInputEl?.value ?? "",
       statusText: this.agentStatusText,
       createdAt: now,
@@ -1391,6 +1390,18 @@ class VaultPowerShellView extends ItemView {
     this.agentClaudeSessionId = session.claudeSessionId;
     this.agentClaudeControlSessionId = session.claudeControlSessionId ?? null;
     this.agentCodexThreadId = session.codexThreadId;
+  }
+
+  private getReadableAgentTranscriptScrollTop(el: HTMLElement | null | undefined, fallback: number): number {
+    return this.isAgentTranscriptScrollReadable(el) ? el.scrollTop : fallback;
+  }
+
+  private isAgentTranscriptScrollReadable(el: HTMLElement | null | undefined): el is HTMLElement {
+    return !!el &&
+      el.isConnected &&
+      el.parentElement === this.agentTranscriptMountEl &&
+      !el.hasClass("is-hidden") &&
+      el.clientHeight > 0;
   }
 
   private ensureAgentSessionRuntime(session: AgentWorkspaceSessionState) {
@@ -1531,11 +1542,15 @@ class VaultPowerShellView extends ItemView {
     session.codexThreadId = this.agentCodexThreadId;
     if (this.claudeTranscriptEl) {
       session.claudeTranscriptHtml = sanitizeAgentTranscriptHtml(this.claudeTranscriptEl.innerHTML);
-      session.claudeScrollTop = this.claudeTranscriptEl.scrollTop;
+      if (this.isVisibleAgentSessionContext() && this.isAgentTranscriptScrollReadable(this.claudeTranscriptEl)) {
+        session.claudeScrollTop = this.claudeTranscriptEl.scrollTop;
+      }
     }
     if (this.codexTranscriptEl) {
       session.codexTranscriptHtml = sanitizeAgentTranscriptHtml(this.codexTranscriptEl.innerHTML);
-      session.codexScrollTop = this.codexTranscriptEl.scrollTop;
+      if (this.isVisibleAgentSessionContext() && this.isAgentTranscriptScrollReadable(this.codexTranscriptEl)) {
+        session.codexScrollTop = this.codexTranscriptEl.scrollTop;
+      }
     }
     if (this.agentInputEl) {
       session.inputText = this.agentInputEl.value;
@@ -1647,12 +1662,8 @@ class VaultPowerShellView extends ItemView {
     }
 
     const session = this.getActiveAgentSessionState();
-    const claudeScrollTop = this.claudeTranscriptEl.parentElement === this.agentTranscriptMountEl
-      ? this.claudeTranscriptEl.scrollTop
-      : session.claudeScrollTop ?? this.claudeTranscriptEl.scrollTop;
-    const codexScrollTop = this.codexTranscriptEl.parentElement === this.agentTranscriptMountEl
-      ? this.codexTranscriptEl.scrollTop
-      : session.codexScrollTop ?? this.codexTranscriptEl.scrollTop;
+    const claudeScrollTop = this.getReadableAgentTranscriptScrollTop(this.claudeTranscriptEl, session.claudeScrollTop ?? 0);
+    const codexScrollTop = this.getReadableAgentTranscriptScrollTop(this.codexTranscriptEl, session.codexScrollTop ?? 0);
 
     this.suppressAgentTranscriptScrollMemory = true;
     try {
@@ -1677,9 +1688,13 @@ class VaultPowerShellView extends ItemView {
 
     const session = this.getActiveAgentSessionState();
     if (el === this.claudeTranscriptEl) {
-      session.claudeScrollTop = el.scrollTop;
+      if (this.isAgentTranscriptScrollReadable(el)) {
+        session.claudeScrollTop = el.scrollTop;
+      }
     } else if (el === this.codexTranscriptEl) {
-      session.codexScrollTop = el.scrollTop;
+      if (this.isAgentTranscriptScrollReadable(el)) {
+        session.codexScrollTop = el.scrollTop;
+      }
     }
   }
 
@@ -1808,7 +1823,6 @@ class VaultPowerShellView extends ItemView {
     this.activeAgentSessionKey = sessionKey;
     this.visibleAgentSessionKey = sessionKey;
     this.applyAgentSessionRuntime(this.getActiveAgentSessionState());
-    this.mountVisibleAgentSessionTranscript();
     this.restoreActiveAgentSessionDom();
     this.renderAgentSessionTabs();
     this.showPane("agent");
@@ -1841,7 +1855,6 @@ class VaultPowerShellView extends ItemView {
       this.activeAgentSessionKey = next.agentSessionKey;
       this.visibleAgentSessionKey = next.agentSessionKey;
       this.applyAgentSessionRuntime(next);
-      this.mountVisibleAgentSessionTranscript();
       this.restoreActiveAgentSessionDom();
     }
 
