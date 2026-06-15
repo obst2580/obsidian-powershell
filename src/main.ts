@@ -129,6 +129,7 @@ interface PowerShellSettings {
   useSystemCa: boolean;
   extraCaCertPath: string;
   attachmentFolder: string;
+  agentViewState?: AgentViewSessionState;
 }
 
 type TerminalColorScheme = "dark" | "light" | "obsidian";
@@ -523,6 +524,20 @@ export default class VaultPowerShellPlugin extends Plugin {
 
   async saveSettings() {
     await this.saveData(this.settings);
+  }
+
+  getSavedAgentViewState(): AgentViewSessionState | null {
+    const state = normalizeAgentViewSessionState(this.settings.agentViewState);
+    return state ?? null;
+  }
+
+  async saveAgentViewStateSnapshot(state: AgentViewSessionState) {
+    const normalized = normalizeAgentViewSessionState(state);
+    if (!normalized) {
+      return;
+    }
+    this.settings.agentViewState = normalized;
+    await this.saveSettings();
   }
 
   getVaultPath(): string | null {
@@ -948,7 +963,7 @@ export default class VaultPowerShellPlugin extends Plugin {
     const leaf = this.app.workspace.getRightLeaf(false) ?? this.app.workspace.getLeaf(true);
     await leaf.setViewState({
       type: VIEW_TYPE_POWERSHELL,
-      state: createAgentViewSessionState("legacy-latest"),
+      state: this.getSavedAgentViewState() ?? createAgentViewSessionState("legacy-latest"),
       active: true
     });
     await this.app.workspace.revealLeaf(leaf);
@@ -1135,8 +1150,9 @@ class VaultPowerShellView extends ItemView {
     return Promise.resolve();
   }
 
-  onClose(): Promise<void> {
+  async onClose(): Promise<void> {
     this.captureActiveAgentSessionState();
+    await this.plugin.saveAgentViewStateSnapshot(this.getState() as AgentViewSessionState);
     for (const session of [...this.agentSessions]) {
       this.withAgentSession(session.agentSessionKey, () => {
         this.disposeAgent();
@@ -1190,7 +1206,6 @@ class VaultPowerShellView extends ItemView {
     this.paneTabEls = { agent: null, terminal: null };
     this.agentProviderButtons = { claude: null, codex: null };
     this.agentProviderIndicatorEl = null;
-    return Promise.resolve();
   }
 
   private applyAgentViewState(state: unknown) {
@@ -1250,6 +1265,7 @@ class VaultPowerShellView extends ItemView {
   }
 
   private saveAgentViewState() {
+    void this.plugin.saveAgentViewStateSnapshot(this.getState() as AgentViewSessionState);
     this.app.workspace.requestSaveLayout();
   }
 
@@ -6534,6 +6550,39 @@ function createAgentViewSessionState(mode: AgentSessionMode): AgentViewSessionSt
     activePane: "agent",
     claudeSessionId: session.claudeSessionId ?? undefined,
     codexThreadId: session.codexThreadId
+  };
+}
+
+function normalizeAgentViewSessionState(value: unknown): AgentViewSessionState | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const candidate = value as Partial<AgentViewSessionState>;
+  const sessions = Array.isArray(candidate.agentSessions)
+    ? candidate.agentSessions
+      .map((session) => normalizeAgentWorkspaceSessionState(session))
+      .filter((session): session is AgentWorkspaceSessionState => session !== null)
+    : [];
+  if (sessions.length === 0) {
+    return null;
+  }
+
+  const activeKey = typeof candidate.activeAgentSessionKey === "string" &&
+    sessions.some((session) => session.agentSessionKey === candidate.activeAgentSessionKey)
+    ? candidate.activeAgentSessionKey
+    : sessions[0].agentSessionKey;
+  const activeSession = sessions.find((session) => session.agentSessionKey === activeKey) ?? sessions[0];
+  return {
+    agentSessions: sessions,
+    activeAgentSessionKey: activeKey,
+    agentSessionKey: activeSession.agentSessionKey,
+    agentSessionLabel: activeSession.agentSessionLabel,
+    agentSessionMode: activeSession.agentSessionMode,
+    agentProvider: activeSession.agentProvider,
+    activePane: candidate.activePane === "agent" || candidate.activePane === "terminal" ? candidate.activePane : "agent",
+    claudeSessionId: activeSession.claudeSessionId ?? undefined,
+    codexThreadId: activeSession.codexThreadId
   };
 }
 
