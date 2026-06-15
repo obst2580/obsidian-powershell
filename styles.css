@@ -784,16 +784,28 @@
   overflow-y: auto;
   padding: 12px;
   background: var(--background-primary);
-  /* Allow selecting/copying the conversation with the mouse, even if a parent
-     (Obsidian sidebar leaf) sets user-select: none. */
-  user-select: text;
-  -webkit-user-select: text;
+  user-select: none;
+  -webkit-user-select: none;
   cursor: auto;
 }
 
-.vault-agent-transcript * {
+.vault-agent-message-body,
+.vault-agent-message-body *,
+.vault-agent-turn-question-text,
+.vault-agent-turn-question-text *,
+.vault-agent-block-body,
+.vault-agent-block-body * {
   user-select: text;
   -webkit-user-select: text;
+}
+
+.vault-agent-message-role,
+.vault-agent-block-label,
+.vault-agent-transcript button,
+.vault-agent-transcript .copy-code-button,
+.vault-agent-transcript .svg-icon {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .vault-agent-message {

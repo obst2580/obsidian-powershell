@@ -135,6 +135,7 @@ interface PowerShellSettings {
   useSystemCa: boolean;
   extraCaCertPath: string;
   attachmentFolder: string;
+  persistAgentTranscriptSnapshots: boolean;
   agentViewState?: AgentViewSessionState;
 }
 
@@ -392,7 +393,8 @@ const DEFAULT_SETTINGS: PowerShellSettings = {
   autoInstallRuntime: true,
   useSystemCa: false,
   extraCaCertPath: "",
-  attachmentFolder: DEFAULT_ATTACHMENT_FOLDER
+  attachmentFolder: DEFAULT_ATTACHMENT_FOLDER,
+  persistAgentTranscriptSnapshots: false
 };
 
 const DARK_TERMINAL_THEME: ITheme = {
@@ -502,6 +504,7 @@ export default class VaultPowerShellPlugin extends Plugin {
   async loadSettings() {
     const saved = (await this.loadData()) as Partial<PowerShellSettings> | null;
     const needsCodexScrollbackMigration = (saved?.settingsSchemaVersion ?? 0) < 2;
+    let shouldSaveSettings = needsCodexScrollbackMigration;
     this.settings = Object.assign({}, DEFAULT_SETTINGS, saved ?? {});
     this.settings.settingsSchemaVersion = SETTINGS_SCHEMA_VERSION;
     this.settings.shellProfile = normalizeShellProfile(this.settings.shellProfile);
@@ -520,7 +523,12 @@ export default class VaultPowerShellPlugin extends Plugin {
     this.settings.codexModel = this.settings.codexModel?.trim() ?? "";
     this.settings.windowsPtyBackend = normalizeWindowsPtyBackend(this.settings.windowsPtyBackend);
     this.settings.autoInstallRuntime = this.settings.autoInstallRuntime === true;
-    if (needsCodexScrollbackMigration) {
+    this.settings.persistAgentTranscriptSnapshots = this.settings.persistAgentTranscriptSnapshots === true;
+    if (!this.settings.persistAgentTranscriptSnapshots && this.settings.agentViewState) {
+      this.settings.agentViewState = stripAgentViewTranscriptSnapshots(this.settings.agentViewState);
+      shouldSaveSettings = true;
+    }
+    if (shouldSaveSettings) {
       await this.saveSettings();
     }
   }
@@ -539,7 +547,9 @@ export default class VaultPowerShellPlugin extends Plugin {
     if (!normalized) {
       return;
     }
-    this.settings.agentViewState = normalized;
+    this.settings.agentViewState = this.settings.persistAgentTranscriptSnapshots
+      ? normalized
+      : stripAgentViewTranscriptSnapshots(normalized);
     await this.saveSettings();
   }
 
@@ -1111,7 +1121,7 @@ class VaultPowerShellView extends ItemView {
   getState(): Record<string, unknown> {
     this.captureActiveAgentSessionState();
     return {
-      agentSessions: this.cloneAgentSessionsForState(),
+      agentSessions: this.cloneAgentSessionsForState(this.plugin.settings.persistAgentTranscriptSnapshots),
       activeAgentSessionKey: this.activeAgentSessionKey,
       agentSessionKey: this.agentSessionKey,
       agentSessionLabel: this.agentSessionLabel,
@@ -1607,7 +1617,7 @@ class VaultPowerShellView extends ItemView {
     session.updatedAt = Date.now();
   }
 
-  private cloneAgentSessionsForState(): AgentWorkspaceSessionState[] {
+  private cloneAgentSessionsForState(includeTranscriptSnapshots: boolean): AgentWorkspaceSessionState[] {
     this.ensureInternalAgentSessions();
     return this.agentSessions.map((session) => ({
       agentSessionKey: session.agentSessionKey,
@@ -1617,10 +1627,10 @@ class VaultPowerShellView extends ItemView {
       claudeSessionId: session.claudeSessionId,
       claudeControlSessionId: session.claudeControlSessionId ?? null,
       codexThreadId: session.codexThreadId,
-      claudeTranscriptHtml: sanitizeAgentTranscriptHtml(session.claudeTranscriptHtml ?? ""),
-      codexTranscriptHtml: sanitizeAgentTranscriptHtml(session.codexTranscriptHtml ?? ""),
-      claudeScrollTop: session.claudeScrollTop ?? 0,
-      codexScrollTop: session.codexScrollTop ?? 0,
+      claudeTranscriptHtml: includeTranscriptSnapshots ? sanitizeAgentTranscriptHtml(session.claudeTranscriptHtml ?? "") : "",
+      codexTranscriptHtml: includeTranscriptSnapshots ? sanitizeAgentTranscriptHtml(session.codexTranscriptHtml ?? "") : "",
+      claudeScrollTop: includeTranscriptSnapshots ? session.claudeScrollTop ?? 0 : 0,
+      codexScrollTop: includeTranscriptSnapshots ? session.codexScrollTop ?? 0 : 0,
       inputText: session.inputText ?? "",
       statusText: session.statusText ?? "Idle",
       createdAt: session.createdAt,
@@ -5428,6 +5438,21 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
           })
       );
 
+    new Setting(containerEl)
+      .setName("Persist Agent transcript snapshots")
+      .setDesc("Off by default. When enabled, the visible Claude/Codex transcript HTML is saved in .obsidian/plugins/vault-terminal/data.json so the UI can restore it after Obsidian restarts.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.persistAgentTranscriptSnapshots)
+          .onChange((value) => {
+            this.plugin.settings.persistAgentTranscriptSnapshots = value;
+            if (!value && this.plugin.settings.agentViewState) {
+              this.plugin.settings.agentViewState = stripAgentViewTranscriptSnapshots(this.plugin.settings.agentViewState);
+            }
+            void this.plugin.saveSettings();
+          })
+      );
+
     if (process.platform === "win32") {
       new Setting(containerEl)
         .setName("Windows PTY backend")
@@ -6488,6 +6513,24 @@ function normalizeAgentViewSessionState(value: unknown): AgentViewSessionState |
     activePane: candidate.activePane === "agent" || candidate.activePane === "terminal" ? candidate.activePane : "agent",
     claudeSessionId: activeSession.claudeSessionId ?? undefined,
     codexThreadId: activeSession.codexThreadId
+  };
+}
+
+function stripAgentViewTranscriptSnapshots(value: unknown): AgentViewSessionState | undefined {
+  const normalized = normalizeAgentViewSessionState(value);
+  if (!normalized) {
+    return undefined;
+  }
+
+  return {
+    ...normalized,
+    agentSessions: normalized.agentSessions?.map((session) => ({
+      ...session,
+      claudeTranscriptHtml: "",
+      codexTranscriptHtml: "",
+      claudeScrollTop: 0,
+      codexScrollTop: 0
+    }))
   };
 }
 

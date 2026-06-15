@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.30`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.31`.
 
 [한국어 README](README.ko.md)
 
@@ -16,6 +16,7 @@ Obst Terminal is not just a single chat console. It is designed as a **multi-ses
 - Each tab keeps its own Claude sessionId, Codex threadId, provider, editable title, transcript, and running state.
 - Switching tabs does not stop the running agent; background sessions continue writing to their own transcripts.
 - Claude and Codex transcripts preserve their scroll positions per session/provider, so background updates and tab switches do not pull the view back to the top.
+- By default, transcript HTML is not persisted to `.obsidian/plugins/vault-terminal/data.json`; only session metadata such as titles and provider IDs are kept. Enable `Persist Agent transcript snapshots` if you want exact UI transcript restoration after restart.
 - Use role-based sessions such as PM, Writer, Reviewer, and Researcher next to the same project documents.
 - Delegate prompts to other running AI sessions with `@all`, `@codex`, `@claude`, or `@"session title"`.
 
@@ -251,8 +252,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.30
-git push origin 0.6.30
+git tag 0.6.31
+git push origin 0.6.31
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.
@@ -266,6 +267,7 @@ Obst Terminal no longer starts a raw local shell by default. It may use a separa
 - Claude Code, Codex CLI, git, npm, and other external tools are not bundled.
 - Native runtime files are included in full ZIPs or downloaded from the matching GitHub Release and verified with SHA-256.
 - TLS / CA environment variables are injected only when enabled in settings.
+- Agent transcript snapshots are not saved to plugin `data.json` unless `Persist Agent transcript snapshots` is explicitly enabled.
 - The plugin does not include telemetry, analytics, or advertising code.
 
 Only install release assets from sources you trust.
