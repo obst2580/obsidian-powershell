@@ -1,12 +1,22 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **Agent Console + raw terminal** in the right sidebar. This branch currently reports version `0.6.25`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console + raw terminal** in the right sidebar. This branch currently reports version `0.6.26`.
 
 [한국어 README](README.ko.md)
 
 > Desktop only. Claude Code, Codex CLI, Node.js, Git, npm, and other external tools are not bundled. Install them on your machine and make sure they work from a normal terminal.
 
 ![Obst Terminal agent console in Obsidian's right sidebar](docs/images/obst-terminal-agent-console.png)
+
+## Multi-Session AI Workspace
+
+Obst Terminal is not just a single chat console. It is designed as a **multi-session AI workspace inside one Obsidian vault**, where several Claude Code and Codex sessions can stay open side by side as plugin tabs.
+
+- Add AI session tabs with the plugin `+` button or the `Open new AI session` command.
+- Each tab keeps its own Claude sessionId, Codex threadId, provider, editable title, transcript, and running state.
+- Switching tabs does not stop the running agent; background sessions continue writing to their own transcripts.
+- Use role-based sessions such as PM, Writer, Reviewer, and Researcher next to the same project documents.
+- Delegate prompts to other running AI sessions with `@all`, `@codex`, `@claude`, or `@"session title"`.
 
 ## Current Behavior
 
@@ -262,8 +272,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.25
-git push origin 0.6.25
+git tag 0.6.26
+git push origin 0.6.26
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.

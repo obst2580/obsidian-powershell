@@ -1,12 +1,22 @@
 # Obst Terminal
 
-Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **Agent Console + Raw terminal** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.25`입니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console + Raw terminal** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.26`입니다.
 
 [English README](README.md)
 
 > 데스크톱 전용 플러그인입니다. Claude Code, Codex CLI, Node.js, Git, npm 같은 외부 도구는 포함하지 않습니다. 사용자의 PC에 설치되어 있고 일반 터미널에서 실행되어야 합니다.
 
 ![Obsidian 우측 사이드바에서 AI agent를 실행한 Obst Terminal 화면](docs/images/obst-terminal-agent-console.png)
+
+## 멀티 AI 세션 작업 공간
+
+Obst Terminal은 한 명의 AI와만 대화하는 단일 콘솔이 아니라, **하나의 Obsidian 볼트 안에 여러 Claude Code / Codex 세션을 탭으로 열어두고 동시에 운용하는 작업 공간**입니다.
+
+- 플러그인 내부 `+` 버튼 또는 `Open new AI session` 명령으로 AI 세션 탭을 추가합니다.
+- 각 탭은 독립적인 Claude sessionId / Codex threadId, provider, 제목, transcript, 실행 상태를 유지합니다.
+- 탭을 전환해도 실행 중인 에이전트는 멈추지 않고 자기 transcript에 계속 기록합니다.
+- PM, Writer, Reviewer, Researcher처럼 역할별 AI 직원을 같은 프로젝트 문서 옆에 나눠둘 수 있습니다.
+- 한 세션에서 `@all`, `@codex`, `@claude`, `@"세션 제목"`으로 다른 실행 중인 AI 세션에 지시를 전달할 수 있습니다.
 
 ## 현재 동작 기준
 
@@ -261,8 +271,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-git tag 0.6.25
-git push origin 0.6.25
+git tag 0.6.26
+git push origin 0.6.26
 ```
 
 릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.
