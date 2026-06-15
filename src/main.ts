@@ -105,6 +105,7 @@ const AGENT_SESSION_MATCH_BYTES = 262144;
 const AGENT_SESSION_MAX_READ_BYTES = 1024 * 1024;
 const AGENT_SESSION_TURN_CUTOFF_SLOP_MS = 2000;
 const CLAUDE_PRINT_TIMEOUT_MS = 10 * 60 * 1000;
+const AGENT_TRANSCRIPT_BOTTOM_EPSILON_PX = 96;
 
 interface PowerShellSettings {
   settingsSchemaVersion: number;
@@ -164,6 +165,8 @@ interface AgentWorkspaceSessionState extends Record<string, unknown> {
   codexThreadId: string | null;
   claudeTranscriptHtml?: string;
   codexTranscriptHtml?: string;
+  claudeScrollTop?: number;
+  codexScrollTop?: number;
   inputText?: string;
   statusText?: string;
   createdAt: number;
@@ -1348,6 +1351,8 @@ class VaultPowerShellView extends ItemView {
       codexThreadId: this.agentCodexThreadId,
       claudeTranscriptHtml: this.claudeTranscriptEl?.innerHTML ?? "",
       codexTranscriptHtml: this.codexTranscriptEl?.innerHTML ?? "",
+      claudeScrollTop: this.claudeTranscriptEl?.scrollTop ?? 0,
+      codexScrollTop: this.codexTranscriptEl?.scrollTop ?? 0,
       inputText: this.agentInputEl?.value ?? "",
       statusText: this.agentStatusText,
       createdAt: now,
@@ -1373,6 +1378,8 @@ class VaultPowerShellView extends ItemView {
     if (session.codexTranscriptHtml && !session.codexTranscriptEl.innerHTML.trim()) {
       session.codexTranscriptEl.innerHTML = session.codexTranscriptHtml;
     }
+    session.claudeScrollTop ??= 0;
+    session.codexScrollTop ??= 0;
     session.agentBackend ??= null;
     session.agentBackendUnsubscribe ??= null;
     session.codexItemEls ??= new Map<string, HTMLElement>();
@@ -1422,6 +1429,9 @@ class VaultPowerShellView extends ItemView {
   private createDetachedAgentTranscriptEl(): HTMLElement {
     const el = document.createElement("div");
     el.addClass("vault-agent-transcript");
+    el.addEventListener("scroll", () => {
+      this.rememberAgentTranscriptScrollPosition(el);
+    }, { passive: true });
     return el;
   }
 
@@ -1489,9 +1499,11 @@ class VaultPowerShellView extends ItemView {
     session.codexThreadId = this.agentCodexThreadId;
     if (this.claudeTranscriptEl) {
       session.claudeTranscriptHtml = this.claudeTranscriptEl.innerHTML;
+      session.claudeScrollTop = this.claudeTranscriptEl.scrollTop;
     }
     if (this.codexTranscriptEl) {
       session.codexTranscriptHtml = this.codexTranscriptEl.innerHTML;
+      session.codexScrollTop = this.codexTranscriptEl.scrollTop;
     }
     if (this.agentInputEl) {
       session.inputText = this.agentInputEl.value;
@@ -1557,6 +1569,8 @@ class VaultPowerShellView extends ItemView {
       codexThreadId: session.codexThreadId,
       claudeTranscriptHtml: session.claudeTranscriptHtml ?? "",
       codexTranscriptHtml: session.codexTranscriptHtml ?? "",
+      claudeScrollTop: session.claudeScrollTop ?? 0,
+      codexScrollTop: session.codexScrollTop ?? 0,
       inputText: session.inputText ?? "",
       statusText: session.statusText ?? "Idle",
       createdAt: session.createdAt,
@@ -1597,10 +1611,48 @@ class VaultPowerShellView extends ItemView {
       return;
     }
 
+    const session = this.getActiveAgentSessionState();
+    const claudeScrollTop = this.claudeTranscriptEl.parentElement === this.agentTranscriptMountEl
+      ? this.claudeTranscriptEl.scrollTop
+      : session.claudeScrollTop ?? this.claudeTranscriptEl.scrollTop;
+    const codexScrollTop = this.codexTranscriptEl.parentElement === this.agentTranscriptMountEl
+      ? this.codexTranscriptEl.scrollTop
+      : session.codexScrollTop ?? this.codexTranscriptEl.scrollTop;
+
     this.agentTranscriptMountEl.empty();
     this.agentTranscriptMountEl.appendChild(this.claudeTranscriptEl);
     this.agentTranscriptMountEl.appendChild(this.codexTranscriptEl);
     this.switchAgentTranscript(this.agentProvider);
+    this.restoreAgentTranscriptScrollPositions(claudeScrollTop, codexScrollTop);
+  }
+
+  private rememberAgentTranscriptScrollPosition(el: HTMLElement) {
+    if (!this.isVisibleAgentSessionContext()) {
+      return;
+    }
+
+    const session = this.getActiveAgentSessionState();
+    if (el === this.claudeTranscriptEl) {
+      session.claudeScrollTop = el.scrollTop;
+    } else if (el === this.codexTranscriptEl) {
+      session.codexScrollTop = el.scrollTop;
+    }
+  }
+
+  private restoreAgentTranscriptScrollPositions(claudeScrollTop: number, codexScrollTop: number) {
+    this.setTranscriptScrollTop(this.claudeTranscriptEl, claudeScrollTop);
+    this.setTranscriptScrollTop(this.codexTranscriptEl, codexScrollTop);
+    window.requestAnimationFrame(() => {
+      this.setTranscriptScrollTop(this.claudeTranscriptEl, claudeScrollTop);
+      this.setTranscriptScrollTop(this.codexTranscriptEl, codexScrollTop);
+    });
+  }
+
+  private setTranscriptScrollTop(el: HTMLElement | null, value: number) {
+    if (!el || !Number.isFinite(value)) {
+      return;
+    }
+    el.scrollTop = Math.max(0, value);
   }
 
   private isVisibleAgentSessionContext(): boolean {
@@ -2348,7 +2400,7 @@ class VaultPowerShellView extends ItemView {
     return answer;
   }
 
-  private scrollCodexAnswer() {
+  private scrollCodexAnswer(shouldStickToBottom = this.shouldAutoScrollAgentTranscript()) {
     if (this.codexScrollFrame !== null) {
       return;
     }
@@ -2356,18 +2408,23 @@ class VaultPowerShellView extends ItemView {
     this.codexScrollFrame = window.requestAnimationFrame(() => {
       this.withAgentSession(sessionKey, () => {
         this.codexScrollFrame = null;
-        this.scrollCodexAnswerNow();
+        this.scrollCodexAnswerNow(shouldStickToBottom);
       });
     });
   }
 
-  private scrollCodexAnswerNow() {
+  private scrollCodexAnswerNow(shouldStickToBottom = true) {
     if (this.codexCurrentAnswerEl) {
       this.codexCurrentAnswerEl.scrollTop = this.codexCurrentAnswerEl.scrollHeight;
     }
-    if (this.agentTranscriptEl) {
+    if (this.agentTranscriptEl && shouldStickToBottom) {
       this.agentTranscriptEl.scrollTop = this.agentTranscriptEl.scrollHeight;
+      this.rememberAgentTranscriptScrollPosition(this.agentTranscriptEl);
     }
+  }
+
+  private shouldAutoScrollAgentTranscript(): boolean {
+    return !this.agentTranscriptEl || isElementScrolledNearBottom(this.agentTranscriptEl);
   }
 
   // Start one Codex turn and mark it active so further input queues instead of
@@ -2518,6 +2575,7 @@ class VaultPowerShellView extends ItemView {
     if (!answer) {
       return;
     }
+    const shouldStickToBottom = this.shouldAutoScrollAgentTranscript();
     const block = answer.createDiv(`vault-agent-block vault-agent-block-${item.kind} vault-agent-block-role-${backendKindRole(item.kind)}`);
     if (item.kind !== "agentMessage" && item.kind !== "plan") {
       block.createDiv("vault-agent-block-label").setText(backendKindLabel(item.kind));
@@ -2532,7 +2590,7 @@ class VaultPowerShellView extends ItemView {
     if (this.codexTurnLoadingEl && this.codexTurnLoadingEl.parentElement === answer) {
       answer.appendChild(this.codexTurnLoadingEl);
     }
-    this.scrollCodexAnswer();
+    this.scrollCodexAnswer(shouldStickToBottom);
   }
 
   private renderCodexItemDelta(itemId: string, delta: string) {
@@ -2561,6 +2619,7 @@ class VaultPowerShellView extends ItemView {
     if (this.codexDeltaBuffers.size === 0) {
       return;
     }
+    const shouldStickToBottom = this.shouldAutoScrollAgentTranscript();
     const pending = Array.from(this.codexDeltaBuffers.entries());
     this.codexDeltaBuffers.clear();
     for (const [itemId, text] of pending) {
@@ -2570,7 +2629,7 @@ class VaultPowerShellView extends ItemView {
       }
       body.appendChild(document.createTextNode(text));
     }
-    this.scrollCodexAnswer();
+    this.scrollCodexAnswer(shouldStickToBottom);
   }
 
   private renderCodexApproval(req: ApprovalRequest) {
@@ -2578,6 +2637,7 @@ class VaultPowerShellView extends ItemView {
     if (!answer) {
       return;
     }
+    const shouldStickToBottom = this.shouldAutoScrollAgentTranscript();
     const card = answer.createDiv("vault-agent-approval");
     card.createDiv({
       cls: "vault-agent-approval-title",
@@ -2592,7 +2652,7 @@ class VaultPowerShellView extends ItemView {
     acceptSession.addEventListener("click", () => void this.agentBackend?.respondToApproval(req.id, "acceptForSession"));
     decline.addEventListener("click", () => void this.agentBackend?.respondToApproval(req.id, "decline"));
     this.codexApprovalEls.set(req.id, card);
-    this.scrollCodexAnswer();
+    this.scrollCodexAnswer(shouldStickToBottom);
   }
 
   private resolveCodexApproval(requestId: string) {
@@ -2781,6 +2841,7 @@ class VaultPowerShellView extends ItemView {
 
   private renderCodexItemComplete(item: TranscriptItem) {
     this.flushCodexDeltaBuffers();
+    const shouldStickToBottom = this.shouldAutoScrollAgentTranscript();
     let body = this.codexItemEls.get(item.id);
     if (!body) {
       if (item.text.trim()) {
@@ -2796,7 +2857,7 @@ class VaultPowerShellView extends ItemView {
     if (item.kind === "commandExecution") {
       body.parentElement?.remove();
       this.codexItemEls.delete(item.id);
-      this.scrollCodexAnswer();
+      this.scrollCodexAnswer(shouldStickToBottom);
       return;
     }
     const finalText = item.text.trim() || (body.textContent ?? "").trim();
@@ -2808,12 +2869,13 @@ class VaultPowerShellView extends ItemView {
     body.empty();
     if (item.kind === "agentMessage" || item.kind === "plan") {
       // The visible answer: render as markdown for blog-style typography.
-      void this.renderCodexMarkdown(body, finalText);
+      void this.renderCodexMarkdown(body, finalText)
+        .finally(() => this.scrollCodexAnswer(shouldStickToBottom));
     } else {
       this.renderAgentMessageBody(body, finalText);
     }
     this.codexItemEls.delete(item.id);
-    this.scrollCodexAnswer();
+    this.scrollCodexAnswer(shouldStickToBottom);
   }
 
   private async startAgent(provider: AgentProvider) {
@@ -4007,13 +4069,15 @@ class VaultPowerShellView extends ItemView {
       if (!answer) {
         return;
       }
+      const shouldStickToBottom = this.shouldAutoScrollAgentTranscript();
       // The visible answer arrived — drop the thinking indicator.
       this.codexTurnLoadingEl?.remove();
       this.codexTurnLoadingEl = null;
       // Same block class as Codex so the theme markdown + spacing apply identically.
       const block = answer.createDiv("vault-agent-block vault-agent-block-agentMessage");
-      void this.renderCodexMarkdown(block.createDiv("vault-agent-block-body"), text);
-      this.scrollCodexAnswer();
+      void this.renderCodexMarkdown(block.createDiv("vault-agent-block-body"), text)
+        .finally(() => this.scrollCodexAnswer(shouldStickToBottom));
+      this.scrollCodexAnswer(shouldStickToBottom);
       return;
     }
 
@@ -4022,20 +4086,25 @@ class VaultPowerShellView extends ItemView {
       if (!answer) {
         return;
       }
+      const shouldStickToBottom = this.shouldAutoScrollAgentTranscript();
       const block = answer.createDiv(`vault-agent-block vault-agent-block-${entry.role}`);
       block.createDiv("vault-agent-block-label").setText(getTranscriptRoleLabel(entry.role));
       this.renderAgentMessageBody(block.createDiv("vault-agent-block-body"), text);
       if (this.codexTurnLoadingEl && this.codexTurnLoadingEl.parentElement === answer) {
         answer.appendChild(this.codexTurnLoadingEl);
       }
-      this.scrollCodexAnswer();
+      this.scrollCodexAnswer(shouldStickToBottom);
       return;
     }
 
+    const shouldStickToBottom = this.shouldAutoScrollAgentTranscript();
     const item = this.agentTranscriptEl.createDiv(`vault-agent-message vault-agent-message-${entry.role}`);
     item.createDiv("vault-agent-message-role").setText(getTranscriptRoleLabel(entry.role));
     this.renderAgentMessageBody(item.createDiv("vault-agent-message-body"), text);
-    this.agentTranscriptEl.scrollTop = this.agentTranscriptEl.scrollHeight;
+    if (shouldStickToBottom) {
+      this.agentTranscriptEl.scrollTop = this.agentTranscriptEl.scrollHeight;
+      this.rememberAgentTranscriptScrollPosition(this.agentTranscriptEl);
+    }
   }
 
   private renderAgentMessageBody(container: HTMLElement, text: string) {
@@ -5929,6 +5998,10 @@ function hasLineBreak(text: string): boolean {
   return /\r|\n/.test(text);
 }
 
+function isElementScrolledNearBottom(el: HTMLElement): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= AGENT_TRANSCRIPT_BOTTOM_EPSILON_PX;
+}
+
 function isTerminalCopyShortcut(event: KeyboardEvent, terminal: Terminal): boolean {
   const key = event.key.toLowerCase();
   if (key !== "c" || event.altKey) {
@@ -6476,6 +6549,8 @@ function createAgentWorkspaceSessionState(mode: AgentSessionMode): AgentWorkspac
     codexThreadId: null,
     claudeTranscriptHtml: "",
     codexTranscriptHtml: "",
+    claudeScrollTop: 0,
+    codexScrollTop: 0,
     inputText: "",
     statusText: "Idle",
     createdAt: now,
@@ -6516,6 +6591,8 @@ function normalizeAgentWorkspaceSessionState(value: unknown): AgentWorkspaceSess
       : null,
     claudeTranscriptHtml: typeof candidate.claudeTranscriptHtml === "string" ? candidate.claudeTranscriptHtml : "",
     codexTranscriptHtml: typeof candidate.codexTranscriptHtml === "string" ? candidate.codexTranscriptHtml : "",
+    claudeScrollTop: typeof candidate.claudeScrollTop === "number" ? candidate.claudeScrollTop : 0,
+    codexScrollTop: typeof candidate.codexScrollTop === "number" ? candidate.codexScrollTop : 0,
     inputText: typeof candidate.inputText === "string" ? candidate.inputText : "",
     statusText: typeof candidate.statusText === "string" && candidate.statusText.trim() ? candidate.statusText : "Idle",
     createdAt: typeof candidate.createdAt === "number" ? candidate.createdAt : now,
