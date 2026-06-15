@@ -156,6 +156,7 @@ interface AgentViewSessionState extends Record<string, unknown> {
   agentProvider?: AgentProvider;
   activePane?: ViewPane;
   claudeSessionId?: string;
+  claudeControlSessionId?: string;
   codexThreadId?: string | null;
 }
 
@@ -165,6 +166,7 @@ interface AgentWorkspaceSessionState extends Record<string, unknown> {
   agentSessionMode: AgentSessionMode;
   agentProvider: AgentProvider;
   claudeSessionId: string | null;
+  claudeControlSessionId?: string | null;
   codexThreadId: string | null;
   claudeTranscriptHtml?: string;
   codexTranscriptHtml?: string;
@@ -207,6 +209,7 @@ interface AgentWorkspaceSessionState extends Record<string, unknown> {
   agentCurrentTurnStartedAt?: number;
   agentSessionBaselineOffsets?: Map<string, number>;
   agentClaudePrintTurnActive?: boolean;
+  agentClaudeControlSessionId?: string | null;
   lastAgentLaunchCommand?: string;
   agentSeenEntries?: Set<string>;
   agentLocalMessageCounter?: number;
@@ -1078,6 +1081,7 @@ class VaultPowerShellView extends ItemView {
   private agentSessionBaselineOffsets = new Map<string, number>();
   private agentClaudePrintTurnActive = false;
   private agentClaudeSessionId: string | null = randomUUID();
+  private agentClaudeControlSessionId: string | null = null;
   private lastAgentLaunchCommand = "";
   private agentSeenEntries = new Set<string>();
   private agentLocalMessageCounter = 0;
@@ -1121,6 +1125,7 @@ class VaultPowerShellView extends ItemView {
       agentProvider: this.agentProvider,
       activePane: this.activePane,
       claudeSessionId: this.agentClaudeSessionId,
+      claudeControlSessionId: this.agentClaudeControlSessionId,
       codexThreadId: this.agentCodexThreadId
     };
   }
@@ -1251,6 +1256,9 @@ class VaultPowerShellView extends ItemView {
       if (typeof value.claudeSessionId === "string" && value.claudeSessionId.trim()) {
         this.agentClaudeSessionId = value.claudeSessionId.trim();
       }
+      if (typeof value.claudeControlSessionId === "string" && value.claudeControlSessionId.trim()) {
+        this.agentClaudeControlSessionId = value.claudeControlSessionId.trim();
+      }
       if (typeof value.codexThreadId === "string" && value.codexThreadId.trim()) {
         this.agentCodexThreadId = value.codexThreadId.trim();
       } else if (value.codexThreadId === null) {
@@ -1307,6 +1315,14 @@ class VaultPowerShellView extends ItemView {
       this.refreshAgentSessionChrome();
     }
     return this.agentClaudeSessionId;
+  }
+
+  private ensureClaudeControlSessionId(): string {
+    if (!this.agentClaudeControlSessionId) {
+      this.agentClaudeControlSessionId = randomUUID();
+      this.saveAgentViewState();
+    }
+    return this.agentClaudeControlSessionId;
   }
 
   createInternalAgentSession() {
@@ -1368,6 +1384,7 @@ class VaultPowerShellView extends ItemView {
       agentSessionMode: this.agentSessionMode,
       agentProvider: this.agentProvider,
       claudeSessionId: this.agentClaudeSessionId,
+      claudeControlSessionId: this.agentClaudeControlSessionId,
       codexThreadId: this.agentCodexThreadId,
       claudeTranscriptHtml: sanitizeAgentTranscriptHtml(this.claudeTranscriptEl?.innerHTML ?? ""),
       codexTranscriptHtml: sanitizeAgentTranscriptHtml(this.codexTranscriptEl?.innerHTML ?? ""),
@@ -1386,6 +1403,7 @@ class VaultPowerShellView extends ItemView {
     this.agentSessionMode = session.agentSessionMode;
     this.agentProvider = session.agentProvider;
     this.agentClaudeSessionId = session.claudeSessionId;
+    this.agentClaudeControlSessionId = session.claudeControlSessionId ?? null;
     this.agentCodexThreadId = session.codexThreadId;
   }
 
@@ -1431,6 +1449,7 @@ class VaultPowerShellView extends ItemView {
     session.agentCurrentTurnStartedAt ??= 0;
     session.agentSessionBaselineOffsets ??= new Map<string, number>();
     session.agentClaudePrintTurnActive ??= false;
+    session.agentClaudeControlSessionId ??= session.claudeControlSessionId ?? null;
     session.lastAgentLaunchCommand ??= "";
     session.agentSeenEntries ??= new Set<string>();
     session.agentLocalMessageCounter ??= 0;
@@ -1492,6 +1511,7 @@ class VaultPowerShellView extends ItemView {
     this.agentCurrentTurnStartedAt = session.agentCurrentTurnStartedAt ?? 0;
     this.agentSessionBaselineOffsets = session.agentSessionBaselineOffsets ?? new Map<string, number>();
     this.agentClaudePrintTurnActive = session.agentClaudePrintTurnActive ?? false;
+    this.agentClaudeControlSessionId = session.agentClaudeControlSessionId ?? session.claudeControlSessionId ?? null;
     this.lastAgentLaunchCommand = session.lastAgentLaunchCommand ?? "";
     this.agentSeenEntries = session.agentSeenEntries ?? new Set<string>();
     this.agentLocalMessageCounter = session.agentLocalMessageCounter ?? 0;
@@ -1521,6 +1541,7 @@ class VaultPowerShellView extends ItemView {
     session.agentSessionMode = this.agentSessionMode;
     session.agentProvider = this.agentProvider;
     session.claudeSessionId = this.agentClaudeSessionId;
+    session.claudeControlSessionId = this.agentClaudeControlSessionId;
     session.codexThreadId = this.agentCodexThreadId;
     if (this.claudeTranscriptEl) {
       session.claudeTranscriptHtml = sanitizeAgentTranscriptHtml(this.claudeTranscriptEl.innerHTML);
@@ -1567,6 +1588,7 @@ class VaultPowerShellView extends ItemView {
     session.agentCurrentTurnStartedAt = this.agentCurrentTurnStartedAt;
     session.agentSessionBaselineOffsets = this.agentSessionBaselineOffsets;
     session.agentClaudePrintTurnActive = this.agentClaudePrintTurnActive;
+    session.agentClaudeControlSessionId = this.agentClaudeControlSessionId;
     session.lastAgentLaunchCommand = this.lastAgentLaunchCommand;
     session.agentSeenEntries = this.agentSeenEntries;
     session.agentLocalMessageCounter = this.agentLocalMessageCounter;
@@ -1592,6 +1614,7 @@ class VaultPowerShellView extends ItemView {
       agentSessionMode: session.agentSessionMode,
       agentProvider: session.agentProvider,
       claudeSessionId: session.claudeSessionId,
+      claudeControlSessionId: session.claudeControlSessionId ?? null,
       codexThreadId: session.codexThreadId,
       claudeTranscriptHtml: sanitizeAgentTranscriptHtml(session.claudeTranscriptHtml ?? ""),
       codexTranscriptHtml: sanitizeAgentTranscriptHtml(session.codexTranscriptHtml ?? ""),
@@ -3207,7 +3230,10 @@ class VaultPowerShellView extends ItemView {
 
   private launchAgentCli() {
     const sessionKey = this.activeAgentSessionKey;
-    const claudeSessionId = this.agentProvider === "claude" ? this.ensureClaudeSessionId() : undefined;
+    // Keep Claude's background control PTY out of the normal conversation
+    // session. Claude Code locks a sessionId per running process, so the
+    // persistent PTY and one-shot `claude -p` turns must not share the same id.
+    const claudeSessionId = this.agentProvider === "claude" ? this.ensureClaudeControlSessionId() : undefined;
     let command = getAgentLaunchCommand(this.agentProvider, this.plugin.settings, {
       claudeSessionId,
       sessionName: this.agentSessionLabel
@@ -6742,6 +6768,7 @@ function createAgentWorkspaceSessionState(mode: AgentSessionMode): AgentWorkspac
     agentSessionMode: mode,
     agentProvider: "claude",
     claudeSessionId: randomUUID(),
+    claudeControlSessionId: null,
     codexThreadId: null,
     claudeTranscriptHtml: "",
     codexTranscriptHtml: "",
@@ -6782,6 +6809,9 @@ function normalizeAgentWorkspaceSessionState(value: unknown): AgentWorkspaceSess
     claudeSessionId: typeof candidate.claudeSessionId === "string" && candidate.claudeSessionId.trim()
       ? candidate.claudeSessionId.trim()
       : randomUUID(),
+    claudeControlSessionId: typeof candidate.claudeControlSessionId === "string" && candidate.claudeControlSessionId.trim()
+      ? candidate.claudeControlSessionId.trim()
+      : null,
     codexThreadId: typeof candidate.codexThreadId === "string" && candidate.codexThreadId.trim()
       ? candidate.codexThreadId.trim()
       : null,
