@@ -7137,6 +7137,10 @@ async function getAgentAuthCheck(provider: AgentProvider, cwd: string, env: { [k
     return parseClaudeAuthCheck(result);
   }
   if (provider === "gemini") {
+    const availabilityFailure = await getGeminiCliAvailabilityFailure(cwd, env);
+    if (availabilityFailure) {
+      return availabilityFailure;
+    }
     const result = await runCapturedCommand("gemini", ["--version"], cwd, env, 8000);
     return parseGeminiAuthCheck(result);
   }
@@ -7259,13 +7263,8 @@ function parseGeminiAuthCheck(result: CapturedCommandResult): AgentAuthCheck {
     };
   }
 
-  if (/(?:gemini).*?(?:command not found|not recognized|not found|ENOENT|spawn)/i.test(output || failure)) {
-    return {
-      checked: true,
-      loggedIn: false,
-      summary: "Gemini CLI is not installed or not on PATH. Install it with npm install -g @google/gemini-cli, then restart the agent console.",
-      detail: output
-    };
+  if (isMissingGeminiCliResult(result)) {
+    return createMissingGeminiCliAuthCheck(output);
   }
 
   return {
@@ -7274,6 +7273,38 @@ function parseGeminiAuthCheck(result: CapturedCommandResult): AgentAuthCheck {
     summary: `Gemini CLI status could not be confirmed before launch.${failure ? ` ${failure}` : ""}`,
     detail: output
   };
+}
+
+async function getGeminiCliAvailabilityFailure(cwd: string, env: { [key: string]: string | undefined }): Promise<AgentAuthCheck | null> {
+  const command = process.platform === "win32" ? "where.exe" : "which";
+  const result = await runCapturedCommand(command, ["gemini"], cwd, env, 8000);
+  if (!getCapturedCommandFailure(result)) {
+    return null;
+  }
+  return createMissingGeminiCliAuthCheck(`${result.stdout}\n${result.stderr}`.trim());
+}
+
+function createMissingGeminiCliAuthCheck(detail = ""): AgentAuthCheck {
+  return {
+    checked: true,
+    loggedIn: false,
+    summary: "Gemini CLI가 설치되어 있지 않거나 Obsidian의 PATH에서 보이지 않습니다. PowerShell에서 npm install -g @google/gemini-cli 실행 후 Obsidian을 완전히 재시작하세요.",
+    detail
+  };
+}
+
+function isMissingGeminiCliResult(result: CapturedCommandResult): boolean {
+  const output = `${result.stdout}\n${result.stderr}\n${result.error ?? ""}`;
+  if (!output.toLowerCase().includes("gemini")) {
+    return false;
+  }
+  if (/(?:command not found|not recognized|not found|enoent|spawn)/i.test(output)) {
+    return true;
+  }
+  if (result.exitCode === 1 && /[\uFFFD]|내부|외부|명령|실행|프로그램|배치/.test(output)) {
+    return true;
+  }
+  return false;
 }
 
 function spawnClaudePrintCommand(
