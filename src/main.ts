@@ -354,6 +354,21 @@ interface AgentAuthCheck {
   detail?: string;
 }
 
+interface GeminiAuthConfiguration {
+  authType: string | null;
+  authSource: string | null;
+  detail: string;
+  failure?: AgentAuthCheck;
+}
+
+interface GeminiAuthSettings {
+  selectedType: string | null;
+  selectedSource: string | null;
+  enforcedType: string | null;
+  enforcedSource: string | null;
+  checkedPaths: string[];
+}
+
 interface CapturedCommandResult {
   stdout: string;
   stderr: string;
@@ -2187,6 +2202,19 @@ class VaultPowerShellView extends ItemView {
 
       if (this.agentPromptState?.mode === "mcp") {
         new Notice("MCP connection is separate from Claude login. Use the MCP actions or press Esc.");
+        return;
+      }
+
+      if (this.agentProvider === "gemini") {
+        const home = getUserHome();
+        const settingsPath = home ? join(home, ".gemini", "settings.json") : "~/.gemini/settings.json";
+        const message = `Gemini CLI login must be completed in an external terminal. Run gemini in PowerShell, choose an auth method, then restart Obsidian. Settings path: ${settingsPath}`;
+        new Notice("Gemini login is handled by the Gemini CLI in an external terminal.");
+        this.appendAgentTranscript({
+          id: this.nextLocalAgentEntryId("system"),
+          role: "system",
+          text: message
+        });
         return;
       }
 
@@ -7141,8 +7169,12 @@ async function getAgentAuthCheck(provider: AgentProvider, cwd: string, env: { [k
     if (availabilityFailure) {
       return availabilityFailure;
     }
+    const authConfiguration = getGeminiAuthConfiguration(cwd, env);
+    if (authConfiguration.failure) {
+      return authConfiguration.failure;
+    }
     const result = await runCapturedCommand("gemini", ["--version"], cwd, env, 8000);
-    return parseGeminiAuthCheck(result);
+    return parseGeminiAuthCheck(result, authConfiguration);
   }
 
   const result = await runCapturedCommand("codex", ["login", "status"], cwd, env, 8000);
@@ -7252,14 +7284,18 @@ function runClaudePrintCommand(
   return spawnClaudePrintCommand(prompt, cwd, env, timeoutMs, options).promise;
 }
 
-function parseGeminiAuthCheck(result: CapturedCommandResult): AgentAuthCheck {
+function parseGeminiAuthCheck(result: CapturedCommandResult, authConfiguration: GeminiAuthConfiguration): AgentAuthCheck {
   const output = `${result.stdout}\n${result.stderr}`.trim();
   const failure = getCapturedCommandFailure(result);
   if (!failure) {
+    const authSummary = authConfiguration.authType
+      ? `인증 방식: ${describeGeminiAuthType(authConfiguration.authType)}${authConfiguration.authSource ? ` (${authConfiguration.authSource})` : ""}.`
+      : "인증 방식은 Gemini CLI가 실행 시 확인합니다.";
     return {
       checked: true,
       loggedIn: true,
-      summary: `Gemini CLI 확인: ${output || "gemini command is available"}.`
+      summary: `Gemini CLI 확인: ${output || "gemini command is available"}. ${authSummary}`,
+      detail: authConfiguration.detail
     };
   }
 
@@ -7291,6 +7327,359 @@ function createMissingGeminiCliAuthCheck(detail = ""): AgentAuthCheck {
     summary: "Gemini CLI가 설치되어 있지 않거나 Obsidian의 PATH에서 보이지 않습니다. PowerShell에서 npm install -g @google/gemini-cli 실행 후 Obsidian을 완전히 재시작하세요.",
     detail
   };
+}
+
+function getGeminiAuthConfiguration(cwd: string, env: { [key: string]: string | undefined }): GeminiAuthConfiguration {
+  const envFilePath = findGeminiEnvFile(cwd);
+  const envFileValues = envFilePath ? readEnvFileValues(envFilePath) : {};
+  const effectiveEnv = getEffectiveGeminiEnv(env, envFileValues);
+  const envAuthType = getGeminiAuthTypeFromEnv(effectiveEnv);
+  const settings = getGeminiAuthSettings(cwd, env);
+  const authType = envAuthType ?? settings.selectedType;
+  const authSource = envAuthType ? getGeminiAuthEnvSource(effectiveEnv) : settings.selectedSource;
+  const detail = buildGeminiAuthDetail(settings, envFilePath, envFileValues, effectiveEnv);
+
+  if (settings.enforcedType && authType !== settings.enforcedType) {
+    const current = authType ? describeGeminiAuthType(authType) : "not configured";
+    return {
+      authType,
+      authSource,
+      detail,
+      failure: {
+        checked: true,
+        loggedIn: false,
+        summary: `Gemini CLI 인증 정책이 현재 설정과 맞지 않습니다. 강제 인증 방식은 ${describeGeminiAuthType(settings.enforcedType)}${settings.enforcedSource ? ` (${settings.enforcedSource})` : ""}인데, 현재 방식은 ${current}입니다. 외부 터미널에서 gemini를 실행해 같은 인증 방식으로 다시 설정하세요.`,
+        detail
+      }
+    };
+  }
+
+  if (!authType) {
+    return {
+      authType: null,
+      authSource: null,
+      detail,
+      failure: createMissingGeminiAuthMethodCheck(detail)
+    };
+  }
+
+  const validationFailure = getGeminiAuthValidationFailure(authType, effectiveEnv, detail);
+  if (validationFailure) {
+    return {
+      authType,
+      authSource,
+      detail,
+      failure: validationFailure
+    };
+  }
+
+  return {
+    authType,
+    authSource,
+    detail
+  };
+}
+
+function createMissingGeminiAuthMethodCheck(detail = ""): AgentAuthCheck {
+  const home = getUserHome();
+  const settingsPath = home ? join(home, ".gemini", "settings.json") : "~/.gemini/settings.json";
+  return {
+    checked: true,
+    loggedIn: false,
+    summary: `Gemini CLI 인증 방식이 설정되어 있지 않습니다. 현재 로그인된 Gemini 계정을 확인할 수 없습니다. 일반 PowerShell에서 gemini를 실행해 Sign in with Google을 완료하거나 ${settingsPath}의 security.auth.selectedType을 설정하세요. API 방식이면 GEMINI_API_KEY, GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_GENAI_USE_GCA 중 하나를 환경변수나 .env에 설정한 뒤 Obsidian을 완전히 재시작하세요.`,
+    detail
+  };
+}
+
+function getGeminiAuthValidationFailure(authType: string, env: Record<string, string | undefined>, detail: string): AgentAuthCheck | null {
+  if (!isSupportedGeminiAuthType(authType)) {
+    return {
+      checked: true,
+      loggedIn: false,
+      summary: `Gemini CLI 인증 방식 ${authType}은 현재 플러그인에서 유효한 실행 방식으로 확인되지 않았습니다. 외부 터미널에서 gemini를 실행해 인증 방식을 다시 선택하세요.`,
+      detail
+    };
+  }
+
+  if (authType === "vertex-ai") {
+    const hasExpressApiKey = hasGeminiEnvValue(env.GOOGLE_API_KEY);
+    const hasProject = hasGeminiEnvValue(env.GOOGLE_CLOUD_PROJECT) || hasGeminiEnvValue(env.GOOGLE_CLOUD_PROJECT_ID);
+    const hasLocation = hasGeminiEnvValue(env.GOOGLE_CLOUD_LOCATION);
+    if (!hasExpressApiKey && (!hasProject || !hasLocation)) {
+      return {
+        checked: true,
+        loggedIn: false,
+        summary: "Gemini CLI가 Vertex AI 인증 방식으로 설정되어 있지만 GOOGLE_API_KEY 또는 GOOGLE_CLOUD_PROJECT/GOOGLE_CLOUD_LOCATION 환경변수가 보이지 않습니다. 필요한 값을 환경변수나 .env에 설정한 뒤 Obsidian을 완전히 재시작하세요.",
+        detail
+      };
+    }
+  }
+
+  return null;
+}
+
+function getGeminiAuthSettings(cwd: string, env: { [key: string]: string | undefined }): GeminiAuthSettings {
+  const candidates = getGeminiSettingsCandidates(cwd, env);
+  let selectedType: string | null = null;
+  let selectedSource: string | null = null;
+  let enforcedType: string | null = null;
+  let enforcedSource: string | null = null;
+  const checkedPaths: string[] = [];
+
+  for (const candidate of candidates) {
+    checkedPaths.push(`${candidate.label}: ${candidate.path}${existsSync(candidate.path) ? "" : " (missing)"}`);
+    const settings = readJsonObjectFile(candidate.path);
+    if (!settings) {
+      continue;
+    }
+
+    const candidateSelectedType = getNestedString(settings, ["security", "auth", "selectedType"]);
+    if (candidateSelectedType) {
+      selectedType = candidateSelectedType;
+      selectedSource = `${candidate.label} settings`;
+    }
+
+    const candidateEnforcedType = getNestedString(settings, ["security", "auth", "enforcedType"]);
+    if (candidateEnforcedType) {
+      enforcedType = candidateEnforcedType;
+      enforcedSource = `${candidate.label} settings`;
+    }
+  }
+
+  return {
+    selectedType,
+    selectedSource,
+    enforcedType,
+    enforcedSource,
+    checkedPaths
+  };
+}
+
+function getGeminiSettingsCandidates(cwd: string, env: { [key: string]: string | undefined }): Array<{ label: string; path: string }> {
+  const candidates: Array<{ label: string; path: string }> = [];
+  const home = getUserHome();
+  const systemSettingsPath = getGeminiSystemSettingsPath(env);
+  candidates.push({ label: "system defaults", path: join(dirname(systemSettingsPath), "system-defaults.json") });
+  if (home) {
+    candidates.push({ label: "user", path: join(home, ".gemini", "settings.json") });
+  }
+  candidates.push({ label: "workspace", path: join(resolve(cwd), ".gemini", "settings.json") });
+  candidates.push({ label: "system", path: systemSettingsPath });
+  return candidates;
+}
+
+function getGeminiSystemSettingsPath(env: { [key: string]: string | undefined }): string {
+  const override = env.GEMINI_CLI_SYSTEM_SETTINGS_PATH;
+  if (override) {
+    return override;
+  }
+  if (process.platform === "win32") {
+    return "C:\\ProgramData\\gemini-cli\\settings.json";
+  }
+  if (process.platform === "darwin") {
+    return "/Library/Application Support/GeminiCli/settings.json";
+  }
+  return "/etc/gemini-cli/settings.json";
+}
+
+function findGeminiEnvFile(cwd: string): string | null {
+  const home = getUserHome();
+  let current = resolve(cwd);
+  while (true) {
+    const geminiEnvPath = join(current, ".gemini", ".env");
+    if (existsSync(geminiEnvPath)) {
+      return geminiEnvPath;
+    }
+
+    const envPath = join(current, ".env");
+    if (existsSync(envPath)) {
+      return envPath;
+    }
+
+    const parent = dirname(current);
+    if (parent === current) {
+      break;
+    }
+    current = parent;
+  }
+
+  if (home) {
+    const homeGeminiEnvPath = join(home, ".gemini", ".env");
+    if (existsSync(homeGeminiEnvPath)) {
+      return homeGeminiEnvPath;
+    }
+
+    const homeEnvPath = join(home, ".env");
+    if (existsSync(homeEnvPath)) {
+      return homeEnvPath;
+    }
+  }
+
+  return null;
+}
+
+function readEnvFileValues(filePath: string): Record<string, string> {
+  try {
+    const values: Record<string, string> = {};
+    const text = readFileSync(filePath, "utf8");
+    for (const rawLine of text.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#")) {
+        continue;
+      }
+      const separatorIndex = line.indexOf("=");
+      if (separatorIndex <= 0) {
+        continue;
+      }
+      const rawKey = line.slice(0, separatorIndex).trim().replace(/^export\s+/i, "");
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(rawKey)) {
+        continue;
+      }
+      values[rawKey] = stripEnvFileQuotes(line.slice(separatorIndex + 1).trim());
+    }
+    return values;
+  } catch {
+    return {};
+  }
+}
+
+function stripEnvFileQuotes(value: string): string {
+  if (value.length >= 2) {
+    const quote = value[0];
+    if ((quote === "\"" || quote === "'") && value[value.length - 1] === quote) {
+      return value.slice(1, -1);
+    }
+  }
+  return value;
+}
+
+function getEffectiveGeminiEnv(env: { [key: string]: string | undefined }, envFileValues: Record<string, string>): Record<string, string | undefined> {
+  const keys = [
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "GOOGLE_GENAI_USE_GCA",
+    "GOOGLE_GENAI_USE_VERTEXAI",
+    "GOOGLE_GEMINI_BASE_URL",
+    "GOOGLE_CLOUD_PROJECT",
+    "GOOGLE_CLOUD_PROJECT_ID",
+    "GOOGLE_CLOUD_LOCATION",
+    "CLOUD_SHELL",
+    "GEMINI_CLI_USE_COMPUTE_ADC"
+  ];
+  const effective: Record<string, string | undefined> = {};
+  for (const key of keys) {
+    effective[key] = Object.prototype.hasOwnProperty.call(env, key) ? env[key] : envFileValues[key];
+  }
+  return effective;
+}
+
+function getGeminiAuthTypeFromEnv(env: Record<string, string | undefined>): string | null {
+  if (env.GOOGLE_GENAI_USE_GCA === "true") {
+    return "oauth-personal";
+  }
+  if (env.GOOGLE_GENAI_USE_VERTEXAI === "true") {
+    return "vertex-ai";
+  }
+  if (hasGeminiEnvValue(env.GOOGLE_GEMINI_BASE_URL)) {
+    return "gateway";
+  }
+  if (hasGeminiEnvValue(env.GEMINI_API_KEY)) {
+    return "gemini-api-key";
+  }
+  if (env.CLOUD_SHELL === "true" || env.GEMINI_CLI_USE_COMPUTE_ADC === "true") {
+    return "compute-default-credentials";
+  }
+  return null;
+}
+
+function getGeminiAuthEnvSource(env: Record<string, string | undefined>): string {
+  if (env.GOOGLE_GENAI_USE_GCA === "true") {
+    return "GOOGLE_GENAI_USE_GCA";
+  }
+  if (env.GOOGLE_GENAI_USE_VERTEXAI === "true") {
+    return "GOOGLE_GENAI_USE_VERTEXAI";
+  }
+  if (hasGeminiEnvValue(env.GOOGLE_GEMINI_BASE_URL)) {
+    return "GOOGLE_GEMINI_BASE_URL";
+  }
+  if (hasGeminiEnvValue(env.GEMINI_API_KEY)) {
+    return "GEMINI_API_KEY";
+  }
+  if (env.CLOUD_SHELL === "true") {
+    return "CLOUD_SHELL";
+  }
+  if (env.GEMINI_CLI_USE_COMPUTE_ADC === "true") {
+    return "GEMINI_CLI_USE_COMPUTE_ADC";
+  }
+  return "environment";
+}
+
+function buildGeminiAuthDetail(
+  settings: GeminiAuthSettings,
+  envFilePath: string | null,
+  envFileValues: Record<string, string>,
+  effectiveEnv: Record<string, string | undefined>
+): string {
+  const configuredEnvVars = Object.keys(effectiveEnv).filter((key) => hasGeminiEnvValue(effectiveEnv[key]));
+  const envFileConfiguredVars = Object.keys(envFileValues).filter((key) => hasGeminiEnvValue(envFileValues[key]));
+  return [
+    "Checked Gemini auth settings:",
+    ...settings.checkedPaths.map((path) => `- ${path}`),
+    `Env file: ${envFilePath ?? "none"}`,
+    `Auth env vars visible: ${configuredEnvVars.length ? configuredEnvVars.join(", ") : "none"}`,
+    `Env vars in detected env file: ${envFileConfiguredVars.length ? envFileConfiguredVars.join(", ") : "none"}`
+  ].join("\n");
+}
+
+function readJsonObjectFile(filePath: string): Record<string, unknown> | null {
+  if (!existsSync(filePath)) {
+    return null;
+  }
+  try {
+    const parsed = parseJsonObject(readFileSync(filePath, "utf8"));
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function getNestedString(value: Record<string, unknown>, path: string[]): string | null {
+  let current: unknown = value;
+  for (const key of path) {
+    if (!current || typeof current !== "object" || Array.isArray(current)) {
+      return null;
+    }
+    current = (current as Record<string, unknown>)[key];
+  }
+  return typeof current === "string" && current.trim() ? current.trim() : null;
+}
+
+function isSupportedGeminiAuthType(authType: string): boolean {
+  return ["oauth-personal", "gemini-api-key", "vertex-ai", "gateway", "compute-default-credentials"].includes(authType);
+}
+
+function hasGeminiEnvValue(value: string | undefined): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function describeGeminiAuthType(authType: string): string {
+  switch (authType) {
+    case "oauth-personal":
+      return "Sign in with Google";
+    case "gemini-api-key":
+      return "Gemini API key";
+    case "vertex-ai":
+      return "Vertex AI";
+    case "gateway":
+      return "Gemini gateway";
+    case "compute-default-credentials":
+      return "Compute ADC";
+    default:
+      return authType;
+  }
 }
 
 function isMissingGeminiCliResult(result: CapturedCommandResult): boolean {
@@ -7374,7 +7763,7 @@ function formatGeminiPrintOutput(result: CapturedCommandResult): string {
   }
   const output = stripTerminalControlSequences(`${result.stdout}\n${result.stderr}`).trim();
   if (output) {
-    return output;
+    return formatGeminiAuthErrorOutput(output) ?? output;
   }
 
   if (result.timedOut) {
@@ -7390,6 +7779,28 @@ function formatGeminiPrintOutput(result: CapturedCommandResult): string {
   }
 
   return "Gemini가 빈 응답을 반환했습니다.";
+}
+
+function formatGeminiAuthErrorOutput(output: string): string | null {
+  if (/Please set an Auth method/i.test(output)) {
+    const home = getUserHome();
+    const settingsPath = home ? join(home, ".gemini", "settings.json") : "~/.gemini/settings.json";
+    return `Gemini CLI 인증 방식이 설정되어 있지 않습니다. 일반 PowerShell에서 gemini를 실행해 Sign in with Google을 완료하거나 ${settingsPath}의 security.auth.selectedType을 설정하세요. API 방식이면 GEMINI_API_KEY, GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_GENAI_USE_GCA 중 하나를 환경변수나 .env에 설정한 뒤 Obsidian을 완전히 재시작하세요.`;
+  }
+
+  if (/When using Gemini API[\s\S]*GEMINI_API_KEY/i.test(output)) {
+    return "Gemini CLI가 Gemini API key 인증 방식으로 설정되어 있지만 GEMINI_API_KEY가 보이지 않습니다. 환경변수나 .env에 GEMINI_API_KEY를 설정한 뒤 Obsidian을 완전히 재시작하세요.";
+  }
+
+  if (/When using Vertex AI/i.test(output)) {
+    return "Gemini CLI가 Vertex AI 인증 방식으로 설정되어 있지만 GOOGLE_API_KEY 또는 GOOGLE_CLOUD_PROJECT/GOOGLE_CLOUD_LOCATION 환경변수가 보이지 않습니다. 필요한 값을 환경변수나 .env에 설정한 뒤 Obsidian을 완전히 재시작하세요.";
+  }
+
+  if (/Invalid auth method selected/i.test(output) || /enforced authentication type|auth type .* is enforced/i.test(output)) {
+    return `Gemini CLI 인증 설정이 현재 실행 방식과 맞지 않습니다. 외부 터미널에서 gemini를 실행해 인증 방식을 다시 선택하세요.\n\n${output}`;
+  }
+
+  return null;
 }
 
 function isClaudeSessionInUseResult(result: CapturedCommandResult): boolean {

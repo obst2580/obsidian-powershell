@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.39`입니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.40`입니다.
 
 [English README](README.md)
 
@@ -55,11 +55,13 @@ Claude Code Agent Console은 로그인/제어 흐름과 일반 대화 흐름을 
 
 Gemini CLI는 Claude 일반 메시지와 같은 print-command 방식으로 실행합니다.
 
-- 시작 시 `gemini --version`으로 CLI가 PATH에서 보이는지 확인합니다.
+- 시작 시 `gemini --version`으로 CLI가 PATH에서 보이는지 확인하고, prompt를 받기 전에 Gemini CLI 인증 방식이 설정되어 있는지도 확인합니다.
 - 일반 메시지는 `gemini --skip-trust --approval-mode yolo --output-format text --prompt=.`로 headless mode를 켜고, 실제 prompt는 stdin으로 전달합니다.
 - Gemini 응답도 장시간 작업을 고려해 10분 제한으로 끊지 않고, `Stop`을 누르면 현재 프로세스 트리를 종료합니다.
 - Gemini의 native `--resume`은 여러 플러그인 탭이 같은 최신 세션을 잡아 충돌할 수 있어 기본 사용하지 않습니다. 대신 플러그인 탭별 transcript context와 Gemini local sessionId로 UI 세션을 분리합니다.
-- Gemini CLI가 설치되어 있지 않으면 Start 단계에서 설치 안내를 표시합니다.
+- Gemini 인증은 플러그인 내부 로그인 흐름이 아니라 Gemini CLI가 관리합니다. 일반 터미널에서 `gemini`를 실행해 Sign in with Google 같은 인증 방식을 선택하거나, `~/.gemini/settings.json`의 `security.auth.selectedType`을 설정합니다.
+- API 또는 Vertex 방식은 `GEMINI_API_KEY`, `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_GENAI_USE_GCA` 중 필요한 값을 OS 환경변수나 Gemini가 읽는 `.env`에 설정한 뒤 Obsidian을 완전히 재시작합니다.
+- Gemini CLI가 설치되어 있지 않거나 인증 방식이 없으면 Start 단계에서 설치/PATH/인증 안내를 표시하고 prompt를 보내지 않습니다.
 
 ## 요구사항
 
@@ -276,8 +278,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-git tag 0.6.39
-git push origin 0.6.39
+git tag 0.6.40
+git push origin 0.6.40
 ```
 
 릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.
