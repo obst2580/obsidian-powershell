@@ -3825,16 +3825,17 @@ class VaultPowerShellView extends ItemView {
       let sessionId = provider === "claude" ? this.ensureClaudeSessionId() : this.ensureGeminiSessionId();
       let result = await this.runTrackedPrintCommand(provider, text, cwd, env, sessionId, turnId);
       if (provider === "claude" && isClaudeSessionInUseResult(result)) {
-        sessionId = randomUUID();
+        const resumeSessionId = sessionId;
         this.withAgentSession(sessionKey, () => {
-          this.agentClaudeSessionId = sessionId;
           this.agentSessionPath = null;
           this.agentSessionOffset = 0;
           this.refreshAgentSessionChrome();
-          this.setAgentStatus("Retrying Claude with a new session...");
+          this.setAgentStatus("Forking locked Claude session...");
           this.saveAgentViewState();
         });
-        result = await this.runTrackedPrintCommand(provider, text, cwd, env, sessionId, turnId);
+        result = await this.runTrackedPrintCommand(provider, text, cwd, env, resumeSessionId, turnId, {
+          resumeFork: true
+        });
         if (isClaudeSessionInUseResult(result)) {
           this.withAgentSession(sessionKey, () => {
             this.appendAgentTranscript({
@@ -3843,7 +3844,25 @@ class VaultPowerShellView extends ItemView {
               text: "Claude Code sessionId가 계속 사용 중입니다. 다른 Claude Code 프로세스가 같은 세션을 잡고 있을 수 있습니다. 실행 중인 Claude Code 작업을 종료한 뒤 다시 시도하세요."
             });
           });
+        } else {
+          const forkedSessionId = getClaudeSessionIdFromPrintResult(result) ?? findLatestAgentSessionIdExcluding(provider, cwd, [resumeSessionId]);
+          if (forkedSessionId) {
+            sessionId = forkedSessionId;
+            this.withAgentSession(sessionKey, () => {
+              this.agentClaudeSessionId = forkedSessionId;
+              this.refreshAgentSessionChrome();
+              this.saveAgentViewState();
+            });
+          }
         }
+      }
+      const resultSessionId = provider === "claude" ? getClaudeSessionIdFromPrintResult(result) : null;
+      if (resultSessionId) {
+        this.withAgentSession(sessionKey, () => {
+          this.agentClaudeSessionId = resultSessionId;
+          this.refreshAgentSessionChrome();
+          this.saveAgentViewState();
+        });
       }
       this.withAgentSession(sessionKey, () => {
         const output = provider === "gemini" ? formatGeminiPrintOutput(result) : formatClaudePrintOutput(result);
@@ -3881,12 +3900,13 @@ class VaultPowerShellView extends ItemView {
     cwd: string,
     env: { [key: string]: string | undefined },
     sessionId: string,
-    turnId: string
+    turnId: string,
+    options: { resumeFork?: boolean } = {}
   ): Promise<CapturedCommandResult> {
     const handle = provider === "gemini"
       ? spawnGeminiPrintCommand(text, cwd, env, CLAUDE_PRINT_TIMEOUT_MS)
       : spawnClaudePrintCommand(text, cwd, env, CLAUDE_PRINT_TIMEOUT_MS, {
-        sessionId,
+        ...(options.resumeFork ? { resumeSessionId: sessionId, forkSession: true } : { sessionId }),
         sessionName: this.agentSessionLabel
       });
 
@@ -7179,6 +7199,13 @@ interface AgentLaunchOptions {
   sessionName?: string;
 }
 
+interface ClaudePrintOptions {
+  sessionId?: string;
+  resumeSessionId?: string;
+  forkSession?: boolean;
+  sessionName?: string;
+}
+
 function getAgentLaunchCommand(provider: AgentProvider, settings: PowerShellSettings, options: AgentLaunchOptions = {}): string {
   if (provider === "claude") {
     const sessionArgs = options.claudeSessionId
@@ -7320,7 +7347,7 @@ function runClaudePrintCommand(
   cwd: string,
   env: { [key: string]: string | undefined },
   timeoutMs: number | null,
-  options: { sessionId?: string; sessionName?: string } = {}
+  options: ClaudePrintOptions = {}
 ): Promise<CapturedCommandResult> {
   return spawnClaudePrintCommand(prompt, cwd, env, timeoutMs, options).promise;
 }
@@ -7742,19 +7769,33 @@ function spawnClaudePrintCommand(
   cwd: string,
   env: { [key: string]: string | undefined },
   timeoutMs: number | null,
-  options: { sessionId?: string; sessionName?: string } = {}
+  options: ClaudePrintOptions = {}
 ): CapturedCommandHandle {
   const args = [
-    ...(options.sessionId ? ["--session-id", options.sessionId] : ["--continue"]),
+    ...getClaudePrintSessionArgs(options),
     ...(options.sessionName ? ["--name", options.sessionName] : []),
     "--strict-mcp-config",
     "--permission-mode",
     "bypassPermissions",
     "--output-format",
-    "text",
+    "json",
     "-p"
   ];
   return spawnCapturedCommand("claude", args, cwd, env, timeoutMs, `${prompt}\n`);
+}
+
+function getClaudePrintSessionArgs(options: ClaudePrintOptions): string[] {
+  if (options.resumeSessionId) {
+    return [
+      "--resume",
+      options.resumeSessionId,
+      ...(options.forkSession ? ["--fork-session"] : [])
+    ];
+  }
+  if (options.sessionId) {
+    return ["--session-id", options.sessionId];
+  }
+  return ["--continue"];
 }
 
 function spawnGeminiPrintCommand(
@@ -7783,7 +7824,7 @@ function formatClaudePrintOutput(result: CapturedCommandResult): string {
     if (isClaudeSessionInUseResult(result)) {
       return "Claude Code sessionId가 사용 중입니다. 다른 Claude Code 프로세스가 같은 세션을 잡고 있을 수 있습니다. 실행 중인 Claude Code 작업을 종료한 뒤 다시 시도하세요.";
     }
-    return output;
+    return getClaudeResultTextFromPrintOutput(output) ?? output;
   }
 
   if (result.timedOut) {
@@ -7799,6 +7840,37 @@ function formatClaudePrintOutput(result: CapturedCommandResult): string {
   }
 
   return "Claude가 빈 응답을 반환했습니다.";
+}
+
+function getClaudeResultTextFromPrintOutput(output: string): string | null {
+  const parsed = parseClaudePrintJsonOutput(output);
+  if (!parsed) {
+    return null;
+  }
+  const result = typeof parsed.result === "string" ? parsed.result.trim() : "";
+  if (result) {
+    return result;
+  }
+  const error = typeof parsed.error === "string" ? parsed.error.trim() : "";
+  return error || null;
+}
+
+function getClaudeSessionIdFromPrintResult(result: CapturedCommandResult): string | null {
+  const output = removeClaudeNoStdinWarning(stripTerminalControlSequences(`${result.stdout}\n${result.stderr}`)).trim();
+  const parsed = parseClaudePrintJsonOutput(output);
+  const sessionId = parsed && typeof parsed.session_id === "string" ? parsed.session_id.trim() : "";
+  return isUuidString(sessionId) ? sessionId : null;
+}
+
+function parseClaudePrintJsonOutput(output: string): Record<string, unknown> | null {
+  const parsed = parseJsonObject(output);
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : null;
+}
+
+function isUuidString(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
 function formatGeminiPrintOutput(result: CapturedCommandResult): string {
@@ -8084,8 +8156,11 @@ function isAgentPrintProcessAlive(record: AgentPrintProcessRecord): boolean {
 function matchesAgentPrintCommandLine(record: AgentPrintProcessRecord, lowerCommandLine: string): boolean {
   if (record.provider === "claude") {
     return lowerCommandLine.includes("claude") &&
-      lowerCommandLine.includes("--session-id") &&
       !!record.sessionId &&
+      (
+        lowerCommandLine.includes("--session-id") ||
+        lowerCommandLine.includes("--resume")
+      ) &&
       lowerCommandLine.includes(record.sessionId.toLowerCase()) &&
       lowerCommandLine.includes("--output-format");
   }
@@ -8140,6 +8215,33 @@ function findLatestAgentSessionFile(provider: AgentProvider, cwd: string, starte
   }
 
   return null;
+}
+
+function findLatestAgentSessionIdExcluding(provider: AgentProvider, cwd: string, excludedSessionIds: string[]): string | null {
+  const root = getAgentSessionRoot(provider);
+  if (!root || !existsSync(root)) {
+    return null;
+  }
+
+  const excluded = new Set(excludedSessionIds.map((id) => id.toLowerCase()));
+  const sinceMs = provider === "claude" ? 0 : Date.now() - AGENT_SESSION_LOOKBACK_MS;
+  for (const file of getRecentJsonlFiles(root, sinceMs)) {
+    const sessionId = getAgentSessionIdFromFilePath(file);
+    if (!sessionId || excluded.has(sessionId.toLowerCase())) {
+      continue;
+    }
+    if (agentSessionFileMatches(file, cwd)) {
+      return sessionId;
+    }
+  }
+
+  return null;
+}
+
+function getAgentSessionIdFromFilePath(filePath: string): string | null {
+  const fileName = filePath.split(/[\\/]/).pop() ?? "";
+  const match = fileName.match(/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i);
+  return match?.[1] ?? null;
 }
 
 function snapshotAgentSessionOffsets(provider: AgentProvider, cwd: string): Map<string, number> {
