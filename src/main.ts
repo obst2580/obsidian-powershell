@@ -21,7 +21,6 @@ import { ChildProcessWithoutNullStreams, spawn, spawnSync } from "child_process"
 import { createHash, randomUUID } from "crypto";
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from "fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
-import { tmpdir } from "os";
 import { CodexAppServerBackend } from "./agent/codex/backend";
 import type { AgentAccessLevel, AgentAttachment, AgentBackend, AgentModelInfo, AgentStatus, AgentUiEvent, AgentUsageWindow, ApprovalRequest, TranscriptItem, TranscriptItemKind } from "./agent/types";
 
@@ -3129,37 +3128,40 @@ class VaultPowerShellView extends ItemView {
     });
   }
 
-  // Paste an image from the clipboard (Ctrl/Cmd+V) as a Codex attachment.
+  // Paste an image from the clipboard (Ctrl/Cmd+V) as an attachment for the selected provider.
   private handleAgentPaste(event: ClipboardEvent) {
-    if (!this.agentBackend) {
+    const imageFile = getClipboardImageFile(event.clipboardData);
+    if (imageFile) {
+      event.preventDefault();
+      void this.addAgentAttachments([imageFile]);
       return;
     }
-    // Obsidian's bundled clipboard typing only exposes readText; the Electron
-    // runtime has readImage. Assert the real shape.
-    const electronClipboard = clipboard as unknown as { readImage(): { isEmpty(): boolean; toPNG(): Buffer } };
-    const image = electronClipboard.readImage();
-    if (image.isEmpty()) {
+
+    const imageBytes = readSystemClipboardImageBytes();
+    if (!imageBytes) {
       return; // not an image — let the textarea paste text normally
     }
+
     event.preventDefault();
-    const path = this.writeClipboardImage(image.toPNG());
-    if (!path) {
-      new Notice("Could not save the pasted image.");
-      return;
-    }
-    this.codexPendingAttachments.push({ kind: "localImage", path, name: "Pasted image" });
-    this.renderAttachmentChips();
+    void this.addClipboardImageAttachment(imageBytes);
   }
 
-  private writeClipboardImage(data: Buffer): string | null {
+  private async addClipboardImageAttachment(imageBytes: Uint8Array) {
     try {
-      const dir = join(tmpdir(), "obsidian-codex-paste");
-      mkdirSync(dir, { recursive: true });
-      const file = join(dir, `paste-${Date.now()}-${this.codexPendingAttachments.length}.png`);
-      writeFileSync(file, data);
-      return file;
-    } catch {
-      return null;
+      const vaultPath = await this.plugin.saveAttachmentBytes(imageBytes, "png", "pasted-image");
+      const absolutePath = this.plugin.getVaultPath()
+        ? join(this.plugin.getVaultPath()!, ...vaultPath.split("/"))
+        : vaultPath;
+      this.codexPendingAttachments.push({
+        kind: "localImage",
+        path: absolutePath,
+        name: "Pasted image"
+      });
+      this.renderAttachmentChips();
+      new Notice("이미지를 첨부했습니다.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      new Notice(`이미지 첨부 실패: ${message}`);
     }
   }
 
@@ -3823,7 +3825,6 @@ class VaultPowerShellView extends ItemView {
       let sessionId = provider === "claude" ? this.ensureClaudeSessionId() : this.ensureGeminiSessionId();
       let result = await this.runTrackedPrintCommand(provider, text, cwd, env, sessionId, turnId);
       if (provider === "claude" && isClaudeSessionInUseResult(result)) {
-        const previousSessionId = sessionId;
         sessionId = randomUUID();
         this.withAgentSession(sessionKey, () => {
           this.agentClaudeSessionId = sessionId;
@@ -3831,14 +3832,18 @@ class VaultPowerShellView extends ItemView {
           this.agentSessionOffset = 0;
           this.refreshAgentSessionChrome();
           this.setAgentStatus("Retrying Claude with a new session...");
-          this.appendAgentTranscript({
-            id: this.nextLocalAgentEntryId("system"),
-            role: "system",
-            text: `Claude sessionId가 이미 사용 중이라 새 sessionId로 한 번 재시도합니다.\n이전 sessionId: ${shortSessionId(previousSessionId)}\n새 sessionId: ${shortSessionId(sessionId)}`
-          });
           this.saveAgentViewState();
         });
         result = await this.runTrackedPrintCommand(provider, text, cwd, env, sessionId, turnId);
+        if (isClaudeSessionInUseResult(result)) {
+          this.withAgentSession(sessionKey, () => {
+            this.appendAgentTranscript({
+              id: this.nextLocalAgentEntryId("system"),
+              role: "system",
+              text: "Claude Code sessionId가 계속 사용 중입니다. 다른 Claude Code 프로세스가 같은 세션을 잡고 있을 수 있습니다. 실행 중인 Claude Code 작업을 종료한 뒤 다시 시도하세요."
+            });
+          });
+        }
       }
       this.withAgentSession(sessionKey, () => {
         const output = provider === "gemini" ? formatGeminiPrintOutput(result) : formatClaudePrintOutput(result);
@@ -6868,6 +6873,7 @@ function normalizeAgentViewSessionState(value: unknown): AgentViewSessionState |
   if (sessions.length === 0) {
     return null;
   }
+  ensureUniqueAgentWorkspaceSessionIds(sessions);
 
   const activeKey = typeof candidate.activeAgentSessionKey === "string" &&
     sessions.some((session) => session.agentSessionKey === candidate.activeAgentSessionKey)
@@ -6886,6 +6892,41 @@ function normalizeAgentViewSessionState(value: unknown): AgentViewSessionState |
     codexThreadId: activeSession.codexThreadId,
     geminiSessionId: activeSession.geminiSessionId ?? undefined
   };
+}
+
+function ensureUniqueAgentWorkspaceSessionIds(sessions: AgentWorkspaceSessionState[]) {
+  const usedClaudeIds = new Set<string>();
+  const usedGeminiIds = new Set<string>();
+
+  for (const session of sessions) {
+    if (!session.claudeSessionId || usedClaudeIds.has(session.claudeSessionId.toLowerCase())) {
+      session.claudeSessionId = createUniqueSessionUuid(usedClaudeIds);
+    }
+    usedClaudeIds.add(session.claudeSessionId.toLowerCase());
+
+    if (session.claudeControlSessionId) {
+      const controlKey = session.claudeControlSessionId.toLowerCase();
+      if (usedClaudeIds.has(controlKey)) {
+        session.claudeControlSessionId = null;
+      } else {
+        usedClaudeIds.add(controlKey);
+      }
+    }
+
+    if (!session.geminiSessionId || usedGeminiIds.has(session.geminiSessionId.toLowerCase())) {
+      session.geminiSessionId = createUniqueSessionUuid(usedGeminiIds);
+    }
+    usedGeminiIds.add(session.geminiSessionId.toLowerCase());
+  }
+}
+
+function createUniqueSessionUuid(used: Set<string>): string {
+  while (true) {
+    const id = randomUUID();
+    if (!used.has(id.toLowerCase())) {
+      return id;
+    }
+  }
 }
 
 function stripAgentViewTranscriptSnapshots(value: unknown): AgentViewSessionState | undefined {
@@ -7739,6 +7780,9 @@ function formatClaudePrintOutput(result: CapturedCommandResult): string {
   }
   const output = removeClaudeNoStdinWarning(stripTerminalControlSequences(`${result.stdout}\n${result.stderr}`)).trim();
   if (output) {
+    if (isClaudeSessionInUseResult(result)) {
+      return "Claude Code sessionId가 사용 중입니다. 다른 Claude Code 프로세스가 같은 세션을 잡고 있을 수 있습니다. 실행 중인 Claude Code 작업을 종료한 뒤 다시 시도하세요.";
+    }
     return output;
   }
 
