@@ -7339,8 +7339,7 @@ function spawnGeminiPrintCommand(
     "yolo",
     "--output-format",
     "text",
-    "--prompt",
-    " "
+    "--prompt=."
   ];
   return spawnCapturedCommand("gemini", args, cwd, env, timeoutMs, `${prompt}\n`);
 }

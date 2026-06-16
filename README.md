@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.37`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.38`.
 
 [한국어 README](README.ko.md)
 
@@ -56,7 +56,7 @@ The Claude Code Agent Console separates normal chat turns from login/control pro
 Gemini CLI uses the same print-command shape as Claude normal chat turns.
 
 - Checks CLI availability with `gemini --version`.
-- Sends normal prompts with `gemini --skip-trust --approval-mode yolo --output-format text -p <prompt>`.
+- Sends normal prompts with `gemini --skip-trust --approval-mode yolo --output-format text --prompt=.` to enable headless mode, then passes the real prompt through stdin.
 - Allows long-running work instead of enforcing a 10-minute response cutoff; press `Stop` to terminate the current process tree.
 - Does not use native Gemini `--resume` by default, because several plugin tabs can otherwise attach to the same latest Gemini session. The plugin keeps tabs separated with transcript context and a local Gemini session id.
 - If Gemini CLI is missing, Start shows an install/PATH hint.
@@ -277,8 +277,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.37
-git push origin 0.6.37
+git tag 0.6.38
+git push origin 0.6.38
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.
