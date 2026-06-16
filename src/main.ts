@@ -35,6 +35,7 @@ const VIEW_TYPE_POWERSHELL = "vault-powershell";
 const GITHUB_REPOSITORY = "obst2580/obsidian-powershell";
 const RUNTIME_INFO_FILE = "runtime.json";
 const RUNTIME_MANIFEST_FILE = "runtime-manifest.json";
+const AGENT_PROCESS_REGISTRY_FILE = "agent-processes.json";
 const MIN_PTY_COLS = 80;
 const MIN_PTY_ROWS = 5;
 const OBST_TERMINAL_ICON = "obst-terminal";
@@ -51,6 +52,7 @@ const OBST_TERMINAL_ICON_SVG = `
 // Official brand-mark paths (24x24 viewBox) so each provider is recognizable.
 const CLAUDE_ICON_PATH = "M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5527h3.7442L10.5363 3.541Zm-.3712 10.2232 2.2932-5.9456 2.2932 5.9456Z";
 const CODEX_ICON_PATH = "M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.1419.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z";
+const GEMINI_ICON_PATH = "M12 2.25l1.45 5.23a4.6 4.6 0 0 0 3.18 3.18L21.75 12l-5.12 1.34a4.6 4.6 0 0 0-3.18 3.18L12 21.75l-1.45-5.23a4.6 4.6 0 0 0-3.18-3.18L2.25 12l5.12-1.34a4.6 4.6 0 0 0 3.18-3.18L12 2.25Zm6.8-1.05.58 2.08a1.85 1.85 0 0 0 1.28 1.28l2.14.56-2.14.56a1.85 1.85 0 0 0-1.28 1.28l-.58 2.08-.58-2.08a1.85 1.85 0 0 0-1.28-1.28l-2.14-.56 2.14-.56a1.85 1.85 0 0 0 1.28-1.28L18.8 1.2Z";
 const DEFAULT_ATTACHMENT_FOLDER = "Obst Terminal Attachments";
 const EXTRA_CA_ENV_VARS = ["OBST_TERMINAL_EXTRA_CA_CERT", "VAULT_TERMINAL_EXTRA_CA_CERT"];
 const RUNTIME_BASE_REQUIRED_RELATIVE_FILES = [
@@ -146,7 +148,7 @@ type CodexApprovalPolicy = "untrusted" | "on-failure" | "on-request" | "never";
 type CodexLoginMethod = "browser" | "device-code";
 type ShellProfile = "auto" | "pwsh" | "windows-powershell" | "cmd" | "wsl" | "git-bash" | "zsh" | "bash" | "custom";
 type ViewPane = "agent" | "terminal";
-type AgentProvider = "claude" | "codex";
+type AgentProvider = "claude" | "codex" | "gemini";
 type AgentSessionMode = "legacy-latest" | "isolated";
 type AgentTranscriptRole = "user" | "assistant" | "tool" | "system";
 type AgentPromptMode = "auth" | "auth-code" | "mcp" | "menu" | "confirmation" | "permission" | "continue" | "command" | "text";
@@ -163,6 +165,7 @@ interface AgentViewSessionState extends Record<string, unknown> {
   claudeSessionId?: string;
   claudeControlSessionId?: string;
   codexThreadId?: string | null;
+  geminiSessionId?: string | null;
 }
 
 interface AgentWorkspaceSessionState extends Record<string, unknown> {
@@ -173,16 +176,20 @@ interface AgentWorkspaceSessionState extends Record<string, unknown> {
   claudeSessionId: string | null;
   claudeControlSessionId?: string | null;
   codexThreadId: string | null;
+  geminiSessionId?: string | null;
   claudeTranscriptHtml?: string;
   codexTranscriptHtml?: string;
+  geminiTranscriptHtml?: string;
   claudeScrollTop?: number;
   codexScrollTop?: number;
+  geminiScrollTop?: number;
   inputText?: string;
   statusText?: string;
   createdAt: number;
   updatedAt: number;
   claudeTranscriptEl?: HTMLElement | null;
   codexTranscriptEl?: HTMLElement | null;
+  geminiTranscriptEl?: HTMLElement | null;
   agentBackend?: AgentBackend | null;
   agentBackendUnsubscribe?: (() => void) | null;
   codexItemEls?: Map<string, HTMLElement>;
@@ -214,6 +221,8 @@ interface AgentWorkspaceSessionState extends Record<string, unknown> {
   agentCurrentTurnStartedAt?: number;
   agentSessionBaselineOffsets?: Map<string, number>;
   agentClaudePrintTurnActive?: boolean;
+  agentPrintTurnRuntime?: AgentPrintTurnRuntime | null;
+  agentPrintQueuedInputs?: AgentQueuedPrintInput[];
   agentClaudeControlSessionId?: string | null;
   lastAgentLaunchCommand?: string;
   agentSeenEntries?: Set<string>;
@@ -351,6 +360,43 @@ interface CapturedCommandResult {
   exitCode: number | null;
   timedOut: boolean;
   error?: string;
+  cancelled?: boolean;
+  cancelReason?: string;
+}
+
+interface CapturedCommandHandle {
+  child: ChildProcessWithoutNullStreams | null;
+  pid?: number;
+  promise: Promise<CapturedCommandResult>;
+  kill: (reason?: string) => void;
+}
+
+interface AgentPrintTurnRuntime {
+  provider: AgentProvider;
+  turnId: string;
+  sessionId: string | null;
+  child: ChildProcessWithoutNullStreams;
+  pid?: number;
+  kill: (reason?: string) => void;
+  startedAt: number;
+  promptPreview: string;
+  settled: boolean;
+  cancelReason?: string;
+}
+
+interface AgentQueuedPrintInput {
+  text: string;
+  attachments: AgentAttachment[];
+  visibleText: string;
+}
+
+interface AgentPrintProcessRecord {
+  pid: number;
+  provider: "claude" | "gemini";
+  sessionId: string | null;
+  cwd: string;
+  startedAt: number;
+  pluginVersion: string;
 }
 
 interface ClipboardNativeImage {
@@ -461,6 +507,7 @@ export default class VaultPowerShellPlugin extends Plugin {
 
   async onload() {
     await this.loadSettings();
+    cleanupAgentPrintProcessRegistry(this.getAgentProcessRegistryPath());
     addIcon(OBST_TERMINAL_ICON, OBST_TERMINAL_ICON_SVG);
 
     this.registerView(
@@ -702,6 +749,27 @@ export default class VaultPowerShellPlugin extends Plugin {
 
   getPtyHostPath(): string {
     return join(this.getPluginBasePath(), "pty-host.js");
+  }
+
+  getAgentProcessRegistryPath(): string {
+    return join(this.getPluginBasePath(), AGENT_PROCESS_REGISTRY_FILE);
+  }
+
+  registerAgentPrintProcess(record: AgentPrintProcessRecord) {
+    updateAgentPrintProcessRegistry(this.getAgentProcessRegistryPath(), (records) => {
+      const next = records.filter((candidate) => candidate.pid !== record.pid);
+      next.push(record);
+      return next;
+    });
+  }
+
+  unregisterAgentPrintProcess(pid: number | undefined) {
+    if (pid === undefined) {
+      return;
+    }
+    updateAgentPrintProcessRegistry(this.getAgentProcessRegistryPath(), (records) =>
+      records.filter((record) => record.pid !== pid)
+    );
   }
 
   getRuntimeManifestUrl(): string {
@@ -1067,13 +1135,14 @@ class VaultPowerShellView extends ItemView {
   private agentTranscriptEl: HTMLElement | null = null;
   private claudeTranscriptEl: HTMLElement | null = null;
   private codexTranscriptEl: HTMLElement | null = null;
+  private geminiTranscriptEl: HTMLElement | null = null;
   private suppressAgentTranscriptScrollMemory = false;
   private agentLoadingEl: HTMLElement | null = null;
   private agentLoadingTextEl: HTMLElement | null = null;
   private agentPromptActionsEl: HTMLElement | null = null;
   private agentLoginButton: HTMLButtonElement | null = null;
   private agentInputEl: HTMLTextAreaElement | null = null;
-  private agentProviderButtons: Record<AgentProvider, HTMLElement | null> = { claude: null, codex: null };
+  private agentProviderButtons: Record<AgentProvider, HTMLElement | null> = { claude: null, codex: null, gemini: null };
   private agentProviderIndicatorEl: HTMLElement | null = null;
   private agentSessionPollTimer: number | null = null;
   private agentReadyTimer: number | null = null;
@@ -1086,6 +1155,9 @@ class VaultPowerShellView extends ItemView {
   private agentClaudePrintTurnActive = false;
   private agentClaudeSessionId: string | null = randomUUID();
   private agentClaudeControlSessionId: string | null = null;
+  private agentGeminiSessionId: string | null = randomUUID();
+  private agentPrintTurnRuntime: AgentPrintTurnRuntime | null = null;
+  private agentPrintQueuedInputs: AgentQueuedPrintInput[] = [];
   private lastAgentLaunchCommand = "";
   private agentSeenEntries = new Set<string>();
   private agentLocalMessageCounter = 0;
@@ -1130,7 +1202,8 @@ class VaultPowerShellView extends ItemView {
       activePane: this.activePane,
       claudeSessionId: this.agentClaudeSessionId,
       claudeControlSessionId: this.agentClaudeControlSessionId,
-      codexThreadId: this.agentCodexThreadId
+      codexThreadId: this.agentCodexThreadId,
+      geminiSessionId: this.agentGeminiSessionId
     };
   }
 
@@ -1203,6 +1276,9 @@ class VaultPowerShellView extends ItemView {
     this.agentSessionTitleInputEl = null;
     this.agentSessionSubtitleEl = null;
     this.agentTranscriptEl = null;
+    this.claudeTranscriptEl = null;
+    this.codexTranscriptEl = null;
+    this.geminiTranscriptEl = null;
     this.agentLoadingEl = null;
     this.agentLoadingTextEl = null;
     this.agentPromptActionsEl = null;
@@ -1211,7 +1287,7 @@ class VaultPowerShellView extends ItemView {
     this.agentAttachButton = null;
     this.codexStatusLineEl = null;
     this.paneTabEls = { agent: null, terminal: null };
-    this.agentProviderButtons = { claude: null, codex: null };
+    this.agentProviderButtons = { claude: null, codex: null, gemini: null };
     this.agentProviderIndicatorEl = null;
   }
 
@@ -1248,7 +1324,7 @@ class VaultPowerShellView extends ItemView {
       if (value.agentSessionMode === "isolated" || value.agentSessionMode === "legacy-latest") {
         this.agentSessionMode = value.agentSessionMode;
       }
-      if (value.agentProvider === "claude" || value.agentProvider === "codex") {
+      if (isAgentProvider(value.agentProvider)) {
         this.agentProvider = value.agentProvider;
       }
       if (typeof value.claudeSessionId === "string" && value.claudeSessionId.trim()) {
@@ -1261,6 +1337,9 @@ class VaultPowerShellView extends ItemView {
         this.agentCodexThreadId = value.codexThreadId.trim();
       } else if (value.codexThreadId === null) {
         this.agentCodexThreadId = null;
+      }
+      if (typeof value.geminiSessionId === "string" && value.geminiSessionId.trim()) {
+        this.agentGeminiSessionId = value.geminiSessionId.trim();
       }
       this.agentSessions = [this.createSessionStateFromActiveFields()];
       this.activeAgentSessionKey = this.agentSessionKey;
@@ -1288,7 +1367,8 @@ class VaultPowerShellView extends ItemView {
     const mode = this.agentSessionMode === "isolated" ? "isolated" : "latest fallback";
     const codex = this.agentCodexThreadId ? ` · codex:${shortSessionId(this.agentCodexThreadId)}` : "";
     const claude = this.agentClaudeSessionId ? ` · claude:${shortSessionId(this.agentClaudeSessionId)}` : "";
-    this.agentSessionSubtitleEl?.setText(`${path} · ${mode}${claude}${codex}`);
+    const gemini = this.agentGeminiSessionId ? ` · gemini:${shortSessionId(this.agentGeminiSessionId)}` : "";
+    this.agentSessionSubtitleEl?.setText(`${path} · ${mode}${claude}${codex}${gemini}`);
   }
 
   private commitAgentSessionLabel(value: string) {
@@ -1319,6 +1399,15 @@ class VaultPowerShellView extends ItemView {
       this.saveAgentViewState();
     }
     return this.agentClaudeControlSessionId;
+  }
+
+  private ensureGeminiSessionId(): string {
+    if (!this.agentGeminiSessionId) {
+      this.agentGeminiSessionId = randomUUID();
+      this.saveAgentViewState();
+      this.refreshAgentSessionChrome();
+    }
+    return this.agentGeminiSessionId;
   }
 
   createInternalAgentSession() {
@@ -1381,10 +1470,13 @@ class VaultPowerShellView extends ItemView {
       claudeSessionId: this.agentClaudeSessionId,
       claudeControlSessionId: this.agentClaudeControlSessionId,
       codexThreadId: this.agentCodexThreadId,
+      geminiSessionId: this.agentGeminiSessionId,
       claudeTranscriptHtml: sanitizeAgentTranscriptHtml(this.claudeTranscriptEl?.innerHTML ?? ""),
       codexTranscriptHtml: sanitizeAgentTranscriptHtml(this.codexTranscriptEl?.innerHTML ?? ""),
+      geminiTranscriptHtml: sanitizeAgentTranscriptHtml(this.geminiTranscriptEl?.innerHTML ?? ""),
       claudeScrollTop: this.getReadableAgentTranscriptScrollTop(this.claudeTranscriptEl, 0),
       codexScrollTop: this.getReadableAgentTranscriptScrollTop(this.codexTranscriptEl, 0),
+      geminiScrollTop: this.getReadableAgentTranscriptScrollTop(this.geminiTranscriptEl, 0),
       inputText: this.agentInputEl?.value ?? "",
       statusText: this.agentStatusText,
       createdAt: now,
@@ -1400,6 +1492,7 @@ class VaultPowerShellView extends ItemView {
     this.agentClaudeSessionId = session.claudeSessionId;
     this.agentClaudeControlSessionId = session.claudeControlSessionId ?? null;
     this.agentCodexThreadId = session.codexThreadId;
+    this.agentGeminiSessionId = session.geminiSessionId ?? null;
   }
 
   private getReadableAgentTranscriptScrollTop(el: HTMLElement | null | undefined, fallback: number): number {
@@ -1417,14 +1510,19 @@ class VaultPowerShellView extends ItemView {
   private ensureAgentSessionRuntime(session: AgentWorkspaceSessionState) {
     session.claudeTranscriptEl ??= this.createDetachedAgentTranscriptEl();
     session.codexTranscriptEl ??= this.createDetachedAgentTranscriptEl();
+    session.geminiTranscriptEl ??= this.createDetachedAgentTranscriptEl();
     if (session.claudeTranscriptHtml && !session.claudeTranscriptEl.innerHTML.trim()) {
       session.claudeTranscriptEl.innerHTML = session.claudeTranscriptHtml;
     }
     if (session.codexTranscriptHtml && !session.codexTranscriptEl.innerHTML.trim()) {
       session.codexTranscriptEl.innerHTML = session.codexTranscriptHtml;
     }
+    if (session.geminiTranscriptHtml && !session.geminiTranscriptEl.innerHTML.trim()) {
+      session.geminiTranscriptEl.innerHTML = session.geminiTranscriptHtml;
+    }
     session.claudeScrollTop ??= 0;
     session.codexScrollTop ??= 0;
+    session.geminiScrollTop ??= 0;
     session.agentBackend ??= null;
     session.agentBackendUnsubscribe ??= null;
     session.codexItemEls ??= new Map<string, HTMLElement>();
@@ -1456,6 +1554,8 @@ class VaultPowerShellView extends ItemView {
     session.agentCurrentTurnStartedAt ??= 0;
     session.agentSessionBaselineOffsets ??= new Map<string, number>();
     session.agentClaudePrintTurnActive ??= false;
+    session.agentPrintTurnRuntime ??= null;
+    session.agentPrintQueuedInputs ??= [];
     session.agentClaudeControlSessionId ??= session.claudeControlSessionId ?? null;
     session.lastAgentLaunchCommand ??= "";
     session.agentSeenEntries ??= new Set<string>();
@@ -1487,6 +1587,7 @@ class VaultPowerShellView extends ItemView {
     this.applyAgentSessionFields(session);
     this.claudeTranscriptEl = session.claudeTranscriptEl ?? null;
     this.codexTranscriptEl = session.codexTranscriptEl ?? null;
+    this.geminiTranscriptEl = session.geminiTranscriptEl ?? null;
     this.agentBackend = session.agentBackend ?? null;
     this.agentBackendUnsubscribe = session.agentBackendUnsubscribe ?? null;
     this.codexItemEls = session.codexItemEls ?? new Map<string, HTMLElement>();
@@ -1518,6 +1619,8 @@ class VaultPowerShellView extends ItemView {
     this.agentCurrentTurnStartedAt = session.agentCurrentTurnStartedAt ?? 0;
     this.agentSessionBaselineOffsets = session.agentSessionBaselineOffsets ?? new Map<string, number>();
     this.agentClaudePrintTurnActive = session.agentClaudePrintTurnActive ?? false;
+    this.agentPrintTurnRuntime = session.agentPrintTurnRuntime ?? null;
+    this.agentPrintQueuedInputs = session.agentPrintQueuedInputs ?? [];
     this.agentClaudeControlSessionId = session.agentClaudeControlSessionId ?? session.claudeControlSessionId ?? null;
     this.lastAgentLaunchCommand = session.lastAgentLaunchCommand ?? "";
     this.agentSeenEntries = session.agentSeenEntries ?? new Set<string>();
@@ -1534,7 +1637,7 @@ class VaultPowerShellView extends ItemView {
     this.agentPromptState = session.agentPromptState ?? null;
     this.agentOpenedExternalUrls = session.agentOpenedExternalUrls ?? new Set<string>();
     this.agentStatusText = session.statusText ?? "Idle";
-    this.agentTranscriptEl = this.agentProvider === "codex" ? this.codexTranscriptEl : this.claudeTranscriptEl;
+    this.agentTranscriptEl = this.getProviderTranscriptEl(this.agentProvider);
     if (!this.codexTurnActive) {
       this.clearCodexTurnLoadingIndicators(this.codexTranscriptEl);
     }
@@ -1550,6 +1653,7 @@ class VaultPowerShellView extends ItemView {
     session.claudeSessionId = this.agentClaudeSessionId;
     session.claudeControlSessionId = this.agentClaudeControlSessionId;
     session.codexThreadId = this.agentCodexThreadId;
+    session.geminiSessionId = this.agentGeminiSessionId;
     if (this.claudeTranscriptEl) {
       session.claudeTranscriptHtml = sanitizeAgentTranscriptHtml(this.claudeTranscriptEl.innerHTML);
       if (this.isVisibleAgentSessionContext() && this.isAgentTranscriptScrollReadable(this.claudeTranscriptEl)) {
@@ -1562,12 +1666,19 @@ class VaultPowerShellView extends ItemView {
         session.codexScrollTop = this.codexTranscriptEl.scrollTop;
       }
     }
+    if (this.geminiTranscriptEl) {
+      session.geminiTranscriptHtml = sanitizeAgentTranscriptHtml(this.geminiTranscriptEl.innerHTML);
+      if (this.isVisibleAgentSessionContext() && this.isAgentTranscriptScrollReadable(this.geminiTranscriptEl)) {
+        session.geminiScrollTop = this.geminiTranscriptEl.scrollTop;
+      }
+    }
     if (this.agentInputEl) {
       session.inputText = this.agentInputEl.value;
     }
     session.statusText = this.agentStatusText;
     session.claudeTranscriptEl = this.claudeTranscriptEl;
     session.codexTranscriptEl = this.codexTranscriptEl;
+    session.geminiTranscriptEl = this.geminiTranscriptEl;
     session.agentBackend = this.agentBackend;
     session.agentBackendUnsubscribe = this.agentBackendUnsubscribe;
     session.codexItemEls = this.codexItemEls;
@@ -1599,6 +1710,8 @@ class VaultPowerShellView extends ItemView {
     session.agentCurrentTurnStartedAt = this.agentCurrentTurnStartedAt;
     session.agentSessionBaselineOffsets = this.agentSessionBaselineOffsets;
     session.agentClaudePrintTurnActive = this.agentClaudePrintTurnActive;
+    session.agentPrintTurnRuntime = this.agentPrintTurnRuntime;
+    session.agentPrintQueuedInputs = this.agentPrintQueuedInputs;
     session.agentClaudeControlSessionId = this.agentClaudeControlSessionId;
     session.lastAgentLaunchCommand = this.lastAgentLaunchCommand;
     session.agentSeenEntries = this.agentSeenEntries;
@@ -1627,10 +1740,13 @@ class VaultPowerShellView extends ItemView {
       claudeSessionId: session.claudeSessionId,
       claudeControlSessionId: session.claudeControlSessionId ?? null,
       codexThreadId: session.codexThreadId,
+      geminiSessionId: session.geminiSessionId ?? null,
       claudeTranscriptHtml: includeTranscriptSnapshots ? sanitizeAgentTranscriptHtml(session.claudeTranscriptHtml ?? "") : "",
       codexTranscriptHtml: includeTranscriptSnapshots ? sanitizeAgentTranscriptHtml(session.codexTranscriptHtml ?? "") : "",
+      geminiTranscriptHtml: includeTranscriptSnapshots ? sanitizeAgentTranscriptHtml(session.geminiTranscriptHtml ?? "") : "",
       claudeScrollTop: includeTranscriptSnapshots ? session.claudeScrollTop ?? 0 : 0,
       codexScrollTop: includeTranscriptSnapshots ? session.codexScrollTop ?? 0 : 0,
+      geminiScrollTop: includeTranscriptSnapshots ? session.geminiScrollTop ?? 0 : 0,
       inputText: session.inputText ?? "",
       statusText: session.statusText ?? "Idle",
       createdAt: session.createdAt,
@@ -1656,32 +1772,34 @@ class VaultPowerShellView extends ItemView {
     this.renderAttachmentChips();
     this.refreshAgentPromptActions();
 
-    if (!this.claudeTranscriptEl?.innerHTML.trim() && !this.codexTranscriptEl?.innerHTML.trim()) {
+    if (!this.claudeTranscriptEl?.innerHTML.trim() && !this.codexTranscriptEl?.innerHTML.trim() && !this.geminiTranscriptEl?.innerHTML.trim()) {
       this.appendAgentTranscript({
         id: this.nextLocalAgentEntryId("system"),
         role: "system",
-        text: `${this.agentSessionLabel} 세션입니다. Claude 또는 Codex를 시작하세요. 이 플러그인 안의 각 탭은 고유 Claude sessionId / Codex threadId를 유지합니다.`
+        text: `${this.agentSessionLabel} 세션입니다. Claude, Codex, Gemini 중 하나를 시작하세요. 이 플러그인 안의 각 탭은 고유 Claude sessionId / Codex threadId / Gemini local sessionId를 유지합니다.`
       });
       this.captureActiveAgentSessionState();
     }
   }
 
   private mountVisibleAgentSessionTranscript() {
-    if (!this.agentTranscriptMountEl || !this.claudeTranscriptEl || !this.codexTranscriptEl) {
+    if (!this.agentTranscriptMountEl || !this.claudeTranscriptEl || !this.codexTranscriptEl || !this.geminiTranscriptEl) {
       return;
     }
 
     const session = this.getActiveAgentSessionState();
     const claudeScrollTop = this.getReadableAgentTranscriptScrollTop(this.claudeTranscriptEl, session.claudeScrollTop ?? 0);
     const codexScrollTop = this.getReadableAgentTranscriptScrollTop(this.codexTranscriptEl, session.codexScrollTop ?? 0);
+    const geminiScrollTop = this.getReadableAgentTranscriptScrollTop(this.geminiTranscriptEl, session.geminiScrollTop ?? 0);
 
     this.suppressAgentTranscriptScrollMemory = true;
     try {
       this.agentTranscriptMountEl.empty();
       this.agentTranscriptMountEl.appendChild(this.claudeTranscriptEl);
       this.agentTranscriptMountEl.appendChild(this.codexTranscriptEl);
+      this.agentTranscriptMountEl.appendChild(this.geminiTranscriptEl);
       this.switchAgentTranscript(this.agentProvider);
-      this.restoreAgentTranscriptScrollPositions(claudeScrollTop, codexScrollTop);
+      this.restoreAgentTranscriptScrollPositions(claudeScrollTop, codexScrollTop, geminiScrollTop);
     } finally {
       this.suppressAgentTranscriptScrollMemory = false;
     }
@@ -1705,18 +1823,24 @@ class VaultPowerShellView extends ItemView {
       if (this.isAgentTranscriptScrollReadable(el)) {
         session.codexScrollTop = el.scrollTop;
       }
+    } else if (el === this.geminiTranscriptEl) {
+      if (this.isAgentTranscriptScrollReadable(el)) {
+        session.geminiScrollTop = el.scrollTop;
+      }
     }
   }
 
-  private restoreAgentTranscriptScrollPositions(claudeScrollTop: number, codexScrollTop: number) {
+  private restoreAgentTranscriptScrollPositions(claudeScrollTop: number, codexScrollTop: number, geminiScrollTop: number) {
     this.withSuppressedAgentTranscriptScrollMemory(() => {
       this.setTranscriptScrollTop(this.claudeTranscriptEl, claudeScrollTop);
       this.setTranscriptScrollTop(this.codexTranscriptEl, codexScrollTop);
+      this.setTranscriptScrollTop(this.geminiTranscriptEl, geminiScrollTop);
     });
     window.requestAnimationFrame(() => {
       this.withSuppressedAgentTranscriptScrollMemory(() => {
         this.setTranscriptScrollTop(this.claudeTranscriptEl, claudeScrollTop);
         this.setTranscriptScrollTop(this.codexTranscriptEl, codexScrollTop);
+        this.setTranscriptScrollTop(this.geminiTranscriptEl, geminiScrollTop);
       });
     });
   }
@@ -1740,10 +1864,12 @@ class VaultPowerShellView extends ItemView {
 
   private restoreVisibleAgentTranscriptScrollPosition(provider: AgentProvider) {
     const session = this.getActiveAgentSessionState();
-    const el = provider === "codex" ? this.codexTranscriptEl : this.claudeTranscriptEl;
+    const el = this.getProviderTranscriptEl(provider);
     const scrollTop = provider === "codex"
       ? session.codexScrollTop ?? el?.scrollTop ?? 0
-      : session.claudeScrollTop ?? el?.scrollTop ?? 0;
+      : provider === "gemini"
+        ? session.geminiScrollTop ?? el?.scrollTop ?? 0
+        : session.claudeScrollTop ?? el?.scrollTop ?? 0;
     this.withSuppressedAgentTranscriptScrollMemory(() => {
       this.setTranscriptScrollTop(el, scrollTop);
     });
@@ -2012,6 +2138,7 @@ class VaultPowerShellView extends ItemView {
     const providerGroup = toolbar.createDiv("vault-agent-provider-group");
     this.agentProviderButtons.claude = this.createAgentProviderButton(providerGroup, "Claude", "claude", CLAUDE_ICON_PATH);
     this.agentProviderButtons.codex = this.createAgentProviderButton(providerGroup, "Codex", "codex", CODEX_ICON_PATH);
+    this.agentProviderButtons.gemini = this.createAgentProviderButton(providerGroup, "Gemini", "gemini", GEMINI_ICON_PATH);
     this.agentProviderIndicatorEl = toolbar.createDiv({
       cls: "vault-agent-current-provider",
       attr: { "aria-live": "polite" }
@@ -2143,8 +2270,10 @@ class VaultPowerShellView extends ItemView {
     });
     this.agentSendButton = sendButton;
     sendButton.addEventListener("click", () => {
-      // While Codex is answering, Send acts as Stop (interrupt the current turn).
-      if (this.agentBackend && this.codexTurnActive) {
+      // While an agent is answering, Send acts as Stop.
+      if (this.agentPrintTurnRuntime) {
+        this.killActivePrintTurn("stopped");
+      } else if (this.agentBackend && this.codexTurnActive) {
         void this.agentBackend.interrupt();
       } else {
         void this.sendAgentInput();
@@ -2163,7 +2292,7 @@ class VaultPowerShellView extends ItemView {
     const svg = button.createSvg("svg", { cls: "svg-icon", attr: { viewBox: "0 0 24 24" } });
     svg.createSvg("path", { attr: { d: iconPath, fill: "currentColor" } });
     button.addEventListener("click", () => {
-      if (this.agentHost || this.agentBackend) {
+      if (this.agentHost || this.agentBackend || this.agentPrintTurnRuntime) {
         new Notice("Stop the current agent before switching providers.");
         return;
       }
@@ -2184,8 +2313,9 @@ class VaultPowerShellView extends ItemView {
     }
     this.agentProviderButtons.claude?.toggleClass("is-active", this.agentProvider === "claude");
     this.agentProviderButtons.codex?.toggleClass("is-active", this.agentProvider === "codex");
+    this.agentProviderButtons.gemini?.toggleClass("is-active", this.agentProvider === "gemini");
     this.renderAgentProviderIndicator();
-    this.agentInputEl?.setAttr("placeholder", `Message to ${getAgentProviderLabel(this.agentProvider)}. @all, @codex, @claude, or @"session title" delegates to other tabs.`);
+    this.agentInputEl?.setAttr("placeholder", `Message to ${getAgentProviderLabel(this.agentProvider)}. @all, @codex, @claude, @gemini, or @"session title" delegates to other tabs.`);
   }
 
   private renderAgentProviderIndicator() {
@@ -2193,10 +2323,11 @@ class VaultPowerShellView extends ItemView {
       return;
     }
     const label = getAgentProviderLabel(this.agentProvider);
-    const iconPath = this.agentProvider === "claude" ? CLAUDE_ICON_PATH : CODEX_ICON_PATH;
+    const iconPath = getAgentProviderIconPath(this.agentProvider);
     this.agentProviderIndicatorEl.empty();
     this.agentProviderIndicatorEl.toggleClass("is-claude", this.agentProvider === "claude");
     this.agentProviderIndicatorEl.toggleClass("is-codex", this.agentProvider === "codex");
+    this.agentProviderIndicatorEl.toggleClass("is-gemini", this.agentProvider === "gemini");
     this.agentProviderIndicatorEl.setAttr("title", `현재 사용 중: ${label}`);
     const svg = this.agentProviderIndicatorEl.createSvg("svg", {
       cls: "svg-icon",
@@ -2209,19 +2340,32 @@ class VaultPowerShellView extends ItemView {
     });
   }
 
+  private getProviderTranscriptEl(provider: AgentProvider): HTMLElement | null {
+    if (provider === "codex") {
+      return this.codexTranscriptEl;
+    }
+    if (provider === "gemini") {
+      return this.geminiTranscriptEl;
+    }
+    return this.claudeTranscriptEl;
+  }
+
   // Show only the active provider's transcript; each keeps its own conversation.
   private switchAgentTranscript(provider: AgentProvider) {
     const previousProvider = this.agentTranscriptEl === this.codexTranscriptEl
       ? "codex"
-      : this.agentTranscriptEl === this.claudeTranscriptEl
-        ? "claude"
-        : null;
+      : this.agentTranscriptEl === this.geminiTranscriptEl
+        ? "gemini"
+        : this.agentTranscriptEl === this.claudeTranscriptEl
+          ? "claude"
+          : null;
     if (this.agentTranscriptEl) {
       this.rememberAgentTranscriptScrollPosition(this.agentTranscriptEl);
     }
     this.claudeTranscriptEl?.toggleClass("is-hidden", provider !== "claude");
     this.codexTranscriptEl?.toggleClass("is-hidden", provider !== "codex");
-    this.agentTranscriptEl = provider === "codex" ? this.codexTranscriptEl : this.claudeTranscriptEl;
+    this.geminiTranscriptEl?.toggleClass("is-hidden", provider !== "gemini");
+    this.agentTranscriptEl = this.getProviderTranscriptEl(provider);
     this.restoreVisibleAgentTranscriptScrollPosition(provider);
     // Restore/render paths can call this with the same provider while a Codex
     // turn is still streaming. Preserve the current turn in that case; otherwise
@@ -2559,7 +2703,7 @@ class VaultPowerShellView extends ItemView {
     if (!this.agentSendButton || !this.isVisibleAgentSessionContext()) {
       return;
     }
-    const active = this.codexTurnActive;
+    const active = this.codexTurnActive || !!this.agentPrintTurnRuntime;
     this.agentSendButton.setText(active ? "Stop" : "Send");
     this.agentSendButton.toggleClass("mod-warning", active);
     this.agentSendButton.toggleClass("mod-cta", !active);
@@ -3071,6 +3215,8 @@ class VaultPowerShellView extends ItemView {
     this.agentOpenedExternalUrls.clear();
     if (provider === "claude") {
       this.ensureClaudeSessionId();
+    } else if (provider === "gemini") {
+      this.ensureGeminiSessionId();
     }
     this.refreshAgentPromptActions();
     this.agentReadyForInput = false;
@@ -3082,6 +3228,25 @@ class VaultPowerShellView extends ItemView {
     });
 
     try {
+      const env = buildProcessEnv({
+        useSystemCa: this.plugin.settings.useSystemCa,
+        extraCaCertPath: this.plugin.getExtraCaCertPath()
+      });
+      if (provider === "gemini") {
+        const status = await this.checkAgentLoginStatus(provider, cwd, env);
+        this.withAgentSession(sessionKey, () => {
+          if (status.loggedIn !== true) {
+            this.agentReadyForInput = false;
+            this.refreshAgentPromptActions();
+            return;
+          }
+          this.agentReadyForInput = true;
+          this.markAgentConversationReady(`${getAgentProviderLabel(provider)} CLI가 확인되었습니다. 이제 대화를 시작할 수 있습니다.`);
+          this.refreshAgentPromptActions();
+        });
+        return;
+      }
+
       const missingRuntimeFiles = this.plugin.getRuntimeMissingFiles();
       if (missingRuntimeFiles.length > 0) {
         if (!this.plugin.settings.autoInstallRuntime) {
@@ -3093,10 +3258,6 @@ class VaultPowerShellView extends ItemView {
         });
       }
 
-      const env = buildProcessEnv({
-        useSystemCa: this.plugin.settings.useSystemCa,
-        extraCaCertPath: this.plugin.getExtraCaCertPath()
-      });
       await this.checkAgentLoginStatus(provider, cwd, env);
 
       const shell = this.plugin.getShellExecutable();
@@ -3319,6 +3480,10 @@ class VaultPowerShellView extends ItemView {
       return otherSessions.filter((session) => session.agentProvider === "claude");
     }
 
+    if (target === "gemini" || target === "제미나이" || target === "구글제미나이") {
+      return otherSessions.filter((session) => session.agentProvider === "gemini");
+    }
+
     return otherSessions.filter((session) => agentSessionMatchesDelegationTarget(session, targetText));
   }
 
@@ -3349,6 +3514,13 @@ class VaultPowerShellView extends ItemView {
     new Notice(`AI 세션 전달: ${delivered}/${results.length}`);
   }
 
+  private isAgentReadyForTextInput(provider: AgentProvider): boolean {
+    if (provider === "gemini") {
+      return this.agentReadyForInput || this.agentConversationReady;
+    }
+    return !!this.agentHost && this.agentHostReady && this.agentReadyForInput;
+  }
+
   private deliverAgentDelegation(message: string, attachments: AgentAttachment[], sourceLabel: string): AgentDelegationDeliveryResult {
     const sessionLabel = this.agentSessionLabel || createAgentSessionLabel(this.agentSessionKey);
     const provider = this.agentProvider;
@@ -3370,14 +3542,8 @@ class VaultPowerShellView extends ItemView {
       return { sessionLabel, provider, status: "sent" };
     }
 
-    if (!this.agentHost || !this.agentHostReady || !this.agentReadyForInput) {
+    if (!this.isAgentReadyForTextInput(provider)) {
       const reason = `${getAgentProviderLabel(provider)} is not running`;
-      this.appendDelegationFailure(sourceLabel, reason, message);
-      return { sessionLabel, provider, status: "failed", reason };
-    }
-
-    if (this.agentProvider === "claude" && this.agentClaudePrintTurnActive) {
-      const reason = "Claude is answering";
       this.appendDelegationFailure(sourceLabel, reason, message);
       return { sessionLabel, provider, status: "failed", reason };
     }
@@ -3404,10 +3570,10 @@ class VaultPowerShellView extends ItemView {
       text: visibleText
     });
 
-    const useClaudePrintMode = this.agentProvider === "claude" && !!textWithAttachments && (!this.agentPromptState || promptMode === "text");
-    if (useClaudePrintMode) {
-      void this.sendClaudePrintTurn(textWithAttachments);
-      return { sessionLabel, provider, status: "sent" };
+    const usePrintMode = isPrintCommandProvider(this.agentProvider) && !!textWithAttachments && (!this.agentPromptState || promptMode === "text");
+    if (usePrintMode) {
+      const status = this.queueOrStartPrintTurn(this.agentProvider, textWithAttachments, attachments, visibleText);
+      return { sessionLabel, provider, status };
     }
 
     this.clearAgentPromptState();
@@ -3460,7 +3626,7 @@ class VaultPowerShellView extends ItemView {
     }
 
     if (isAgentDelegationAttempt(text)) {
-      new Notice("Use @all, @codex, @claude, or @\"session title\" followed by a message.");
+      new Notice("Use @all, @codex, @claude, @gemini, or @\"session title\" followed by a message.");
       return;
     }
 
@@ -3482,7 +3648,7 @@ class VaultPowerShellView extends ItemView {
       return;
     }
 
-    if (!this.agentHost || !this.agentHostReady || !this.agentReadyForInput) {
+    if (!this.isAgentReadyForTextInput(this.agentProvider)) {
       new Notice("Start the selected agent first, then send after it is running.");
       return;
     }
@@ -3501,11 +3667,6 @@ class VaultPowerShellView extends ItemView {
     }
 
     const promptMode = this.agentPromptState?.mode;
-    if (this.agentProvider === "claude" && this.agentClaudePrintTurnActive) {
-      new Notice("Claude 응답을 기다리는 중입니다.");
-      return;
-    }
-
     if (promptMode === "auth-code" && !text.startsWith("/") && !looksLikeAgentAuthCode(text)) {
       new Notice("Claude is waiting for the login code. Open the login link, copy the code, then paste only the code here.");
       this.appendAgentTranscript({
@@ -3518,7 +3679,7 @@ class VaultPowerShellView extends ItemView {
 
     const contextualText = this.buildContextualAgentPrompt(text);
     const textWithAttachments = appendAgentAttachmentPrompt(contextualText, attachments);
-    const useClaudePrintMode = this.agentProvider === "claude" &&
+    const usePrintMode = isPrintCommandProvider(this.agentProvider) &&
       !!textWithAttachments &&
       !text.startsWith("/") &&
       (!this.agentPromptState || promptMode === "text");
@@ -3533,8 +3694,8 @@ class VaultPowerShellView extends ItemView {
       role: "user",
       text: visibleText + (attachments.length ? `\n\n[${attachments.length} file(s) attached]` : "")
     });
-    if (useClaudePrintMode) {
-      await this.sendClaudePrintTurn(textWithAttachments);
+    if (usePrintMode) {
+      this.queueOrStartPrintTurn(this.agentProvider, textWithAttachments, attachments, visibleText);
       return;
     }
 
@@ -3560,6 +3721,45 @@ class VaultPowerShellView extends ItemView {
   }
 
   private async sendClaudePrintTurn(text: string) {
+    await this.sendPrintCommandTurn("claude", text);
+  }
+
+  private async sendGeminiPrintTurn(text: string) {
+    await this.sendPrintCommandTurn("gemini", text);
+  }
+
+  private queueOrStartPrintTurn(provider: AgentProvider, text: string, attachments: AgentAttachment[], visibleText: string): "sent" | "queued" {
+    if (!isPrintCommandProvider(provider)) {
+      return "sent";
+    }
+
+    if (this.agentPrintTurnRuntime) {
+      this.agentPrintQueuedInputs.push({ text, attachments, visibleText });
+      this.setAgentStatus(`${getAgentProviderLabel(provider)} 응답 중 · ${this.agentPrintQueuedInputs.length}개 대기`);
+      new Notice(`응답 중 — 메시지를 큐에 추가했습니다 (${this.agentPrintQueuedInputs.length}개 대기).`);
+      this.saveAgentViewState();
+      return "queued";
+    }
+
+    void this.sendPrintCommandTurn(provider, text);
+    return "sent";
+  }
+
+  private drainQueuedPrintTurn(provider: AgentProvider) {
+    if (this.agentPrintTurnRuntime || this.agentPrintQueuedInputs.length === 0) {
+      return;
+    }
+
+    const next = this.agentPrintQueuedInputs.shift();
+    if (!next) {
+      return;
+    }
+
+    this.setAgentStatus(`${getAgentProviderLabel(provider)} queued message starting...`);
+    void this.sendPrintCommandTurn(provider, next.text);
+  }
+
+  private async sendPrintCommandTurn(provider: AgentProvider, text: string) {
     const sessionKey = this.activeAgentSessionKey;
     const cwd = this.plugin.getVaultPath();
     if (!cwd) {
@@ -3571,25 +3771,30 @@ class VaultPowerShellView extends ItemView {
       return;
     }
 
-    if (this.agentClaudePrintTurnActive) {
-      new Notice("Claude 응답을 기다리는 중입니다.");
+    if (!isPrintCommandProvider(provider)) {
       return;
     }
 
-    this.agentClaudePrintTurnActive = true;
+    if (this.agentPrintTurnRuntime) {
+      this.agentPrintQueuedInputs.push({ text, attachments: [], visibleText: text.slice(0, 160) });
+      this.setAgentStatus(`${getAgentProviderLabel(provider)} 응답 중 · ${this.agentPrintQueuedInputs.length}개 대기`);
+      return;
+    }
+
+    const turnId = randomUUID();
+    if (provider === "claude") {
+      this.agentClaudePrintTurnActive = true;
+    }
     this.clearAgentPromptState();
-    this.setAgentStatus("Waiting for Claude response...");
+    this.setAgentStatus(`Waiting for ${getAgentProviderLabel(provider)} response...`);
     try {
       const env = buildProcessEnv({
         useSystemCa: this.plugin.settings.useSystemCa,
         extraCaCertPath: this.plugin.getExtraCaCertPath()
       });
-      let sessionId = this.ensureClaudeSessionId();
-      let result = await runClaudePrintCommand(text, cwd, env, CLAUDE_PRINT_TIMEOUT_MS, {
-        sessionId,
-        sessionName: this.agentSessionLabel
-      });
-      if (isClaudeSessionInUseResult(result)) {
+      let sessionId = provider === "claude" ? this.ensureClaudeSessionId() : this.ensureGeminiSessionId();
+      let result = await this.runTrackedPrintCommand(provider, text, cwd, env, sessionId, turnId);
+      if (provider === "claude" && isClaudeSessionInUseResult(result)) {
         const previousSessionId = sessionId;
         sessionId = randomUUID();
         this.withAgentSession(sessionKey, () => {
@@ -3605,19 +3810,18 @@ class VaultPowerShellView extends ItemView {
           });
           this.saveAgentViewState();
         });
-        result = await runClaudePrintCommand(text, cwd, env, CLAUDE_PRINT_TIMEOUT_MS, {
-          sessionId,
-          sessionName: this.agentSessionLabel
-        });
+        result = await this.runTrackedPrintCommand(provider, text, cwd, env, sessionId, turnId);
       }
       this.withAgentSession(sessionKey, () => {
-        const output = formatClaudePrintOutput(result);
+        const output = provider === "gemini" ? formatGeminiPrintOutput(result) : formatClaudePrintOutput(result);
         this.appendAgentTranscript({
           id: this.nextLocalAgentEntryId("assistant"),
           role: "assistant",
           text: output
         });
-        if (isAgentSessionLimitText(output)) {
+        if (result.cancelled) {
+          this.setAgentStatus("Stopped");
+        } else if (isAgentSessionLimitText(output)) {
           this.setAgentStatus("Claude session limit");
         } else {
           this.markAgentConversationReady();
@@ -3626,9 +3830,67 @@ class VaultPowerShellView extends ItemView {
       });
     } finally {
       this.withAgentSession(sessionKey, () => {
-        this.agentClaudePrintTurnActive = false;
+        if (this.agentPrintTurnRuntime?.turnId === turnId) {
+          this.agentPrintTurnRuntime = null;
+        }
+        if (provider === "claude") {
+          this.agentClaudePrintTurnActive = false;
+        }
+        this.updateSendButtonMode();
+        this.drainQueuedPrintTurn(provider);
       });
     }
+  }
+
+  private async runTrackedPrintCommand(
+    provider: AgentProvider,
+    text: string,
+    cwd: string,
+    env: { [key: string]: string | undefined },
+    sessionId: string,
+    turnId: string
+  ): Promise<CapturedCommandResult> {
+    const handle = provider === "gemini"
+      ? spawnGeminiPrintCommand(text, cwd, env, CLAUDE_PRINT_TIMEOUT_MS)
+      : spawnClaudePrintCommand(text, cwd, env, CLAUDE_PRINT_TIMEOUT_MS, {
+        sessionId,
+        sessionName: this.agentSessionLabel
+      });
+
+    if (handle.child) {
+      this.agentPrintTurnRuntime = {
+        provider,
+        turnId,
+        sessionId,
+        child: handle.child,
+        pid: handle.pid,
+        kill: handle.kill,
+        startedAt: Date.now(),
+        promptPreview: text.slice(0, 160),
+        settled: false
+      };
+      if (handle.pid !== undefined && (provider === "claude" || provider === "gemini")) {
+        this.plugin.registerAgentPrintProcess({
+          pid: handle.pid,
+          provider,
+          sessionId: provider === "claude" ? sessionId : null,
+          cwd,
+          startedAt: Date.now(),
+          pluginVersion: this.plugin.manifest.version
+        });
+      }
+      this.updateSendButtonMode();
+      this.saveAgentViewState();
+    }
+
+    const result = await handle.promise;
+    this.plugin.unregisterAgentPrintProcess(handle.pid);
+    if (this.agentPrintTurnRuntime?.turnId === turnId) {
+      this.agentPrintTurnRuntime.settled = true;
+      this.agentPrintTurnRuntime.cancelReason = result.cancelReason;
+    }
+    this.updateSendButtonMode();
+    return result;
   }
 
   private syncAgentSessionOffsetToLatestEnd() {
@@ -3700,9 +3962,9 @@ class VaultPowerShellView extends ItemView {
     return true;
   }
 
-  private async checkAgentLoginStatus(provider: AgentProvider, cwd: string, env: { [key: string]: string | undefined }) {
+  private async checkAgentLoginStatus(provider: AgentProvider, cwd: string, env: { [key: string]: string | undefined }): Promise<AgentAuthCheck> {
     const sessionKey = this.activeAgentSessionKey;
-    this.setAgentStatus(`Checking ${getAgentProviderLabel(provider)} login...`);
+    this.setAgentStatus(provider === "gemini" ? "Checking Gemini CLI..." : `Checking ${getAgentProviderLabel(provider)} login...`);
     const status = await getAgentAuthCheck(provider, cwd, env);
     this.withAgentSession(sessionKey, () => {
       this.appendAgentTranscript({
@@ -3716,7 +3978,7 @@ class VaultPowerShellView extends ItemView {
         this.agentConversationReady = false;
         this.agentNeedsAuth = false;
         this.agentAutoLoginPending = false;
-        this.setAgentStatus(`${getAgentProviderLabel(provider)} login confirmed`);
+        this.setAgentStatus(provider === "gemini" ? "Gemini CLI ready" : `${getAgentProviderLabel(provider)} login confirmed`);
         return;
       }
 
@@ -3734,6 +3996,7 @@ class VaultPowerShellView extends ItemView {
       this.agentAutoLoginPending = false;
       this.refreshAgentAuthStatus();
     });
+    return status;
   }
 
   private setAgentPromptState(prompt: AgentPromptState) {
@@ -5268,6 +5531,10 @@ class VaultPowerShellView extends ItemView {
       this.codexStatusLineFrame = null;
     }
     this.stopAgentSessionPolling();
+    if (kill) {
+      this.killActivePrintTurn("stopped");
+    }
+    this.agentPrintQueuedInputs = [];
 
     if (this.agentBackend) {
       this.agentBackendUnsubscribe?.();
@@ -5318,6 +5585,8 @@ class VaultPowerShellView extends ItemView {
     this.agentCurrentTurnStartedAt = 0;
     this.agentSessionBaselineOffsets.clear();
     this.agentClaudePrintTurnActive = false;
+    this.agentPrintTurnRuntime = null;
+    this.agentPrintQueuedInputs = [];
     this.agentSeenEntries.clear();
     this.agentLastRawNotice = "";
     this.agentAuthState = "idle";
@@ -5332,6 +5601,21 @@ class VaultPowerShellView extends ItemView {
     this.agentOpenedExternalUrls.clear();
     this.refreshAgentPromptActions();
     this.setAgentStatus("Idle");
+  }
+
+  private killActivePrintTurn(reason: string) {
+    const runtime = this.agentPrintTurnRuntime;
+    if (!runtime || runtime.settled) {
+      return;
+    }
+
+    try {
+      runtime.kill(reason);
+    } catch {
+      // best-effort cleanup
+    }
+    runtime.cancelReason = reason;
+    runtime.settled = true;
   }
 
   private sendHostMessage(message: HostInputMessage) {
@@ -5415,7 +5699,7 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Persist Agent transcript snapshots")
-      .setDesc("Off by default. When enabled, the visible Claude/Codex transcript HTML is saved in .obsidian/plugins/vault-terminal/data.json so the UI can restore it after Obsidian restarts.")
+      .setDesc("Off by default. When enabled, the visible Claude/Codex/Gemini transcript HTML is saved in .obsidian/plugins/vault-terminal/data.json so the UI can restore it after Obsidian restarts.")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.persistAgentTranscriptSnapshots)
@@ -6422,7 +6706,31 @@ function stripScrollbackClear(data: string): string {
 }
 
 function getAgentProviderLabel(provider: AgentProvider): string {
-  return provider === "claude" ? "Claude Code" : "Codex";
+  if (provider === "claude") {
+    return "Claude Code";
+  }
+  if (provider === "gemini") {
+    return "Gemini CLI";
+  }
+  return "Codex";
+}
+
+function getAgentProviderIconPath(provider: AgentProvider): string {
+  if (provider === "claude") {
+    return CLAUDE_ICON_PATH;
+  }
+  if (provider === "gemini") {
+    return GEMINI_ICON_PATH;
+  }
+  return CODEX_ICON_PATH;
+}
+
+function isAgentProvider(value: unknown): value is AgentProvider {
+  return value === "claude" || value === "codex" || value === "gemini";
+}
+
+function isPrintCommandProvider(provider: AgentProvider): boolean {
+  return provider === "claude" || provider === "gemini";
 }
 
 function isAgentDelegationAttempt(text: string): boolean {
@@ -6449,7 +6757,10 @@ function isKnownAgentDelegationTarget(text: string): boolean {
     target === "claude" ||
     target === "claudecode" ||
     target === "클로드" ||
-    target === "클로드코드";
+    target === "클로드코드" ||
+    target === "gemini" ||
+    target === "제미나이" ||
+    target === "구글제미나이";
 }
 
 function agentSessionMatchesDelegationTarget(session: AgentWorkspaceSessionState, targetText: string): boolean {
@@ -6462,7 +6773,8 @@ function agentSessionMatchesDelegationTarget(session: AgentWorkspaceSessionState
     session.agentSessionLabel,
     shortSessionId(session.agentSessionKey),
     session.claudeSessionId ? shortSessionId(session.claudeSessionId) : "",
-    session.codexThreadId ? shortSessionId(session.codexThreadId) : ""
+    session.codexThreadId ? shortSessionId(session.codexThreadId) : "",
+    session.geminiSessionId ? shortSessionId(session.geminiSessionId) : ""
   ]
     .filter(Boolean)
     .map(normalizeAgentRouteToken);
@@ -6509,7 +6821,8 @@ function createAgentViewSessionState(mode: AgentSessionMode): AgentViewSessionSt
     agentProvider: session.agentProvider,
     activePane: "agent",
     claudeSessionId: session.claudeSessionId ?? undefined,
-    codexThreadId: session.codexThreadId
+    codexThreadId: session.codexThreadId,
+    geminiSessionId: session.geminiSessionId ?? undefined
   };
 }
 
@@ -6542,7 +6855,8 @@ function normalizeAgentViewSessionState(value: unknown): AgentViewSessionState |
     agentProvider: activeSession.agentProvider,
     activePane: candidate.activePane === "agent" || candidate.activePane === "terminal" ? candidate.activePane : "agent",
     claudeSessionId: activeSession.claudeSessionId ?? undefined,
-    codexThreadId: activeSession.codexThreadId
+    codexThreadId: activeSession.codexThreadId,
+    geminiSessionId: activeSession.geminiSessionId ?? undefined
   };
 }
 
@@ -6558,8 +6872,10 @@ function stripAgentViewTranscriptSnapshots(value: unknown): AgentViewSessionStat
       ...session,
       claudeTranscriptHtml: "",
       codexTranscriptHtml: "",
+      geminiTranscriptHtml: "",
       claudeScrollTop: 0,
-      codexScrollTop: 0
+      codexScrollTop: 0,
+      geminiScrollTop: 0
     }))
   };
 }
@@ -6575,10 +6891,13 @@ function createAgentWorkspaceSessionState(mode: AgentSessionMode): AgentWorkspac
     claudeSessionId: randomUUID(),
     claudeControlSessionId: null,
     codexThreadId: null,
+    geminiSessionId: randomUUID(),
     claudeTranscriptHtml: "",
     codexTranscriptHtml: "",
+    geminiTranscriptHtml: "",
     claudeScrollTop: 0,
     codexScrollTop: 0,
+    geminiScrollTop: 0,
     inputText: "",
     statusText: "Idle",
     createdAt: now,
@@ -6601,7 +6920,7 @@ function normalizeAgentWorkspaceSessionState(value: unknown): AgentWorkspaceSess
   const mode = candidate.agentSessionMode === "isolated" || candidate.agentSessionMode === "legacy-latest"
     ? candidate.agentSessionMode
     : "isolated";
-  const provider = candidate.agentProvider === "codex" || candidate.agentProvider === "claude"
+  const provider = isAgentProvider(candidate.agentProvider)
     ? candidate.agentProvider
     : "claude";
   const now = Date.now();
@@ -6620,10 +6939,15 @@ function normalizeAgentWorkspaceSessionState(value: unknown): AgentWorkspaceSess
     codexThreadId: typeof candidate.codexThreadId === "string" && candidate.codexThreadId.trim()
       ? candidate.codexThreadId.trim()
       : null,
+    geminiSessionId: typeof candidate.geminiSessionId === "string" && candidate.geminiSessionId.trim()
+      ? candidate.geminiSessionId.trim()
+      : randomUUID(),
     claudeTranscriptHtml: typeof candidate.claudeTranscriptHtml === "string" ? sanitizeAgentTranscriptHtml(candidate.claudeTranscriptHtml) : "",
     codexTranscriptHtml: typeof candidate.codexTranscriptHtml === "string" ? sanitizeAgentTranscriptHtml(candidate.codexTranscriptHtml) : "",
+    geminiTranscriptHtml: typeof candidate.geminiTranscriptHtml === "string" ? sanitizeAgentTranscriptHtml(candidate.geminiTranscriptHtml) : "",
     claudeScrollTop: typeof candidate.claudeScrollTop === "number" ? candidate.claudeScrollTop : 0,
     codexScrollTop: typeof candidate.codexScrollTop === "number" ? candidate.codexScrollTop : 0,
+    geminiScrollTop: typeof candidate.geminiScrollTop === "number" ? candidate.geminiScrollTop : 0,
     inputText: typeof candidate.inputText === "string" ? candidate.inputText : "",
     statusText: typeof candidate.statusText === "string" && candidate.statusText.trim() ? candidate.statusText : "Idle",
     createdAt: typeof candidate.createdAt === "number" ? candidate.createdAt : now,
@@ -6796,6 +7120,9 @@ function getAgentLaunchCommand(provider: AgentProvider, settings: PowerShellSett
     //   user's own folder; same trust as Codex full access).
     return `claude${sessionArgs} --strict-mcp-config --permission-mode bypassPermissions`;
   }
+  if (provider === "gemini") {
+    return "gemini --skip-trust";
+  }
 
   // codex resume --last reopens the most recent interactive session (PTY path).
   return rewriteCodexCommand("codex resume --last", {
@@ -6808,6 +7135,10 @@ async function getAgentAuthCheck(provider: AgentProvider, cwd: string, env: { [k
   if (provider === "claude") {
     const result = await runCapturedCommand("claude", ["auth", "status", "--json"], cwd, env, 8000);
     return parseClaudeAuthCheck(result);
+  }
+  if (provider === "gemini") {
+    const result = await runCapturedCommand("gemini", ["--version"], cwd, env, 8000);
+    return parseGeminiAuthCheck(result);
   }
 
   const result = await runCapturedCommand("codex", ["login", "status"], cwd, env, 8000);
@@ -6914,6 +7245,44 @@ function runClaudePrintCommand(
   timeoutMs: number | null,
   options: { sessionId?: string; sessionName?: string } = {}
 ): Promise<CapturedCommandResult> {
+  return spawnClaudePrintCommand(prompt, cwd, env, timeoutMs, options).promise;
+}
+
+function parseGeminiAuthCheck(result: CapturedCommandResult): AgentAuthCheck {
+  const output = `${result.stdout}\n${result.stderr}`.trim();
+  const failure = getCapturedCommandFailure(result);
+  if (!failure) {
+    return {
+      checked: true,
+      loggedIn: true,
+      summary: `Gemini CLI 확인: ${output || "gemini command is available"}.`
+    };
+  }
+
+  if (/(?:gemini).*?(?:command not found|not recognized|not found|ENOENT|spawn)/i.test(output || failure)) {
+    return {
+      checked: true,
+      loggedIn: false,
+      summary: "Gemini CLI is not installed or not on PATH. Install it with npm install -g @google/gemini-cli, then restart the agent console.",
+      detail: output
+    };
+  }
+
+  return {
+    checked: false,
+    loggedIn: null,
+    summary: `Gemini CLI status could not be confirmed before launch.${failure ? ` ${failure}` : ""}`,
+    detail: output
+  };
+}
+
+function spawnClaudePrintCommand(
+  prompt: string,
+  cwd: string,
+  env: { [key: string]: string | undefined },
+  timeoutMs: number | null,
+  options: { sessionId?: string; sessionName?: string } = {}
+): CapturedCommandHandle {
   const args = [
     ...(options.sessionId ? ["--session-id", options.sessionId] : ["--continue"]),
     ...(options.sessionName ? ["--name", options.sessionName] : []),
@@ -6924,10 +7293,31 @@ function runClaudePrintCommand(
     "text",
     "-p"
   ];
-  return runCapturedCommand("claude", args, cwd, env, timeoutMs, `${prompt}\n`);
+  return spawnCapturedCommand("claude", args, cwd, env, timeoutMs, `${prompt}\n`);
+}
+
+function spawnGeminiPrintCommand(
+  prompt: string,
+  cwd: string,
+  env: { [key: string]: string | undefined },
+  timeoutMs: number | null
+): CapturedCommandHandle {
+  const args = [
+    "--skip-trust",
+    "--approval-mode",
+    "yolo",
+    "--output-format",
+    "text",
+    "-p",
+    prompt
+  ];
+  return spawnCapturedCommand("gemini", args, cwd, env, timeoutMs);
 }
 
 function formatClaudePrintOutput(result: CapturedCommandResult): string {
+  if (result.cancelled) {
+    return `Claude 작업이 취소되었습니다${result.cancelReason ? `: ${result.cancelReason}` : ""}.`;
+  }
   const output = removeClaudeNoStdinWarning(stripTerminalControlSequences(`${result.stdout}\n${result.stderr}`)).trim();
   if (output) {
     return output;
@@ -6946,6 +7336,30 @@ function formatClaudePrintOutput(result: CapturedCommandResult): string {
   }
 
   return "Claude가 빈 응답을 반환했습니다.";
+}
+
+function formatGeminiPrintOutput(result: CapturedCommandResult): string {
+  if (result.cancelled) {
+    return `Gemini 작업이 취소되었습니다${result.cancelReason ? `: ${result.cancelReason}` : ""}.`;
+  }
+  const output = stripTerminalControlSequences(`${result.stdout}\n${result.stderr}`).trim();
+  if (output) {
+    return output;
+  }
+
+  if (result.timedOut) {
+    return "Gemini 응답 대기 시간이 초과되었습니다.";
+  }
+
+  if (result.error) {
+    return `Gemini 실행 실패: ${result.error}`;
+  }
+
+  if (result.exitCode !== 0 && result.exitCode !== null) {
+    return `Gemini가 응답 없이 종료되었습니다 (코드 ${result.exitCode}).`;
+  }
+
+  return "Gemini가 빈 응답을 반환했습니다.";
 }
 
 function isClaudeSessionInUseResult(result: CapturedCommandResult): boolean {
@@ -6989,11 +7403,19 @@ function truncateStatusOutput(text: string): string {
 }
 
 function runCapturedCommand(command: string, args: string[], cwd: string, env: { [key: string]: string | undefined }, timeoutMs: number | null, stdinText?: string): Promise<CapturedCommandResult> {
-  return new Promise((resolvePromise) => {
+  return spawnCapturedCommand(command, args, cwd, env, timeoutMs, stdinText).promise;
+}
+
+function spawnCapturedCommand(command: string, args: string[], cwd: string, env: { [key: string]: string | undefined }, timeoutMs: number | null, stdinText?: string): CapturedCommandHandle {
+  let child: ChildProcessWithoutNullStreams | null = null;
+  let killHandle: (reason?: string) => void = () => {
+    // Replaced once the child exists.
+  };
+
+  const promise = new Promise<CapturedCommandResult>((resolvePromise) => {
     let stdout = "";
     let stderr = "";
     let settled = false;
-    let child: ChildProcessWithoutNullStreams | null = null;
     let timeout: number | null = null;
 
     const finish = (result: Partial<CapturedCommandResult>) => {
@@ -7010,7 +7432,9 @@ function runCapturedCommand(command: string, args: string[], cwd: string, env: {
         stderr,
         exitCode: result.exitCode ?? null,
         timedOut: result.timedOut ?? false,
-        error: result.error
+        error: result.error,
+        cancelled: result.cancelled ?? false,
+        cancelReason: result.cancelReason
       });
     };
 
@@ -7032,26 +7456,42 @@ function runCapturedCommand(command: string, args: string[], cwd: string, env: {
       finish({ error: error instanceof Error ? error.message : String(error) });
       return;
     }
+    const spawned = child;
+    if (!spawned) {
+      finish({ error: "Failed to spawn command." });
+      return;
+    }
+    killHandle = (reason = "cancelled") => {
+      killCapturedCommandProcess(spawned);
+      finish({ cancelled: true, cancelReason: reason });
+    };
 
     try {
-      child.stdin.end(stdinText ?? "");
+      spawned.stdin.end(stdinText ?? "");
     } catch {
       // Captured commands in this plugin are non-interactive.
     }
 
-    child.stdout.on("data", (chunk: Buffer) => {
+    spawned.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString();
     });
-    child.stderr.on("data", (chunk: Buffer) => {
+    spawned.stderr.on("data", (chunk: Buffer) => {
       stderr += chunk.toString();
     });
-    child.on("error", (error: Error) => {
+    spawned.on("error", (error: Error) => {
       finish({ error: error.message });
     });
-    child.on("close", (code: number | null) => {
+    spawned.on("close", (code: number | null) => {
       finish({ exitCode: code });
     });
   });
+
+  return {
+    child,
+    pid: (child as ChildProcessWithoutNullStreams | null)?.pid,
+    promise,
+    kill: (reason?: string) => killHandle(reason)
+  };
 }
 
 function killCapturedCommandProcess(child: ChildProcessWithoutNullStreams | null) {
@@ -7061,7 +7501,7 @@ function killCapturedCommandProcess(child: ChildProcessWithoutNullStreams | null
 
   try {
     if (process.platform === "win32" && child.pid !== undefined) {
-      spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true });
+      killProcessTreeByPid(child.pid);
       return;
     }
   } catch {
@@ -7072,6 +7512,121 @@ function killCapturedCommandProcess(child: ChildProcessWithoutNullStreams | null
     child.kill();
   } catch {
     // The command may already have exited.
+  }
+}
+
+function killProcessTreeByPid(pid: number) {
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true });
+    return;
+  }
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    // The process may already be gone.
+  }
+}
+
+function readAgentPrintProcessRegistry(path: string): AgentPrintProcessRecord[] {
+  if (!existsSync(path)) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.filter(isAgentPrintProcessRecord);
+  } catch {
+    return [];
+  }
+}
+
+function writeAgentPrintProcessRegistry(path: string, records: AgentPrintProcessRecord[]) {
+  try {
+    writeFileSync(path, JSON.stringify(records, null, 2), "utf8");
+  } catch {
+    // best-effort registry
+  }
+}
+
+function updateAgentPrintProcessRegistry(path: string, update: (records: AgentPrintProcessRecord[]) => AgentPrintProcessRecord[]) {
+  writeAgentPrintProcessRegistry(path, update(readAgentPrintProcessRegistry(path)));
+}
+
+function cleanupAgentPrintProcessRegistry(path: string) {
+  const records = readAgentPrintProcessRegistry(path);
+  if (records.length === 0) {
+    return;
+  }
+
+  const keep: AgentPrintProcessRecord[] = [];
+  for (const record of records) {
+    if (!isAgentPrintProcessAlive(record)) {
+      continue;
+    }
+    try {
+      killProcessTreeByPid(record.pid);
+    } catch {
+      keep.push(record);
+    }
+  }
+  writeAgentPrintProcessRegistry(path, keep);
+}
+
+function isAgentPrintProcessRecord(value: unknown): value is AgentPrintProcessRecord {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Partial<AgentPrintProcessRecord>;
+  return typeof candidate.pid === "number" &&
+    (candidate.provider === "claude" || candidate.provider === "gemini") &&
+    (candidate.sessionId === null || typeof candidate.sessionId === "string") &&
+    typeof candidate.cwd === "string" &&
+    typeof candidate.startedAt === "number" &&
+    typeof candidate.pluginVersion === "string";
+}
+
+function isAgentPrintProcessAlive(record: AgentPrintProcessRecord): boolean {
+  const commandLine = getProcessCommandLine(record.pid);
+  if (!commandLine) {
+    return false;
+  }
+  const lower = commandLine.toLowerCase();
+  return matchesAgentPrintCommandLine(record, lower);
+}
+
+function matchesAgentPrintCommandLine(record: AgentPrintProcessRecord, lowerCommandLine: string): boolean {
+  if (record.provider === "claude") {
+    return lowerCommandLine.includes("claude") &&
+      lowerCommandLine.includes("--session-id") &&
+      !!record.sessionId &&
+      lowerCommandLine.includes(record.sessionId.toLowerCase()) &&
+      lowerCommandLine.includes("--output-format");
+  }
+
+  return lowerCommandLine.includes("gemini") &&
+    lowerCommandLine.includes("--skip-trust") &&
+    lowerCommandLine.includes("--approval-mode") &&
+    lowerCommandLine.includes("yolo") &&
+    lowerCommandLine.includes("--output-format");
+}
+
+function getProcessCommandLine(pid: number): string | null {
+  try {
+    if (process.platform === "win32") {
+      const result = spawnSync("powershell.exe", [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `$p = Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}" -ErrorAction SilentlyContinue; if ($p) { $p.CommandLine }`
+      ], { encoding: "utf8", windowsHide: true });
+      return result.stdout?.trim() || null;
+    }
+    const result = spawnSync("ps", ["-p", String(pid), "-o", "command="], { encoding: "utf8" });
+    return result.stdout?.trim() || null;
+  } catch {
+    return null;
   }
 }
 
@@ -7135,9 +7690,13 @@ function getAgentSessionRoot(provider: AgentProvider): string | null {
     return null;
   }
 
-  return provider === "claude"
-    ? join(home, ".claude", "projects")
-    : join(home, ".codex", "sessions");
+  if (provider === "claude") {
+    return join(home, ".claude", "projects");
+  }
+  if (provider === "codex") {
+    return join(home, ".codex", "sessions");
+  }
+  return null;
 }
 
 function getRecentJsonlFiles(root: string, sinceMs: number): string[] {
@@ -7283,6 +7842,10 @@ function isAgentEntryAfterCutoff(entry: AgentTranscriptEntry, cutoffMs: number):
 }
 
 function parseAgentTranscriptEntries(provider: AgentProvider, text: string): AgentTranscriptEntry[] {
+  if (provider === "gemini") {
+    return [];
+  }
+
   const entries: AgentTranscriptEntry[] = [];
   for (const line of text.split(/\r?\n/)) {
     if (!line.trim()) {
@@ -7599,7 +8162,7 @@ function isAgentCliCommandFailureLine(line: string): boolean {
     return false;
   }
 
-  return /(?:claude|codex).*?(?:command not found|not recognized|not found|ENOENT|spawn)/i.test(line);
+  return /(?:claude|codex|gemini).*?(?:command not found|not recognized|not found|ENOENT|spawn)/i.test(line);
 }
 
 function isAgentHookWarningLine(line: string): boolean {
