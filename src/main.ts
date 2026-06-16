@@ -7340,9 +7340,9 @@ function spawnGeminiPrintCommand(
     "--output-format",
     "text",
     "-p",
-    prompt
+    ""
   ];
-  return spawnCapturedCommand("gemini", args, cwd, env, timeoutMs);
+  return spawnCapturedCommand("gemini", args, cwd, env, timeoutMs, `${prompt}\n`);
 }
 
 function formatClaudePrintOutput(result: CapturedCommandResult): string {
