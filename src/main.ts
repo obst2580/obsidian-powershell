@@ -4251,6 +4251,12 @@ class VaultPowerShellView extends ItemView {
     if (!plainText) {
       return;
     }
+    if (this.agentProvider === "gemini") {
+      plainText = removeGeminiCliNoise(plainText).trim();
+      if (!plainText) {
+        return;
+      }
+    }
 
     // Ignore the shell echo of our own launch command (truncated or full). Its
     // "--permission-mode" etc. would otherwise be misread as an interactive prompt.
@@ -8079,7 +8085,7 @@ function formatGeminiPrintOutput(result: CapturedCommandResult): string {
   if (result.cancelled) {
     return `Gemini 작업이 취소되었습니다${result.cancelReason ? `: ${result.cancelReason}` : ""}.`;
   }
-  const output = stripTerminalControlSequences(`${result.stdout}\n${result.stderr}`).trim();
+  const output = removeGeminiCliNoise(stripTerminalControlSequences(`${result.stdout}\n${result.stderr}`)).trim();
   if (output) {
     return formatGeminiAuthErrorOutput(output) ?? output;
   }
@@ -8131,6 +8137,25 @@ function removeClaudeNoStdinWarning(text: string): string {
     .split(/\r?\n/)
     .filter((line) => !/^Warning: no stdin data received in \d+s, proceeding without it\./i.test(line.trim()))
     .join("\n");
+}
+
+function removeGeminiCliNoise(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .filter((line) => !isGeminiCliNoiseLine(line))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n");
+}
+
+function isGeminiCliNoiseLine(line: string): boolean {
+  const value = line.trim();
+  return /^Warning:\s+Windows 10 detected\b/i.test(value) ||
+    /^Warning:\s+256-color support not detected\b/i.test(value) ||
+    /^YOLO mode is enabled\. All tool calls will be automatically approved\./i.test(value) ||
+    /^Ripgrep is not available\. Falling back to GrepTool\./i.test(value) ||
+    /^GrepLogic:\s+Error in performGrepSearch\b/i.test(value) ||
+    /^Error during GrepLogic execution:\s+Error:\s+Operation timed out\b/i.test(value) ||
+    /^Error executing tool grep_search:\s+Error:\s+Operation timed out\b/i.test(value);
 }
 
 function parseJsonObject(text: string): unknown | null {

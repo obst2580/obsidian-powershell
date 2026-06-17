@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.46`입니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.47`입니다.
 
 [English README](README.md)
 
@@ -65,6 +65,7 @@ Gemini CLI는 Claude 일반 메시지와 같은 print-command 방식으로 실�
 - `Login`은 기존 Gemini 로그인 PTY가 떠 있으면 먼저 정리한 뒤 `/auth`를 열어, 브라우저 기반 인증에서 멈춘 prompt를 수동 인증 prompt로 교체합니다.
 - Gemini가 수동 authorization code를 요구하면 Agent Console 메시지 입력창에 코드만 붙여넣고 `Send`를 누릅니다.
 - `oauth-personal` 방식에서는 Gemini CLI의 `google_accounts.json`에 활성 계정이 있어야 로그인 완료로 봅니다. `selectedType`만 있으면 로그인 필요 상태로 처리합니다.
+- Windows terminal 경고, 중복 YOLO 안내, `grep_search` timeout 진단처럼 알려진 Gemini CLI startup/tool fallback noise는 visible transcript에서 숨깁니다.
 - API 또는 Vertex 방식은 `GEMINI_API_KEY`, `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_GENAI_USE_GCA` 중 필요한 값을 OS 환경변수나 Gemini가 읽는 `.env`에 설정한 뒤 Obsidian을 완전히 재시작합니다.
 - Gemini CLI가 설치되어 있지 않거나 인증 방식이 없으면 Start 단계에서 설치/PATH/인증 안내를 표시하고 prompt를 보내지 않습니다.
 
@@ -283,8 +284,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-git tag 0.6.46
-git push origin 0.6.46
+git tag 0.6.47
+git push origin 0.6.47
 ```
 
 릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.

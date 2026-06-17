@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.46`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.47`.
 
 [한국어 README](README.ko.md)
 
@@ -65,6 +65,7 @@ Gemini CLI uses the same print-command shape as Claude normal chat turns.
 - `Login` restarts any existing Gemini login PTY before opening `/auth`, so a stale browser-based auth prompt is replaced with manual authentication.
 - When Gemini asks for a manual authorization code, paste only that code into the Agent Console message box and press `Send`.
 - For `oauth-personal`, Start requires an active account in Gemini CLI's `google_accounts.json`; `selectedType` alone is treated as login-required.
+- Known Gemini CLI startup/tool fallback noise such as Windows terminal warnings, duplicate YOLO notices, and `grep_search` timeout diagnostics is filtered out of the visible transcript.
 - For API or Vertex modes, configure `GEMINI_API_KEY`, `GOOGLE_GENAI_USE_VERTEXAI`, or `GOOGLE_GENAI_USE_GCA` in the OS environment or a Gemini-readable `.env`, then fully restart Obsidian.
 - If Gemini CLI is missing or auth is not configured, Start shows a clear install/PATH/auth hint before a prompt is sent.
 
@@ -284,8 +285,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.46
-git push origin 0.6.46
+git tag 0.6.47
+git push origin 0.6.47
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.
