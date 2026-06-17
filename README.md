@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.51`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.52`.
 
 [한국어 README](README.ko.md)
 
@@ -63,7 +63,7 @@ Gemini CLI uses the same print-command shape as Claude normal chat turns.
 
 - Checks CLI availability with `gemini --version` and checks the Gemini CLI auth method before accepting prompts.
 - Sends normal prompts with `gemini --skip-trust --approval-mode yolo --output-format text --prompt=.` to enable headless mode, then passes the real prompt through stdin.
-- Settings expose Gemini executable, model, approval mode, skip-trust, and sandbox flags. The default Gemini model is `flash`; recommended values are `flash`, `pro`, `flash-lite`, `gemini-2.5-flash`, and `gemini-2.5-pro`. Saved `gemini-3.5-flash` values are migrated to `flash` because that model can return 404 unless the signed-in account has access.
+- Settings expose Gemini executable, model, approval mode, skip-trust, and sandbox flags. The default Gemini model is `flash`; recommended values are `flash`, `pro`, `flash-lite`, `gemini-2.5-flash`, and `gemini-2.5-pro`. Explicit full model names such as `gemini-3.5-flash` are preserved; Gemini CLI may return 404 if the signed-in account lacks access.
 - The statusline shows the configured Gemini model/mode, plugin transcript-context meter, and `usage n/a` because Gemini CLI text output does not expose reliable usage data.
 - Runtime model settings are injected into normal Gemini/Claude prompts, so "which model are you using?" can be answered from the plugin's CLI launch settings instead of unreliable model self-introspection.
 - Allows long-running work instead of enforcing a 10-minute response cutoff; press `Stop` to terminate the current process tree.
@@ -292,8 +292,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.51
-git push origin 0.6.51
+git tag 0.6.52
+git push origin 0.6.52
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.

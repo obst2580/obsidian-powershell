@@ -6235,7 +6235,7 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
 
     new Setting(agentEl)
       .setName("Gemini model")
-      .setDesc("Gemini CLI --model value. Recommended: flash, pro, flash-lite, gemini-2.5-flash, gemini-2.5-pro. Saved gemini-3.5-flash values are migrated to flash because that model can return 404 unless the signed-in account has access.")
+      .setDesc("Gemini CLI --model value. Recommended: flash, pro, flash-lite, gemini-2.5-flash, gemini-2.5-pro. Explicit full model names such as gemini-3.5-flash are preserved; Gemini CLI may return 404 if the signed-in account lacks access.")
       .addText((text) =>
         text
           .setPlaceholder("auto")
@@ -10107,8 +10107,7 @@ function normalizeGeminiModelInput(value: string | undefined): string {
     "3-pro": "gemini-3-pro-preview",
     "3-flash": "gemini-3-flash-preview",
     "3.1-pro": "gemini-3.1-pro-preview",
-    "3.5-flash": "flash",
-    "gemini-3.5-flash": "flash"
+    "3.5-flash": "gemini-3.5-flash"
   };
   if (aliases[compact]) {
     return aliases[compact];
