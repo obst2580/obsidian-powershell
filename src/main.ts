@@ -123,7 +123,7 @@ const GEMINI_MODEL_CHOICES = [
   { value: "flash", label: "flash alias" },
   { value: "pro", label: "pro alias" },
   { value: "flash-lite", label: "flash-lite alias" },
-  { value: "gemini-3.5-flash", label: "gemini-3.5-flash" },
+  { value: "gemini-3.5-flash", label: "gemini-3.5-flash (if available)" },
   { value: "gemini-3-flash", label: "gemini-3-flash" },
   { value: "gemini-2.5-flash", label: "gemini-2.5-flash" },
   { value: "gemini-2.5-pro", label: "gemini-2.5-pro" }
@@ -4077,6 +4077,38 @@ class VaultPowerShellView extends ItemView {
       });
       let sessionId = provider === "claude" ? this.ensureClaudeSessionId() : this.ensureGeminiSessionId();
       let result = await this.runTrackedPrintCommand(provider, text, cwd, env, sessionId, turnId);
+      if (provider === "gemini" && isGeminiModelNotFoundResult(result)) {
+        const initialModel = this.plugin.settings.geminiModel || DEFAULT_SETTINGS.geminiModel;
+        for (const fallbackModel of getGeminiModelFallbackCandidates(initialModel)) {
+          this.withAgentSession(sessionKey, () => {
+            this.setAgentStatus(`Retrying Gemini with ${fallbackModel}...`);
+            this.appendAgentTranscript({
+              id: this.nextLocalAgentEntryId("system"),
+              role: "system",
+              text: `Gemini 모델 ${initialModel}을 현재 계정에서 찾지 못해 ${fallbackModel}로 자동 재시도합니다.`
+            });
+          });
+          result = await this.runTrackedPrintCommand(provider, text, cwd, env, sessionId, turnId, {
+            settings: { ...this.plugin.settings, geminiModel: fallbackModel }
+          });
+          if (!isGeminiModelNotFoundResult(result)) {
+            if (result.exitCode === 0 && !result.cancelled && !result.timedOut && !result.error) {
+              this.withAgentSession(sessionKey, () => {
+                this.plugin.settings.geminiModel = fallbackModel;
+                void this.plugin.saveSettings();
+                this.refreshAgentModelControls();
+                this.refreshCodexStatusLine();
+                this.appendAgentTranscript({
+                  id: this.nextLocalAgentEntryId("system"),
+                  role: "system",
+                  text: `Gemini 모델을 ${fallbackModel}로 변경했습니다. 다음 메시지부터 이 모델을 사용합니다.`
+                });
+              });
+            }
+            break;
+          }
+        }
+      }
       if (provider === "claude" && isClaudeSessionInUseResult(result)) {
         const resumeSessionId = sessionId;
         this.withAgentSession(sessionKey, () => {
@@ -4156,14 +4188,15 @@ class VaultPowerShellView extends ItemView {
     env: { [key: string]: string | undefined },
     sessionId: string,
     turnId: string,
-    options: { resumeFork?: boolean } = {}
+    options: { resumeFork?: boolean; settings?: PowerShellSettings } = {}
   ): Promise<CapturedCommandResult> {
+    const settings = options.settings ?? this.plugin.settings;
     const handle = provider === "gemini"
-      ? spawnGeminiPrintCommand(text, cwd, env, CLAUDE_PRINT_TIMEOUT_MS, this.plugin.settings)
+      ? spawnGeminiPrintCommand(text, cwd, env, CLAUDE_PRINT_TIMEOUT_MS, settings)
       : spawnClaudePrintCommand(text, cwd, env, CLAUDE_PRINT_TIMEOUT_MS, {
         ...(options.resumeFork ? { resumeSessionId: sessionId, forkSession: true } : { sessionId }),
         sessionName: this.agentSessionLabel,
-        settings: this.plugin.settings
+        settings
       });
 
     if (handle.child) {
@@ -8640,6 +8673,17 @@ function formatGeminiAuthErrorOutput(output: string): string | null {
 function isClaudeSessionInUseResult(result: CapturedCommandResult): boolean {
   const output = stripTerminalControlSequences(`${result.stdout}\n${result.stderr}`);
   return /Session ID\s+[0-9a-f-]+\s+is already in use/i.test(output);
+}
+
+function isGeminiModelNotFoundResult(result: CapturedCommandResult): boolean {
+  const output = stripTerminalControlSequences(`${result.stdout}\n${result.stderr}\n${result.error ?? ""}`);
+  return /ModelNotFoundError|Requested entity was not found/i.test(output);
+}
+
+function getGeminiModelFallbackCandidates(configuredModel: string | undefined): string[] {
+  const normalized = normalizeGeminiModelInput(configuredModel) || DEFAULT_SETTINGS.geminiModel;
+  const candidates = ["flash", "gemini-2.5-flash", "gemini-2.5-pro"];
+  return candidates.filter((candidate) => candidate !== normalized);
 }
 
 function removeClaudeNoStdinWarning(text: string): string {
