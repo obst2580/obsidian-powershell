@@ -2693,19 +2693,60 @@ class VaultPowerShellView extends ItemView {
       return text;
     }
 
+    const runtimeContext = this.getAgentRuntimeContextText();
     const context = this.getAgentTranscriptContextText();
-    if (!context) {
+    if (!runtimeContext && !context) {
       return text;
     }
 
-    return [
-      "[이전 대화 컨텍스트]",
-      "아래는 같은 Obst Terminal AI 세션의 이전 transcript입니다. 이 내용을 현재 대화의 맥락으로 간주하고 이어서 답하세요.",
-      context,
-      "",
-      "[현재 사용자 요청]",
-      text
-    ].join("\n");
+    const sections: string[] = [];
+    if (runtimeContext) {
+      sections.push("[현재 실행 설정]", runtimeContext, "");
+    }
+    if (context) {
+      sections.push(
+        "[이전 대화 컨텍스트]",
+        "아래는 같은 Obst Terminal AI 세션의 이전 transcript입니다. 이 내용을 현재 대화의 맥락으로 간주하고 이어서 답하세요.",
+        context,
+        ""
+      );
+    }
+    sections.push("[현재 사용자 요청]", text);
+    return sections.join("\n");
+  }
+
+  private getAgentRuntimeContextText(): string {
+    if (this.agentProvider === "gemini") {
+      const configuredModel = this.plugin.settings.geminiModel || DEFAULT_SETTINGS.geminiModel;
+      const resolvedModel = getGeminiModelResolutionLabel(configuredModel);
+      return [
+        "Provider: Gemini CLI",
+        `Configured --model: ${configuredModel}`,
+        resolvedModel !== configuredModel ? `Model alias resolution: ${configuredModel} -> ${resolvedModel}` : "",
+        `Approval mode: ${this.plugin.settings.geminiApprovalMode}`,
+        "If the user asks which LLM/model is in use, answer from this runtime setting rather than from model self-introspection."
+      ].filter(Boolean).join("\n");
+    }
+
+    if (this.agentProvider === "claude") {
+      return [
+        "Provider: Claude Code",
+        `Configured --model: ${this.plugin.settings.claudeModel || "Claude Code default"}`,
+        `Effort: ${this.plugin.settings.claudeEffort || "default"}`,
+        `Permission mode: ${this.plugin.settings.claudePermissionMode}`,
+        "If the user asks which LLM/model is in use, answer from this runtime setting rather than from model self-introspection."
+      ].join("\n");
+    }
+
+    if (this.agentProvider === "codex") {
+      return [
+        "Provider: Codex",
+        `Configured model: ${this.codexModelSelect?.value || this.plugin.settings.codexModel || "Codex default"}`,
+        `Access level: ${this.codexAccessSelect?.value || "default"}`
+      ].join("\n");
+    }
+
+    return "";
   }
 
   private getAgentTranscriptContextText(): string {
@@ -2933,7 +2974,7 @@ class VaultPowerShellView extends ItemView {
       const pieces = [this.plugin.settings.claudeModel || "Claude", this.plugin.settings.claudeEffort].filter(Boolean);
       return pieces.join(" · ");
     }
-    const pieces = [this.plugin.settings.geminiModel || "Gemini", this.plugin.settings.geminiApprovalMode].filter(Boolean);
+    const pieces = [formatGeminiStatusModelLabel(this.plugin.settings.geminiModel), this.plugin.settings.geminiApprovalMode].filter(Boolean);
     return pieces.join(" · ");
   }
 
@@ -10046,6 +10087,28 @@ function normalizeGeminiModelInput(value: string | undefined): string {
     return `gemini-${compact}`;
   }
   return trimmed;
+}
+
+function formatGeminiStatusModelLabel(value: string | undefined): string {
+  const configured = normalizeGeminiModelInput(value) || DEFAULT_SETTINGS.geminiModel;
+  const resolved = getGeminiModelResolutionLabel(configured);
+  return resolved === configured ? configured : `${configured} -> ${resolved}`;
+}
+
+function getGeminiModelResolutionLabel(value: string | undefined): string {
+  const configured = normalizeGeminiModelInput(value) || DEFAULT_SETTINGS.geminiModel;
+  switch (configured) {
+    case "flash":
+      return "gemini-2.5-flash";
+    case "flash-lite":
+      return "gemini-2.5-flash-lite";
+    case "pro":
+      return "gemini-2.5-pro / gemini-3-pro-preview";
+    case "auto":
+      return "Gemini CLI auto";
+    default:
+      return configured;
+  }
 }
 
 function normalizeWindowsPtyBackend(value: string | undefined): WindowsPtyBackend {
