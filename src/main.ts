@@ -613,7 +613,11 @@ export default class VaultPowerShellPlugin extends Plugin {
     this.settings.claudePermissionMode = normalizeClaudePermissionMode(this.settings.claudePermissionMode);
     this.settings.claudeStrictMcpConfig = this.settings.claudeStrictMcpConfig !== false;
     this.settings.geminiExecutable = this.settings.geminiExecutable?.trim() ?? "";
-    this.settings.geminiModel = normalizeGeminiModelInput(this.settings.geminiModel);
+    const savedGeminiModel = this.settings.geminiModel?.trim() ?? "";
+    this.settings.geminiModel = normalizeGeminiModelInput(savedGeminiModel);
+    if (savedGeminiModel !== this.settings.geminiModel) {
+      shouldSaveSettings = true;
+    }
     this.settings.geminiApprovalMode = normalizeGeminiApprovalMode(this.settings.geminiApprovalMode);
     this.settings.geminiSkipTrust = this.settings.geminiSkipTrust !== false;
     this.settings.geminiSandbox = this.settings.geminiSandbox === true;
@@ -2694,14 +2698,18 @@ class VaultPowerShellView extends ItemView {
     }
 
     const runtimeContext = this.getAgentRuntimeContextText();
+    const activeNoteContext = this.getActiveNoteReferenceContextText(trimmed);
     const context = this.getAgentTranscriptContextText();
-    if (!runtimeContext && !context) {
+    if (!runtimeContext && !activeNoteContext && !context) {
       return text;
     }
 
     const sections: string[] = [];
     if (runtimeContext) {
       sections.push("[현재 실행 설정]", runtimeContext, "");
+    }
+    if (activeNoteContext) {
+      sections.push("[현재 열린 문서]", activeNoteContext, "");
     }
     if (context) {
       sections.push(
@@ -2713,6 +2721,23 @@ class VaultPowerShellView extends ItemView {
     }
     sections.push("[현재 사용자 요청]", text);
     return sections.join("\n");
+  }
+
+  private getActiveNoteReferenceContextText(text: string): string {
+    if (!referencesActiveVaultDocument(text)) {
+      return "";
+    }
+
+    const file = this.app.workspace.getActiveFile();
+    if (!file) {
+      return "사용자가 \"이 문서\", \"옆에 문서\", \"현재 문서\"라고 지칭했지만 현재 열린 Obsidian 문서를 찾지 못했습니다.";
+    }
+
+    return [
+      "사용자가 \"이 문서\", \"이문서\", \"옆에 문서\", \"옆의 문서\", \"현재 문서\", \"열린 문서\"라고 말하면 현재 Obsidian 볼트에서 활성화된 열린 문서를 뜻합니다.",
+      `현재 열린 Obsidian 문서 경로: ${file.path}`,
+      `문서 참조: ${formatVaultFileReference(file.path)}`
+    ].join("\n");
   }
 
   private getAgentRuntimeContextText(): string {
@@ -6210,7 +6235,7 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
 
     new Setting(agentEl)
       .setName("Gemini model")
-      .setDesc("Gemini CLI --model value. Recommended: flash, pro, flash-lite, gemini-2.5-flash, gemini-2.5-pro. gemini-3.5-flash can return 404 unless the signed-in account has access.")
+      .setDesc("Gemini CLI --model value. Recommended: flash, pro, flash-lite, gemini-2.5-flash, gemini-2.5-pro. Saved gemini-3.5-flash values are migrated to flash because that model can return 404 unless the signed-in account has access.")
       .addText((text) =>
         text
           .setPlaceholder("auto")
@@ -6772,6 +6797,10 @@ function appendAgentAttachmentPrompt(text: string, attachments: AgentAttachment[
 
 function formatVaultFileReference(path: string): string {
   return `@${normalizePath(path).replace(/\\/g, "/")}`;
+}
+
+function referencesActiveVaultDocument(text: string): boolean {
+  return /(?:이\s*문서|이\s*노트|현재\s*(?:문서|노트)|열린\s*(?:문서|노트)|활성\s*(?:문서|노트)|보고\s*있는\s*(?:문서|노트)|옆(?:에|의)?\s*(?:문서|노트)|current\s+(?:document|note|file)|active\s+(?:document|note|file)|open\s+(?:document|note|file)|this\s+(?:document|note|file))/i.test(text);
 }
 
 function formatTerminalPasteData(text: string): string {
@@ -10078,7 +10107,8 @@ function normalizeGeminiModelInput(value: string | undefined): string {
     "3-pro": "gemini-3-pro-preview",
     "3-flash": "gemini-3-flash-preview",
     "3.1-pro": "gemini-3.1-pro-preview",
-    "3.5-flash": "flash"
+    "3.5-flash": "flash",
+    "gemini-3.5-flash": "flash"
   };
   if (aliases[compact]) {
     return aliases[compact];
