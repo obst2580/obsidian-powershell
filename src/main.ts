@@ -223,6 +223,7 @@ interface AgentWorkspaceSessionState extends Record<string, unknown> {
   agentPrintTurnRuntime?: AgentPrintTurnRuntime | null;
   agentPrintQueuedInputs?: AgentQueuedPrintInput[];
   agentClaudeControlSessionId?: string | null;
+  agentPostLaunchInput?: string | null;
   lastAgentLaunchCommand?: string;
   agentSeenEntries?: Set<string>;
   agentLocalMessageCounter?: number;
@@ -1172,6 +1173,7 @@ class VaultPowerShellView extends ItemView {
   private agentGeminiSessionId: string | null = randomUUID();
   private agentPrintTurnRuntime: AgentPrintTurnRuntime | null = null;
   private agentPrintQueuedInputs: AgentQueuedPrintInput[] = [];
+  private agentPostLaunchInput: string | null = null;
   private lastAgentLaunchCommand = "";
   private agentSeenEntries = new Set<string>();
   private agentLocalMessageCounter = 0;
@@ -1571,6 +1573,7 @@ class VaultPowerShellView extends ItemView {
     session.agentPrintTurnRuntime ??= null;
     session.agentPrintQueuedInputs ??= [];
     session.agentClaudeControlSessionId ??= session.claudeControlSessionId ?? null;
+    session.agentPostLaunchInput ??= null;
     session.lastAgentLaunchCommand ??= "";
     session.agentSeenEntries ??= new Set<string>();
     session.agentLocalMessageCounter ??= 0;
@@ -1636,6 +1639,7 @@ class VaultPowerShellView extends ItemView {
     this.agentPrintTurnRuntime = session.agentPrintTurnRuntime ?? null;
     this.agentPrintQueuedInputs = session.agentPrintQueuedInputs ?? [];
     this.agentClaudeControlSessionId = session.agentClaudeControlSessionId ?? session.claudeControlSessionId ?? null;
+    this.agentPostLaunchInput = session.agentPostLaunchInput ?? null;
     this.lastAgentLaunchCommand = session.lastAgentLaunchCommand ?? "";
     this.agentSeenEntries = session.agentSeenEntries ?? new Set<string>();
     this.agentLocalMessageCounter = session.agentLocalMessageCounter ?? 0;
@@ -1727,6 +1731,7 @@ class VaultPowerShellView extends ItemView {
     session.agentPrintTurnRuntime = this.agentPrintTurnRuntime;
     session.agentPrintQueuedInputs = this.agentPrintQueuedInputs;
     session.agentClaudeControlSessionId = this.agentClaudeControlSessionId;
+    session.agentPostLaunchInput = this.agentPostLaunchInput;
     session.lastAgentLaunchCommand = this.lastAgentLaunchCommand;
     session.agentSeenEntries = this.agentSeenEntries;
     session.agentLocalMessageCounter = this.agentLocalMessageCounter;
@@ -3235,6 +3240,7 @@ class VaultPowerShellView extends ItemView {
     this.agentNeedsAuth = false;
     this.agentPromptState = null;
     this.agentOpenedExternalUrls.clear();
+    this.agentPostLaunchInput = null;
     if (provider === "claude") {
       this.ensureClaudeSessionId();
     } else if (provider === "gemini") {
@@ -3423,6 +3429,20 @@ class VaultPowerShellView extends ItemView {
     this.lastAgentLaunchCommand = command;
     this.sendAgentHostMessage({ type: "data", data: `${command}\r` });
     this.setAgentStatus(`Launching ${getAgentProviderLabel(this.agentProvider)}...`);
+
+    const postLaunchInput = this.agentPostLaunchInput;
+    this.agentPostLaunchInput = null;
+    if (postLaunchInput) {
+      window.setTimeout(() => {
+        this.withAgentSession(sessionKey, () => {
+          if (!this.agentHost || !this.agentHostReady) {
+            return;
+          }
+          this.noteAgentControlFlow(postLaunchInput);
+          this.sendAgentHostMessage({ type: "data", data: postLaunchInput });
+        });
+      }, AGENT_READY_DELAY_MS + 350);
+    }
 
     if (this.agentReadyTimer !== null) {
       window.clearTimeout(this.agentReadyTimer);
@@ -4513,6 +4533,7 @@ class VaultPowerShellView extends ItemView {
     this.agentNeedsAuth = true;
     this.agentPromptState = null;
     this.agentOpenedExternalUrls.clear();
+    this.agentPostLaunchInput = null;
     this.lastAgentLaunchCommand = "";
     this.ensureGeminiSessionId();
     this.refreshAgentPromptActions();
@@ -4529,6 +4550,8 @@ class VaultPowerShellView extends ItemView {
         useSystemCa: this.plugin.settings.useSystemCa,
         extraCaCertPath: this.plugin.getExtraCaCertPath()
       });
+      const authConfiguration = getGeminiAuthConfiguration(cwd, env);
+      this.agentPostLaunchInput = authConfiguration.authType ? "/auth\r" : null;
       const availabilityFailure = await getGeminiCliAvailabilityFailure(cwd, env);
       if (availabilityFailure) {
         this.withAgentSession(sessionKey, () => {
@@ -5778,6 +5801,7 @@ class VaultPowerShellView extends ItemView {
     this.agentNeedsAuth = false;
     this.agentPromptState = null;
     this.agentOpenedExternalUrls.clear();
+    this.agentPostLaunchInput = null;
     this.refreshAgentPromptActions();
     this.setAgentStatus("Idle");
   }
@@ -7567,6 +7591,18 @@ function getGeminiAuthConfiguration(cwd: string, env: { [key: string]: string | 
     };
   }
 
+  if (authType === "oauth-personal") {
+    const accountFailure = getGeminiOAuthPersonalAccountFailure(detail);
+    if (accountFailure) {
+      return {
+        authType,
+        authSource,
+        detail: accountFailure.detail ?? detail,
+        failure: accountFailure
+      };
+    }
+  }
+
   return {
     authType,
     authSource,
@@ -7583,6 +7619,43 @@ function createMissingGeminiAuthMethodCheck(detail = ""): AgentAuthCheck {
     summary: `Gemini CLI 인증 방식이 설정되어 있지 않습니다. Agent Console에서 Gemini를 선택한 뒤 Login을 눌러 Sign in with Google 구독 로그인을 진행하거나 ${settingsPath}의 security.auth.selectedType을 설정하세요. API 방식이면 GEMINI_API_KEY, GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_GENAI_USE_GCA 중 하나를 환경변수나 .env에 설정한 뒤 Obsidian을 완전히 재시작하세요.`,
     detail
   };
+}
+
+function getGeminiOAuthPersonalAccountFailure(detail = ""): AgentAuthCheck | null {
+  const home = getUserHome();
+  const accountsPath = home ? join(home, ".gemini", "google_accounts.json") : null;
+  const accountDetail = [
+    detail,
+    `Checked Gemini Google account: ${accountsPath ?? "~/.gemini/google_accounts.json"}`
+  ].filter(Boolean).join("\n");
+
+  if (!accountsPath || !existsSync(accountsPath)) {
+    return {
+      checked: true,
+      loggedIn: false,
+      summary: "Gemini CLI가 Sign in with Google 방식으로 설정되어 있지만 로그인된 Google 계정 파일이 없습니다. Agent Console에서 Gemini를 선택한 뒤 Login을 눌러 구독 계정 로그인을 완료하세요.",
+      detail: `${accountDetail}\nGoogle account file is missing.`
+    };
+  }
+
+  const accounts = readJsonObjectFile(accountsPath);
+  if (!accounts || !hasActiveGeminiGoogleAccount(accounts.active)) {
+    return {
+      checked: true,
+      loggedIn: false,
+      summary: "Gemini CLI가 Sign in with Google 방식으로 설정되어 있지만 현재 활성 Google 계정이 없습니다. Agent Console에서 Gemini를 선택한 뒤 Login을 눌러 구독 계정 로그인을 완료하세요.",
+      detail: `${accountDetail}\nGoogle account file has no active account.`
+    };
+  }
+
+  return null;
+}
+
+function hasActiveGeminiGoogleAccount(value: unknown): boolean {
+  if (typeof value === "string") {
+    return value.trim().length > 0;
+  }
+  return !!value && typeof value === "object" && !Array.isArray(value) && Object.keys(value as Record<string, unknown>).length > 0;
 }
 
 function getGeminiAuthValidationFailure(authType: string, env: Record<string, string | undefined>, detail: string): AgentAuthCheck | null {

@@ -828,15 +828,21 @@
   overflow-y: auto;
   padding: 12px;
   background: var(--background-primary);
-  user-select: none;
-  -webkit-user-select: none;
+  user-select: text;
+  -webkit-user-select: text;
   cursor: auto;
 }
 
+.vault-agent-message,
+.vault-agent-turn,
 .vault-agent-message-body,
 .vault-agent-message-body *,
+.vault-agent-turn-answer,
+.vault-agent-turn-answer *,
 .vault-agent-turn-question-text,
 .vault-agent-turn-question-text *,
+.vault-agent-block,
+.vault-agent-block *,
 .vault-agent-block-body,
 .vault-agent-block-body * {
   user-select: text;
