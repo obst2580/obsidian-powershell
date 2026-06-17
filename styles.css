@@ -133,6 +133,11 @@
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   color: var(--text-normal);
+  max-width: 100%;
+}
+
+.vault-agent-option-select.is-hidden {
+  display: none;
 }
 
 .vault-agent-file-input {

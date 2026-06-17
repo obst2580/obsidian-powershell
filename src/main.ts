@@ -113,6 +113,21 @@ const CLAUDE_PRINT_TIMEOUT_MS: number | null = null;
 const AGENT_TRANSCRIPT_BOTTOM_EPSILON_PX = 96;
 const AGENT_TRANSCRIPT_CONTEXT_MAX_CHARS = 12000;
 const CODEX_TURN_COMPLETION_FALLBACK_MS = 15000;
+const CLAUDE_MODEL_CHOICES = [
+  { value: "", label: "Claude default" },
+  { value: "sonnet", label: "sonnet" },
+  { value: "opus", label: "opus" },
+  { value: "haiku", label: "haiku" }
+];
+const GEMINI_MODEL_CHOICES = [
+  { value: "flash", label: "flash alias" },
+  { value: "pro", label: "pro alias" },
+  { value: "flash-lite", label: "flash-lite alias" },
+  { value: "gemini-3.5-flash", label: "gemini-3.5-flash" },
+  { value: "gemini-3-flash", label: "gemini-3-flash" },
+  { value: "gemini-2.5-flash", label: "gemini-2.5-flash" },
+  { value: "gemini-2.5-pro", label: "gemini-2.5-pro" }
+];
 
 interface PowerShellSettings {
   settingsSchemaVersion: number;
@@ -1172,9 +1187,11 @@ class VaultPowerShellView extends ItemView {
   private codexRateLimitWindows: AgentUsageWindow[] = [];
   private codexGitBranch: string | null | undefined = undefined;
   private codexOptionsRow: HTMLElement | null = null;
+  private claudeModelSelect: HTMLSelectElement | null = null;
   private codexModelSelect: HTMLSelectElement | null = null;
   private codexEffortSelect: HTMLSelectElement | null = null;
   private codexAccessSelect: HTMLSelectElement | null = null;
+  private geminiModelSelect: HTMLSelectElement | null = null;
   private codexModels: AgentModelInfo[] = [];
   private codexPendingAttachments: AgentAttachment[] = [];
   private codexAttachmentsEl: HTMLElement | null = null;
@@ -1341,6 +1358,12 @@ class VaultPowerShellView extends ItemView {
     this.agentInputEl = null;
     this.agentAttachButton = null;
     this.codexStatusLineEl = null;
+    this.codexOptionsRow = null;
+    this.claudeModelSelect = null;
+    this.codexModelSelect = null;
+    this.codexEffortSelect = null;
+    this.codexAccessSelect = null;
+    this.geminiModelSelect = null;
     this.paneTabEls = { agent: null, terminal: null };
     this.agentProviderButtons = { claude: null, codex: null, gemini: null };
     this.agentProviderIndicatorEl = null;
@@ -2303,20 +2326,34 @@ class VaultPowerShellView extends ItemView {
 
     this.codexAttachmentsEl = composer.createDiv("vault-agent-attachments is-hidden");
 
-    // Codex turn-options row (model / effort / access), Codex-app style: directly
-    // under the input box. Hidden until Codex starts and listModels populates it.
+    // Provider options live inside the console, directly under the input box.
+    // Model selection is intentionally list-based so users do not need to type
+    // provider-specific model ids by hand.
     const optionsRow = composer.createDiv("vault-agent-options is-hidden");
     this.codexOptionsRow = optionsRow;
+    this.claudeModelSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Claude model" } });
+    for (const opt of CLAUDE_MODEL_CHOICES) {
+      this.claudeModelSelect.createEl("option", { value: opt.value, text: opt.label });
+    }
     this.codexModelSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Model" } });
     this.codexEffortSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Reasoning effort" } });
     this.codexAccessSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Access level" } });
+    this.codexModelSelect.createEl("option", { value: "", text: "Codex default" });
+    this.codexEffortSelect.createEl("option", { value: "", text: "Effort default" });
     for (const opt of [{ v: "read-only", t: "Read-only" }, { v: "auto", t: "Auto (write)" }, { v: "full", t: "Full access" }]) {
       this.codexAccessSelect.createEl("option", { value: opt.v, text: opt.t });
     }
     this.codexAccessSelect.value = "full";
+    this.geminiModelSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Gemini model" } });
+    for (const opt of GEMINI_MODEL_CHOICES) {
+      this.geminiModelSelect.createEl("option", { value: opt.value, text: opt.label });
+    }
+    this.claudeModelSelect.addEventListener("change", () => this.onClaudeModelChange());
     this.codexModelSelect.addEventListener("change", () => this.onCodexModelChange());
     this.codexEffortSelect.addEventListener("change", () => this.applyCodexTurnOptions());
     this.codexAccessSelect.addEventListener("change", () => this.applyCodexTurnOptions());
+    this.geminiModelSelect.addEventListener("change", () => this.onGeminiModelChange());
+    this.refreshAgentOptionsRow();
 
     const composerActions = composer.createDiv("vault-agent-composer-actions");
     const fileInput = composerActions.createEl("input", { cls: "vault-agent-file-input", attr: { type: "file", multiple: "true" } });
@@ -2389,7 +2426,59 @@ class VaultPowerShellView extends ItemView {
   }
 
   private refreshAgentOptionsRow() {
-    this.codexOptionsRow?.toggleClass("is-hidden", this.agentProvider !== "codex" || this.codexModels.length === 0);
+    if (!this.codexOptionsRow) {
+      return;
+    }
+    this.refreshAgentModelControls();
+    this.codexOptionsRow.toggleClass("is-hidden", false);
+    const isClaude = this.agentProvider === "claude";
+    const isCodex = this.agentProvider === "codex";
+    const isGemini = this.agentProvider === "gemini";
+    this.claudeModelSelect?.toggleClass("is-hidden", !isClaude);
+    this.codexModelSelect?.toggleClass("is-hidden", !isCodex);
+    this.codexEffortSelect?.toggleClass("is-hidden", !isCodex);
+    this.codexAccessSelect?.toggleClass("is-hidden", !isCodex);
+    this.geminiModelSelect?.toggleClass("is-hidden", !isGemini);
+  }
+
+  private refreshAgentModelControls() {
+    setSelectChoices(this.claudeModelSelect, CLAUDE_MODEL_CHOICES, this.plugin.settings.claudeModel, "Saved");
+    this.refreshCodexModelSelect(false);
+    setSelectChoices(this.geminiModelSelect, GEMINI_MODEL_CHOICES, this.plugin.settings.geminiModel || DEFAULT_SETTINGS.geminiModel, "Saved");
+  }
+
+  private refreshCodexModelSelect(selectFirstAvailable: boolean) {
+    if (!this.codexModelSelect) {
+      return;
+    }
+    const configured = this.plugin.settings.codexModel.trim();
+    const selected = configured || (selectFirstAvailable ? this.codexModels[0]?.id ?? "" : "");
+    this.codexModelSelect.empty();
+    this.codexModelSelect.createEl("option", { value: "", text: "Codex default" });
+    for (const model of this.codexModels) {
+      this.codexModelSelect.createEl("option", { value: model.id, text: model.displayName });
+    }
+    if (selected && !selectHasOption(this.codexModelSelect, selected)) {
+      this.codexModelSelect.createEl("option", { value: selected, text: `Saved: ${selected}` });
+    }
+    this.codexModelSelect.value = selected;
+  }
+
+  private onClaudeModelChange() {
+    this.plugin.settings.claudeModel = this.claudeModelSelect?.value ?? "";
+    void this.plugin.saveSettings();
+    this.refreshCodexStatusLine();
+    this.saveAgentViewState();
+  }
+
+  private onGeminiModelChange() {
+    this.plugin.settings.geminiModel = normalizeGeminiModelInput(this.geminiModelSelect?.value) || DEFAULT_SETTINGS.geminiModel;
+    if (this.geminiModelSelect) {
+      this.geminiModelSelect.value = this.plugin.settings.geminiModel;
+    }
+    void this.plugin.saveSettings();
+    this.refreshCodexStatusLine();
+    this.saveAgentViewState();
   }
 
   private renderAgentProviderIndicator() {
@@ -3137,13 +3226,7 @@ class VaultPowerShellView extends ItemView {
         return;
       }
       if (this.isVisibleAgentSessionContext()) {
-        this.codexModelSelect?.empty();
-        for (const model of models) {
-          this.codexModelSelect?.createEl("option", { value: model.id, text: model.displayName });
-        }
-        if (this.codexModelSelect) {
-          this.codexModelSelect.value = models[0].id;
-        }
+        this.refreshCodexModelSelect(true);
         this.refreshAgentOptionsRow();
       }
       this.onCodexModelChange();
@@ -3158,6 +3241,8 @@ class VaultPowerShellView extends ItemView {
     if (!this.codexModelSelect || !this.codexEffortSelect) {
       return;
     }
+    this.plugin.settings.codexModel = this.codexModelSelect.value;
+    void this.plugin.saveSettings();
     const model = this.codexModels.find((m) => m.id === this.codexModelSelect?.value);
     this.codexEffortSelect.empty();
     for (const effort of model?.efforts ?? []) {
@@ -3165,6 +3250,9 @@ class VaultPowerShellView extends ItemView {
     }
     if (model?.defaultEffort) {
       this.codexEffortSelect.value = model.defaultEffort;
+    } else if ((model?.efforts ?? []).length === 0) {
+      this.codexEffortSelect.createEl("option", { value: "", text: "Effort default" });
+      this.codexEffortSelect.value = "";
     }
     this.applyCodexTurnOptions();
     this.refreshCodexStatusLine();
@@ -6104,19 +6192,6 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
       );
 
     new Setting(agentEl)
-      .setName("Codex default model")
-      .setDesc("Optional model id passed when a Codex app-server thread starts. Leave empty to use Codex default/model picker.")
-      .addText((text) =>
-        text
-          .setPlaceholder("auto")
-          .setValue(this.plugin.settings.codexModel)
-          .onChange((value) => {
-            this.plugin.settings.codexModel = value.trim();
-            void this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(agentEl)
       .setName("Codex approval policy")
       .setDesc("Default approval policy for Codex app-server sessions.")
       .addDropdown((dropdown) =>
@@ -6155,19 +6230,6 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.claudeExecutable)
           .onChange((value) => {
             this.plugin.settings.claudeExecutable = value.trim();
-            void this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(agentEl)
-      .setName("Claude model")
-      .setDesc("Optional --model value such as sonnet, opus, or a full Claude model id. Leave empty for Claude Code default.")
-      .addText((text) =>
-        text
-          .setPlaceholder("auto")
-          .setValue(this.plugin.settings.claudeModel)
-          .onChange((value) => {
-            this.plugin.settings.claudeModel = value.trim();
             void this.plugin.saveSettings();
           })
       );
@@ -6229,23 +6291,6 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.geminiExecutable)
           .onChange((value) => {
             this.plugin.settings.geminiExecutable = value.trim();
-            void this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(agentEl)
-      .setName("Gemini model")
-      .setDesc("Gemini CLI --model value. Recommended: flash, pro, flash-lite, gemini-3.5-flash, gemini-3-flash, gemini-2.5-flash, gemini-2.5-pro. CLI aliases such as flash are access-dependent; explicit full model names are preserved and may return 404 if the signed-in account lacks access.")
-      .addText((text) =>
-        text
-          .setPlaceholder("auto")
-          .setValue(this.plugin.settings.geminiModel)
-          .onChange((value) => {
-            const normalized = normalizeGeminiModelInput(value);
-            this.plugin.settings.geminiModel = normalized;
-            if (value !== normalized) {
-              text.setValue(normalized);
-            }
             void this.plugin.saveSettings();
           })
       );
@@ -8568,7 +8613,7 @@ function formatGeminiPrintOutput(result: CapturedCommandResult): string {
 
 function formatGeminiAuthErrorOutput(output: string): string | null {
   if (/ModelNotFoundError|Requested entity was not found/i.test(output)) {
-    return "Gemini 모델을 찾을 수 없습니다. 현재 계정에서 접근 가능한 모델로 바꾸세요. 권장값: flash, pro, flash-lite, gemini-3.5-flash, gemini-3-flash, gemini-2.5-flash, gemini-2.5-pro. flash/pro 같은 alias는 Gemini CLI가 계정 접근 권한에 따라 실제 모델을 결정합니다. 설정을 바꾼 뒤 Gemini 세션을 Stop/Start 하세요.";
+    return "Gemini 모델을 찾을 수 없습니다. 현재 계정에서 접근 가능한 모델로 바꾸세요. 권장값: flash, pro, flash-lite, gemini-3.5-flash, gemini-3-flash, gemini-2.5-flash, gemini-2.5-pro. flash/pro 같은 alias는 Gemini CLI가 계정 접근 권한에 따라 실제 모델을 결정합니다. Agent Console의 Gemini 모델 드롭다운에서 바꾼 뒤 Gemini 세션을 Stop/Start 하세요.";
   }
 
   if (/Please set an Auth method/i.test(output)) {
@@ -10083,6 +10128,30 @@ function normalizeGeminiApprovalMode(value: string | undefined): GeminiApprovalM
   return value === "default" || value === "auto_edit" || value === "plan"
     ? value
     : "yolo";
+}
+
+function setSelectChoices(
+  select: HTMLSelectElement | null,
+  choices: { value: string; label: string }[],
+  value: string | undefined,
+  preservedLabel: string
+) {
+  if (!select) {
+    return;
+  }
+  const selected = value?.trim() ?? "";
+  select.empty();
+  for (const choice of choices) {
+    select.createEl("option", { value: choice.value, text: choice.label });
+  }
+  if (selected && !selectHasOption(select, selected)) {
+    select.createEl("option", { value: selected, text: `${preservedLabel}: ${selected}` });
+  }
+  select.value = selected && selectHasOption(select, selected) ? selected : choices[0]?.value ?? "";
+}
+
+function selectHasOption(select: HTMLSelectElement, value: string): boolean {
+  return Array.from(select.options).some((option) => option.value === value);
 }
 
 function normalizeGeminiModelInput(value: string | undefined): string {

@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.53`입니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.54`입니다.
 
 [English README](README.md)
 
@@ -34,13 +34,13 @@ Codex Agent Console은 기본적으로 fullscreen TUI가 아니라 `codex app-se
 
 - `codex app-server`와 JSON-RPC로 통신합니다.
 - ChatGPT 로그인 상태를 확인하고, 필요하면 브라우저 로그인 또는 device code 로그인을 시작합니다.
-- 모델, reasoning effort, access level을 Agent Console 안에서 선택합니다.
+- 모델, reasoning effort, access level을 composer 아래 Agent Console 드롭다운에서 선택합니다.
 - 한 user turn의 reasoning, command 실행, tool 호출, 최종 답변을 하나의 transcript 카드 안에 표시합니다.
 - 응답 중에는 `Send` 버튼이 `Stop` 역할을 하며 현재 turn을 interrupt합니다.
 - 응답 중 새 메시지를 보내면 Codex app처럼 queue에 넣습니다.
 - statusline에는 현재 볼트 경로, git branch, 선택 모델, context 사용률, 5시간/7일 rate-limit meter를 표시합니다.
 - streaming delta는 일정 간격으로 모아 렌더링해서 Obsidian UI가 멈추는 현상을 줄입니다.
-- 설정에서 Codex executable, app-server 사용 여부, 기본 모델, approval policy, login method를 조정할 수 있습니다.
+- 설정에서는 Codex executable, app-server 사용 여부, approval policy, login method를 조정합니다. 모델은 설정 화면에 텍스트로 입력하지 않고 Agent Console 안에서 선택합니다.
 
 ### Claude Code
 
@@ -48,7 +48,8 @@ Claude Code Agent Console은 로그인/제어 흐름과 일반 대화 흐름을 
 
 - 시작 시 `claude auth status --json`으로 로그인 상태를 확인합니다.
 - 일반 메시지는 AI 세션별 `claude --session-id <uuid> --strict-mcp-config --permission-mode bypassPermissions --output-format json -p`로 실행하고 prompt를 stdin으로 전달합니다.
-- 설정에서 Claude executable, model, effort, permission mode, strict MCP config 사용 여부를 조정할 수 있습니다.
+- Claude 모델은 Agent Console 안의 드롭다운에서 `Claude default`, `sonnet`, `opus`, `haiku` 중 선택합니다.
+- 설정에서는 Claude executable, effort, permission mode, strict MCP config 사용 여부를 조정합니다.
 - statusline에는 설정된 Claude 모델/모드, 플러그인이 붙이는 transcript context meter, Claude JSON 출력에서 확인 가능한 usage 요약을 표시합니다.
 - Claude print turn 이후 JSON의 `session_id`를 읽어 플러그인 탭을 실제 Claude Code 세션에 계속 묶어둡니다.
 - Claude 응답은 `claude` 프로세스가 종료될 때까지 기다립니다. 전사나 대용량 문서 분석처럼 10분 이상 걸릴 수 있는 장시간 스킬도 중간에 강제 종료하지 않습니다.
@@ -63,7 +64,8 @@ Gemini CLI는 Claude 일반 메시지와 같은 print-command 방식으로 실�
 
 - 시작 시 `gemini --version`으로 CLI가 PATH에서 보이는지 확인하고, prompt를 받기 전에 Gemini CLI 인증 방식이 설정되어 있는지도 확인합니다.
 - 일반 메시지는 `gemini --skip-trust --approval-mode yolo --output-format text`로 실행하고, 실제 prompt는 stdin으로 전달합니다. Gemini CLI는 `--prompt` 값을 stdin 뒤에 붙이므로, 플러그인은 더 이상 dummy `--prompt=.`를 추가하지 않습니다.
-- 설정에서 Gemini executable, model, approval mode, skip-trust, sandbox flag를 조정할 수 있습니다. Gemini 기본 모델은 `flash`입니다. 권장값은 `flash`, `pro`, `flash-lite`, `gemini-3.5-flash`, `gemini-3-flash`, `gemini-2.5-flash`, `gemini-2.5-pro`입니다. `flash` 같은 CLI alias는 계정 접근 권한에 따라 Gemini CLI가 실제 모델로 해석하므로 UI에서는 특정 모델로 단정하지 않고 alias로 표시합니다. `gemini-3.5-flash`처럼 사용자가 명시한 전체 모델명은 그대로 보존합니다. 단, 로그인 계정에 접근 권한이 없으면 Gemini CLI가 404를 반환할 수 있습니다.
+- Gemini 모델은 Agent Console 안의 드롭다운에서 `flash`, `pro`, `flash-lite`, `gemini-3.5-flash`, `gemini-3-flash`, `gemini-2.5-flash`, `gemini-2.5-pro` 중 선택합니다. `flash` 같은 CLI alias는 계정 접근 권한에 따라 Gemini CLI가 실제 모델로 해석하므로 UI에서는 특정 모델로 단정하지 않고 alias로 표시합니다. 기존에 저장된 preset 밖 전체 모델명은 삭제하지 않고 드롭다운 옵션으로 보존합니다.
+- 설정에서는 Gemini executable, approval mode, skip-trust, sandbox flag를 조정합니다.
 - statusline에는 설정된 Gemini 모델/모드, 플러그인이 붙이는 transcript context meter, Gemini CLI text 출력에서 reliable usage를 제공하지 않는 경우 `usage n/a`를 표시합니다.
 - 일반 Gemini/Claude prompt에는 현재 CLI 실행 모델 설정을 함께 주입하므로, “현재 어떤 모델을 쓰는지” 질문에는 모델의 자기인식이 아니라 플러그인의 실행 설정 기준으로 답할 수 있습니다.
 - Gemini 응답도 장시간 작업을 고려해 10분 제한으로 끊지 않고, `Stop`을 누르면 현재 프로세스 트리를 종료합니다.
@@ -291,8 +293,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-git tag 0.6.53
-git push origin 0.6.53
+git tag 0.6.54
+git push origin 0.6.54
 ```
 
 릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.
