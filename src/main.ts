@@ -3645,7 +3645,7 @@ class VaultPowerShellView extends ItemView {
       return;
     }
 
-    const text = inputEl.value.trim();
+    let text = inputEl.value.trim();
     const attachments = this.codexPendingAttachments.slice();
     if (!text && attachments.length === 0 && !this.agentPromptState?.allowEmptySubmit) {
       return;
@@ -3723,6 +3723,9 @@ class VaultPowerShellView extends ItemView {
         text: "Claude is waiting for a browser login code. Use Open login link, then paste only the returned code into this box."
       });
       return;
+    }
+    if ((this.agentNeedsAuth || promptMode === "auth-code") && !text.startsWith("/") && looksLikeAgentAuthCode(text)) {
+      text = text.replace(/\s+/g, "");
     }
 
     const contextualText = this.buildContextualAgentPrompt(text);
@@ -4022,6 +4025,10 @@ class VaultPowerShellView extends ItemView {
       return true;
     }
 
+    if (looksLikeAgentAuthCode(text)) {
+      return true;
+    }
+
     if (!this.agentPromptState) {
       return false;
     }
@@ -4240,7 +4247,7 @@ class VaultPowerShellView extends ItemView {
   }
 
   private rememberAgentRawOutput(data: string) {
-    const plainText = stripTerminalControlSequences(data).trim();
+    let plainText = stripTerminalControlSequences(data).trim();
     if (!plainText) {
       return;
     }
@@ -4248,8 +4255,11 @@ class VaultPowerShellView extends ItemView {
     // Ignore the shell echo of our own launch command (truncated or full). Its
     // "--permission-mode" etc. would otherwise be misread as an interactive prompt.
     const launch = this.lastAgentLaunchCommand;
-    if (launch && (launch.startsWith(plainText) || plainText.startsWith(launch.slice(0, 24)))) {
-      return;
+    if (launch) {
+      plainText = removeAgentLaunchEchoText(plainText, launch);
+      if (!plainText) {
+        return;
+      }
     }
 
     this.markAgentOutputActive();
@@ -8958,6 +8968,31 @@ function isAgentHookWarningLine(line: string): boolean {
   return /hook error|non-blocking status code|memrosetta-enforce-claude-code/i.test(line);
 }
 
+function removeAgentLaunchEchoText(text: string, launchCommand: string): string {
+  const launch = launchCommand.trim();
+  if (!launch) {
+    return text.trim();
+  }
+
+  const compactLaunch = launch.replace(/\s+/g, "");
+  return text
+    .split(/\r?\n/)
+    .filter((line) => {
+      const value = line.trim();
+      if (!value) {
+        return false;
+      }
+
+      const compactValue = value.replace(/\s+/g, "");
+      return !(launch.startsWith(value) ||
+        value.startsWith(launch.slice(0, 24)) ||
+        value.includes(launch) ||
+        compactValue.includes(compactLaunch));
+    })
+    .join("\n")
+    .trim();
+}
+
 function hasAgentAuthSuccess(text: string): boolean {
   return /logged in|login successful|already logged in|signed in|sign[- ]?in successful|authenticated successfully|successfully authenticated|authentication successful/i.test(text);
 }
@@ -9104,7 +9139,7 @@ function hasMcpNeedsAuthenticationText(text: string): boolean {
 }
 
 function looksLikeAgentAuthCode(text: string): boolean {
-  const value = text.trim();
+  const value = text.trim().replace(/\s+/g, "");
   return value.length >= 8 &&
     value.length <= 4096 &&
     !/^https?:\/\//i.test(value) &&
