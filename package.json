@@ -1,6 +1,6 @@
 {
   "name": "vault-terminal",
-  "version": "0.6.52",
+  "version": "0.6.53",
   "description": "Obsidian right-sidebar multi-session AI Agent Console rooted at the current vault.",
   "main": "main.js",
   "scripts": {

@@ -6235,7 +6235,7 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
 
     new Setting(agentEl)
       .setName("Gemini model")
-      .setDesc("Gemini CLI --model value. Recommended: flash, pro, flash-lite, gemini-2.5-flash, gemini-2.5-pro. Explicit full model names such as gemini-3.5-flash are preserved; Gemini CLI may return 404 if the signed-in account lacks access.")
+      .setDesc("Gemini CLI --model value. Recommended: flash, pro, flash-lite, gemini-3.5-flash, gemini-3-flash, gemini-2.5-flash, gemini-2.5-pro. CLI aliases such as flash are access-dependent; explicit full model names are preserved and may return 404 if the signed-in account lacks access.")
       .addText((text) =>
         text
           .setPlaceholder("auto")
@@ -8422,8 +8422,7 @@ function spawnGeminiPrintCommand(
     ...(settings.geminiModel ? ["--model", settings.geminiModel] : []),
     ...(settings.geminiSandbox ? ["--sandbox"] : []),
     "--output-format",
-    "text",
-    "--prompt=."
+    "text"
   ];
   return spawnCapturedCommand(getGeminiExecutable(settings), args, cwd, env, timeoutMs, `${prompt}\n`);
 }
@@ -8569,7 +8568,7 @@ function formatGeminiPrintOutput(result: CapturedCommandResult): string {
 
 function formatGeminiAuthErrorOutput(output: string): string | null {
   if (/ModelNotFoundError|Requested entity was not found/i.test(output)) {
-    return "Gemini 모델을 찾을 수 없습니다. 현재 계정에서 접근 가능한 모델로 바꾸세요. 권장값: flash, pro, flash-lite, gemini-2.5-flash, gemini-2.5-pro. gemini-3.5-flash는 현재 로그인된 계정에서 404가 날 수 있습니다. 설정을 바꾼 뒤 Gemini 세션을 Stop/Start 하세요.";
+    return "Gemini 모델을 찾을 수 없습니다. 현재 계정에서 접근 가능한 모델로 바꾸세요. 권장값: flash, pro, flash-lite, gemini-3.5-flash, gemini-3-flash, gemini-2.5-flash, gemini-2.5-pro. flash/pro 같은 alias는 Gemini CLI가 계정 접근 권한에 따라 실제 모델을 결정합니다. 설정을 바꾼 뒤 Gemini 세션을 Stop/Start 하세요.";
   }
 
   if (/Please set an Auth method/i.test(output)) {
@@ -10105,8 +10104,10 @@ function normalizeGeminiModelInput(value: string | undefined): string {
     "2.5-flash": "gemini-2.5-flash",
     "2.5-flash-lite": "gemini-2.5-flash-lite",
     "3-pro": "gemini-3-pro-preview",
-    "3-flash": "gemini-3-flash-preview",
+    "3-flash": "gemini-3-flash",
+    "3-flash-preview": "gemini-3-flash-preview",
     "3.1-pro": "gemini-3.1-pro-preview",
+    "3.1-flash-lite": "gemini-3.1-flash-lite",
     "3.5-flash": "gemini-3.5-flash"
   };
   if (aliases[compact]) {
@@ -10120,6 +10121,12 @@ function normalizeGeminiModelInput(value: string | undefined): string {
 
 function formatGeminiStatusModelLabel(value: string | undefined): string {
   const configured = normalizeGeminiModelInput(value) || DEFAULT_SETTINGS.geminiModel;
+  if (configured === "flash" || configured === "pro" || configured === "flash-lite") {
+    return `${configured} alias`;
+  }
+  if (configured === "auto") {
+    return "auto router";
+  }
   const resolved = getGeminiModelResolutionLabel(configured);
   return resolved === configured ? configured : `${configured} -> ${resolved}`;
 }
@@ -10128,13 +10135,13 @@ function getGeminiModelResolutionLabel(value: string | undefined): string {
   const configured = normalizeGeminiModelInput(value) || DEFAULT_SETTINGS.geminiModel;
   switch (configured) {
     case "flash":
-      return "gemini-2.5-flash";
+      return "access-dependent Gemini CLI flash alias";
     case "flash-lite":
-      return "gemini-2.5-flash-lite";
+      return "gemini-3.1-flash-lite";
     case "pro":
-      return "gemini-2.5-pro / gemini-3-pro-preview";
+      return "access-dependent Gemini CLI pro alias";
     case "auto":
-      return "Gemini CLI auto";
+      return "Gemini CLI auto router";
     default:
       return configured;
   }

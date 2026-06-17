@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.52`입니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.53`입니다.
 
 [English README](README.md)
 
@@ -62,8 +62,8 @@ Claude Code Agent Console은 로그인/제어 흐름과 일반 대화 흐름을 
 Gemini CLI는 Claude 일반 메시지와 같은 print-command 방식으로 실행합니다.
 
 - 시작 시 `gemini --version`으로 CLI가 PATH에서 보이는지 확인하고, prompt를 받기 전에 Gemini CLI 인증 방식이 설정되어 있는지도 확인합니다.
-- 일반 메시지는 `gemini --skip-trust --approval-mode yolo --output-format text --prompt=.`로 headless mode를 켜고, 실제 prompt는 stdin으로 전달합니다.
-- 설정에서 Gemini executable, model, approval mode, skip-trust, sandbox flag를 조정할 수 있습니다. Gemini 기본 모델은 `flash`입니다. 권장값은 `flash`, `pro`, `flash-lite`, `gemini-2.5-flash`, `gemini-2.5-pro`이며, `gemini-3.5-flash`처럼 사용자가 명시한 전체 모델명은 그대로 보존합니다. 단, 로그인 계정에 접근 권한이 없으면 Gemini CLI가 404를 반환할 수 있습니다.
+- 일반 메시지는 `gemini --skip-trust --approval-mode yolo --output-format text`로 실행하고, 실제 prompt는 stdin으로 전달합니다. Gemini CLI는 `--prompt` 값을 stdin 뒤에 붙이므로, 플러그인은 더 이상 dummy `--prompt=.`를 추가하지 않습니다.
+- 설정에서 Gemini executable, model, approval mode, skip-trust, sandbox flag를 조정할 수 있습니다. Gemini 기본 모델은 `flash`입니다. 권장값은 `flash`, `pro`, `flash-lite`, `gemini-3.5-flash`, `gemini-3-flash`, `gemini-2.5-flash`, `gemini-2.5-pro`입니다. `flash` 같은 CLI alias는 계정 접근 권한에 따라 Gemini CLI가 실제 모델로 해석하므로 UI에서는 특정 모델로 단정하지 않고 alias로 표시합니다. `gemini-3.5-flash`처럼 사용자가 명시한 전체 모델명은 그대로 보존합니다. 단, 로그인 계정에 접근 권한이 없으면 Gemini CLI가 404를 반환할 수 있습니다.
 - statusline에는 설정된 Gemini 모델/모드, 플러그인이 붙이는 transcript context meter, Gemini CLI text 출력에서 reliable usage를 제공하지 않는 경우 `usage n/a`를 표시합니다.
 - 일반 Gemini/Claude prompt에는 현재 CLI 실행 모델 설정을 함께 주입하므로, “현재 어떤 모델을 쓰는지” 질문에는 모델의 자기인식이 아니라 플러그인의 실행 설정 기준으로 답할 수 있습니다.
 - Gemini 응답도 장시간 작업을 고려해 10분 제한으로 끊지 않고, `Stop`을 누르면 현재 프로세스 트리를 종료합니다.
@@ -291,8 +291,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-git tag 0.6.52
-git push origin 0.6.52
+git tag 0.6.53
+git push origin 0.6.53
 ```
 
 릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.

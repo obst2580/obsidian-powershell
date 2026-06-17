@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.52`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.53`.
 
 [한국어 README](README.ko.md)
 
@@ -62,8 +62,8 @@ The Claude Code Agent Console separates normal chat turns from login/control pro
 Gemini CLI uses the same print-command shape as Claude normal chat turns.
 
 - Checks CLI availability with `gemini --version` and checks the Gemini CLI auth method before accepting prompts.
-- Sends normal prompts with `gemini --skip-trust --approval-mode yolo --output-format text --prompt=.` to enable headless mode, then passes the real prompt through stdin.
-- Settings expose Gemini executable, model, approval mode, skip-trust, and sandbox flags. The default Gemini model is `flash`; recommended values are `flash`, `pro`, `flash-lite`, `gemini-2.5-flash`, and `gemini-2.5-pro`. Explicit full model names such as `gemini-3.5-flash` are preserved; Gemini CLI may return 404 if the signed-in account lacks access.
+- Sends normal prompts with `gemini --skip-trust --approval-mode yolo --output-format text` and passes the real prompt through stdin. The plugin does not add a dummy `--prompt=.` argument, because Gemini CLI appends `--prompt` text to stdin.
+- Settings expose Gemini executable, model, approval mode, skip-trust, and sandbox flags. The default Gemini model is `flash`; recommended values are `flash`, `pro`, `flash-lite`, `gemini-3.5-flash`, `gemini-3-flash`, `gemini-2.5-flash`, and `gemini-2.5-pro`. CLI aliases such as `flash` are resolved by Gemini CLI according to account access, so the UI labels them as aliases instead of hard-coding them to one concrete model. Explicit full model names such as `gemini-3.5-flash` are preserved; Gemini CLI may return 404 if the signed-in account lacks access.
 - The statusline shows the configured Gemini model/mode, plugin transcript-context meter, and `usage n/a` because Gemini CLI text output does not expose reliable usage data.
 - Runtime model settings are injected into normal Gemini/Claude prompts, so "which model are you using?" can be answered from the plugin's CLI launch settings instead of unreliable model self-introspection.
 - Allows long-running work instead of enforcing a 10-minute response cutoff; press `Stop` to terminate the current process tree.
@@ -292,8 +292,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.52
-git push origin 0.6.52
+git tag 0.6.53
+git push origin 0.6.53
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.
