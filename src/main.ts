@@ -2205,15 +2205,7 @@ class VaultPowerShellView extends ItemView {
       }
 
       if (this.agentProvider === "gemini") {
-        const home = getUserHome();
-        const settingsPath = home ? join(home, ".gemini", "settings.json") : "~/.gemini/settings.json";
-        const message = `Gemini CLI login must be completed in an external terminal. Run gemini in PowerShell, choose an auth method, then restart Obsidian. Settings path: ${settingsPath}`;
-        new Notice("Gemini login is handled by the Gemini CLI in an external terminal.");
-        this.appendAgentTranscript({
-          id: this.nextLocalAgentEntryId("system"),
-          role: "system",
-          text: message
-        });
+        void this.startGeminiLoginFlow("Gemini CLI 구독/Google 로그인이 필요합니다.");
         return;
       }
 
@@ -3289,74 +3281,7 @@ class VaultPowerShellView extends ItemView {
       }
 
       await this.checkAgentLoginStatus(provider, cwd, env);
-
-      const shell = this.plugin.getShellExecutable();
-      const host = spawn(this.plugin.getNodeExecutable(), [this.plugin.getPtyHostPath(), encodeConfig({
-        shell,
-        args: this.plugin.getShellArgs(shell),
-        fallbackShells: this.plugin.getShellFallbacks(shell),
-        cols: AGENT_CONSOLE_COLS,
-        rows: AGENT_CONSOLE_ROWS,
-        cwd,
-        env,
-        windowsPtyBackend: this.plugin.settings.windowsPtyBackend
-      })], {
-        cwd: this.plugin.getPluginBasePath(),
-        env,
-        windowsHide: true
-      });
-
-      this.withAgentSession(sessionKey, () => {
-        this.agentHost = host;
-        this.agentHostReady = false;
-        this.startAgentSessionPolling();
-      });
-
-      host.stdout.on("data", (chunk: Buffer) => {
-        this.withAgentSession(sessionKey, () => this.handleAgentHostStdout(chunk.toString()));
-      });
-
-      host.stderr.on("data", (chunk: Buffer) => {
-        this.withAgentSession(sessionKey, () => {
-          this.appendAgentTranscript({
-            id: this.nextLocalAgentEntryId("system"),
-            role: "system",
-            text: stripTerminalControlSequences(chunk.toString()).trim() || chunk.toString()
-          });
-        });
-      });
-
-      host.on("error", (error: Error) => {
-        this.withAgentSession(sessionKey, () => {
-          const message = formatTerminalHostError(error, this.plugin);
-          this.setAgentStatus("Failed");
-          this.appendAgentTranscript({
-            id: this.nextLocalAgentEntryId("system"),
-            role: "system",
-            text: `Failed to start agent host: ${message}`
-          });
-        });
-      });
-
-      host.on("close", (code: number | null) => {
-        this.withAgentSession(sessionKey, () => {
-          // Flush any answer already written to the session log before teardown,
-          // so a response that landed right before the PTY died still appears.
-          this.pollAgentSessionLog();
-          // Host is gone — clear the "thinking" spinner so the turn isn't stuck.
-          this.clearCodexTurnLoadingIndicators();
-          this.setAgentStatus(`Exited ${code ?? "unknown"}`);
-          this.appendAgentTranscript({
-            id: this.nextLocalAgentEntryId("system"),
-            role: "system",
-            text: `에이전트 호스트가 종료되었습니다 (코드 ${code ?? "알 수 없음"}).`
-          });
-          this.agentHost = null;
-          this.agentHostReady = false;
-          this.agentReadyForInput = false;
-          this.stopAgentSessionPolling();
-        });
-      });
+      this.startAgentHost(sessionKey, cwd, env);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.withAgentSession(sessionKey, () => {
@@ -3369,6 +3294,76 @@ class VaultPowerShellView extends ItemView {
       });
       new Notice(`Failed to start ${getAgentProviderLabel(provider)}: ${message}`);
     }
+  }
+
+  private startAgentHost(sessionKey: string | null, cwd: string, env: { [key: string]: string | undefined }) {
+    const shell = this.plugin.getShellExecutable();
+    const host = spawn(this.plugin.getNodeExecutable(), [this.plugin.getPtyHostPath(), encodeConfig({
+      shell,
+      args: this.plugin.getShellArgs(shell),
+      fallbackShells: this.plugin.getShellFallbacks(shell),
+      cols: AGENT_CONSOLE_COLS,
+      rows: AGENT_CONSOLE_ROWS,
+      cwd,
+      env,
+      windowsPtyBackend: this.plugin.settings.windowsPtyBackend
+    })], {
+      cwd: this.plugin.getPluginBasePath(),
+      env,
+      windowsHide: true
+    });
+
+    this.withAgentSession(sessionKey, () => {
+      this.agentHost = host;
+      this.agentHostReady = false;
+      this.startAgentSessionPolling();
+    });
+
+    host.stdout.on("data", (chunk: Buffer) => {
+      this.withAgentSession(sessionKey, () => this.handleAgentHostStdout(chunk.toString()));
+    });
+
+    host.stderr.on("data", (chunk: Buffer) => {
+      this.withAgentSession(sessionKey, () => {
+        this.appendAgentTranscript({
+          id: this.nextLocalAgentEntryId("system"),
+          role: "system",
+          text: stripTerminalControlSequences(chunk.toString()).trim() || chunk.toString()
+        });
+      });
+    });
+
+    host.on("error", (error: Error) => {
+      this.withAgentSession(sessionKey, () => {
+        const message = formatTerminalHostError(error, this.plugin);
+        this.setAgentStatus("Failed");
+        this.appendAgentTranscript({
+          id: this.nextLocalAgentEntryId("system"),
+          role: "system",
+          text: `Failed to start agent host: ${message}`
+        });
+      });
+    });
+
+    host.on("close", (code: number | null) => {
+      this.withAgentSession(sessionKey, () => {
+        // Flush any answer already written to the session log before teardown,
+        // so a response that landed right before the PTY died still appears.
+        this.pollAgentSessionLog();
+        // Host is gone: clear the "thinking" spinner so the turn is not stuck.
+        this.clearCodexTurnLoadingIndicators();
+        this.setAgentStatus(`Exited ${code ?? "unknown"}`);
+        this.appendAgentTranscript({
+          id: this.nextLocalAgentEntryId("system"),
+          role: "system",
+          text: `에이전트 호스트가 종료되었습니다 (코드 ${code ?? "알 수 없음"}).`
+        });
+        this.agentHost = null;
+        this.agentHostReady = false;
+        this.agentReadyForInput = false;
+        this.stopAgentSessionPolling();
+      });
+    });
   }
 
   private handleAgentHostStdout(chunk: string) {
@@ -3684,14 +3679,17 @@ class VaultPowerShellView extends ItemView {
     }
 
     if (this.agentNeedsAuth && !this.isAgentInteractiveReplyAllowed(text)) {
-      const loginStarted = this.startAgentLoginFlow(`${getAgentProviderLabel(this.agentProvider)} login is required before normal messages can be sent.`);
-      new Notice(loginStarted ? "Starting Claude login." : "The agent is asking for login.");
+      const label = getAgentProviderLabel(this.agentProvider);
+      const loginStarted = this.agentProvider === "gemini"
+        ? await this.startGeminiLoginFlow(`${label} login is required before normal messages can be sent.`)
+        : this.startAgentLoginFlow(`${label} login is required before normal messages can be sent.`);
+      new Notice(loginStarted ? `Starting ${label} login.` : "The agent is asking for login.");
       this.appendAgentTranscript({
         id: this.nextLocalAgentEntryId("system"),
         role: "system",
         text: loginStarted
-          ? `${getAgentProviderLabel(this.agentProvider)} login is required before normal messages can be sent. Starting the login flow automatically.`
-          : `${getAgentProviderLabel(this.agentProvider)} login is required before normal messages can be sent. Answer the active login prompt in this console.`
+          ? `${label} login is required before normal messages can be sent. Starting the login flow automatically.`
+          : `${label} login is required before normal messages can be sent. Answer the active login prompt in this console.`
       });
       return;
     }
@@ -4009,7 +4007,7 @@ class VaultPowerShellView extends ItemView {
     }
 
     if (this.agentPromptState.mode === "auth") {
-      return /^\d+$/.test(text) || /^login$/i.test(text);
+      return /^\d+$/.test(text) || /^(?:login|auth)$/i.test(text);
     }
 
     return true;
@@ -4038,7 +4036,7 @@ class VaultPowerShellView extends ItemView {
       if (status.loggedIn === false) {
         this.agentAuthState = "login-required";
         this.agentConversationReady = false;
-        this.agentNeedsAuth = provider === "claude";
+        this.agentNeedsAuth = provider === "claude" || provider === "gemini";
         this.agentAutoLoginPending = provider === "claude";
         this.refreshAgentAuthStatus();
         return;
@@ -4079,7 +4077,11 @@ class VaultPowerShellView extends ItemView {
       }
 
       if (this.agentAuthState === "login-required") {
-        this.startAgentLoginFlow("Claude Code에 로그인이 필요합니다.");
+        if (this.agentProvider === "claude") {
+          this.startAgentLoginFlow("Claude Code에 로그인이 필요합니다.");
+        } else {
+          this.refreshAgentAuthStatus();
+        }
       } else {
         this.refreshAgentAuthStatus();
       }
@@ -4234,7 +4236,7 @@ class VaultPowerShellView extends ItemView {
 
     const authCompleted = hasAgentAuthSuccess(plainText);
     if (authCompleted) {
-      this.markAgentConversationReady("로그인이 완료되었습니다. Claude Code가 준비되었습니다.");
+      this.markAgentConversationReady(`로그인이 완료되었습니다. ${getAgentProviderLabel(this.agentProvider)}가 준비되었습니다.`);
     }
 
     if (hasAgentMcpAuthSuccess(plainText)) {
@@ -4292,7 +4294,11 @@ class VaultPowerShellView extends ItemView {
       this.agentConversationReady = false;
       this.agentAuthState = "login-required";
       this.agentNeedsAuth = true;
-      this.startAgentLoginFlow("Claude Code에 로그인이 필요합니다.");
+      if (this.agentProvider === "claude") {
+        this.startAgentLoginFlow("Claude Code에 로그인이 필요합니다.");
+      } else {
+        this.refreshAgentAuthStatus();
+      }
     } else if (!actionablePrompt && loginFlow) {
       this.agentConversationReady = false;
       this.agentAuthState = "login-in-progress";
@@ -4319,7 +4325,7 @@ class VaultPowerShellView extends ItemView {
         this.appendAgentTranscript({
           id: this.nextLocalAgentEntryId("system"),
           role: "system",
-          text: `Agent prompt:\n${notice}\n\nReply in the message box or use the quick actions below. ${getAgentProviderLabel(this.agentProvider)} login prompts and MCP connection screens are handled separately inside this console.`
+          text: `Agent prompt:\n${notice}\n\nReply in the message box or use the quick actions below. ${getAgentProviderLabel(this.agentProvider)} login prompts and connection screens are handled inside this console.`
         });
       }
     }
@@ -4457,6 +4463,120 @@ class VaultPowerShellView extends ItemView {
     return true;
   }
 
+  private async startGeminiLoginFlow(reason: string): Promise<boolean> {
+    if (this.agentProvider !== "gemini") {
+      this.refreshAgentAuthStatus();
+      return false;
+    }
+
+    const sessionKey = this.activeAgentSessionKey;
+    const cwd = this.plugin.getVaultPath();
+    if (!cwd) {
+      new Notice("This vault does not expose a local file-system path.");
+      return false;
+    }
+
+    if (this.agentHost && this.agentHostReady) {
+      this.agentConversationReady = false;
+      this.agentAuthState = "login-in-progress";
+      this.agentAutoLoginPending = false;
+      this.agentNeedsAuth = true;
+      this.agentReadyForInput = true;
+      this.setAgentStatus("Gemini CLI login in progress");
+      this.appendAgentTranscript({
+        id: this.nextLocalAgentEntryId("system"),
+        role: "system",
+        text: `${reason} Gemini CLI 인증 방식 선택 화면을 엽니다. 구독 계정은 Sign in with Google을 선택하세요.`
+      });
+      this.sendAgentHostMessage({ type: "data", data: "/auth\r" });
+      return true;
+    }
+
+    this.disposeAgent();
+    this.agentProvider = "gemini";
+    this.saveAgentViewState();
+    this.refreshAgentProviderButtons();
+
+    this.agentStartedAt = Date.now();
+    this.agentSessionPath = null;
+    this.agentSessionOffset = 0;
+    this.agentCurrentTurnStartedAt = 0;
+    this.agentSessionBaselineOffsets = snapshotAgentSessionOffsets("gemini", cwd);
+    this.agentSeenEntries.clear();
+    this.agentAuthState = "login-in-progress";
+    this.agentConversationReady = false;
+    this.agentReadyNoticeShown = false;
+    this.agentAutoLoginAttempted = false;
+    this.agentAutoLoginPending = false;
+    this.agentAutoMcpAttempted = false;
+    this.agentMcpAuthInProgress = false;
+    this.agentNeedsAuth = true;
+    this.agentPromptState = null;
+    this.agentOpenedExternalUrls.clear();
+    this.lastAgentLaunchCommand = "";
+    this.ensureGeminiSessionId();
+    this.refreshAgentPromptActions();
+    this.agentReadyForInput = false;
+    this.setAgentStatus("Starting Gemini CLI login...");
+    this.appendAgentTranscript({
+      id: this.nextLocalAgentEntryId("system"),
+      role: "system",
+      text: `${reason} Gemini CLI 로그인 화면을 플러그인 안에서 시작합니다 · ${cwd}`
+    });
+
+    try {
+      const env = buildProcessEnv({
+        useSystemCa: this.plugin.settings.useSystemCa,
+        extraCaCertPath: this.plugin.getExtraCaCertPath()
+      });
+      const availabilityFailure = await getGeminiCliAvailabilityFailure(cwd, env);
+      if (availabilityFailure) {
+        this.withAgentSession(sessionKey, () => {
+          this.agentAuthState = "login-required";
+          this.agentNeedsAuth = true;
+          this.setAgentStatus("Gemini CLI missing");
+          this.appendAgentTranscript({
+            id: this.nextLocalAgentEntryId("system"),
+            role: "system",
+            text: availabilityFailure.summary
+          });
+        });
+        return false;
+      }
+
+      const missingRuntimeFiles = this.plugin.getRuntimeMissingFiles();
+      if (missingRuntimeFiles.length > 0) {
+        if (!this.plugin.settings.autoInstallRuntime) {
+          throw new Error("Runtime files are missing. Use Settings > Obst Terminal > Runtime files first.");
+        }
+
+        await this.plugin.installRuntimeIfNeeded((message) => {
+          this.withAgentSession(sessionKey, () => this.setAgentStatus(message));
+        });
+      }
+
+      this.withAgentSession(sessionKey, () => {
+        this.agentAuthState = "login-in-progress";
+        this.agentNeedsAuth = true;
+        this.setAgentStatus("Gemini CLI login in progress");
+        this.startAgentHost(sessionKey, cwd, env);
+      });
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.withAgentSession(sessionKey, () => {
+        this.setAgentStatus("Failed");
+        this.appendAgentTranscript({
+          id: this.nextLocalAgentEntryId("system"),
+          role: "system",
+          text: `Failed to start Gemini CLI login: ${message}`
+        });
+      });
+      new Notice(`Failed to start Gemini CLI login: ${message}`);
+      return false;
+    }
+  }
+
   private startAgentMcpFlow(reason: string): boolean {
     if (this.agentProvider !== "claude" || this.agentAutoMcpAttempted || !this.agentHost || !this.agentHostReady) {
       this.refreshAgentAuthStatus();
@@ -4476,7 +4596,7 @@ class VaultPowerShellView extends ItemView {
   }
 
   private noteAgentControlFlow(text: string) {
-    if (/\/login\b/i.test(text)) {
+    if (/\/(?:login|auth)\b/i.test(text)) {
       if (this.agentPromptState?.mode === "mcp") {
         this.agentMcpAuthInProgress = false;
         this.refreshAgentAuthStatus();
@@ -4621,12 +4741,18 @@ class VaultPowerShellView extends ItemView {
     if (!this.isVisibleAgentSessionContext()) {
       return;
     }
-    const loading = isAgentLoadingStatus(text);
-    this.agentStatusEl?.setText(text);
+    const activePrintTurn = this.agentPrintTurnRuntime && !this.agentPrintTurnRuntime.settled
+      ? this.agentPrintTurnRuntime
+      : null;
+    const displayText = activePrintTurn && !isAgentLoadingStatus(text)
+      ? `Waiting for ${getAgentProviderLabel(activePrintTurn.provider)} response...`
+      : text;
+    const loading = !!activePrintTurn || this.codexTurnActive || isAgentLoadingStatus(displayText);
+    this.agentStatusEl?.setText(displayText);
     this.agentStatusEl?.toggleClass("is-loading", loading);
     this.agentLoadingEl?.toggleClass("is-hidden", !loading);
     if (this.agentLoadingTextEl) {
-      this.agentLoadingTextEl.setText(text);
+      this.agentLoadingTextEl.setText(displayText);
     }
   }
 
@@ -5810,7 +5936,7 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
 
     new Setting(advancedEl)
       .setName("Install runtime automatically")
-      .setDesc("Optional. Downloads the verified OS-specific runtime package when the Claude Code control runtime is missing or out of date.")
+      .setDesc("Optional. Downloads the verified OS-specific runtime package when the interactive agent control runtime is missing or out of date.")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.autoInstallRuntime)
@@ -5823,7 +5949,7 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
     if (process.platform === "win32") {
       new Setting(advancedEl)
         .setName("Windows PTY backend")
-        .setDesc("Used only for the background Claude Code control process. ConPTY is the default on modern Windows.")
+        .setDesc("Used only for background interactive agent control processes. ConPTY is the default on modern Windows.")
         .addDropdown((dropdown) =>
           dropdown
             .addOption("conpty", "ConPTY")
@@ -7217,7 +7343,7 @@ function getAgentLaunchCommand(provider: AgentProvider, settings: PowerShellSett
     return `claude${sessionArgs} --strict-mcp-config --permission-mode bypassPermissions`;
   }
   if (provider === "gemini") {
-    return "gemini --skip-trust";
+    return "gemini --skip-trust --screen-reader";
   }
 
   // codex resume --last reopens the most recent interactive session (PTY path).
@@ -7416,7 +7542,7 @@ function getGeminiAuthConfiguration(cwd: string, env: { [key: string]: string | 
       failure: {
         checked: true,
         loggedIn: false,
-        summary: `Gemini CLI 인증 정책이 현재 설정과 맞지 않습니다. 강제 인증 방식은 ${describeGeminiAuthType(settings.enforcedType)}${settings.enforcedSource ? ` (${settings.enforcedSource})` : ""}인데, 현재 방식은 ${current}입니다. 외부 터미널에서 gemini를 실행해 같은 인증 방식으로 다시 설정하세요.`,
+        summary: `Gemini CLI 인증 정책이 현재 설정과 맞지 않습니다. 강제 인증 방식은 ${describeGeminiAuthType(settings.enforcedType)}${settings.enforcedSource ? ` (${settings.enforcedSource})` : ""}인데, 현재 방식은 ${current}입니다. Agent Console에서 Gemini를 선택한 뒤 Login을 눌러 같은 인증 방식으로 다시 설정하세요.`,
         detail
       }
     };
@@ -7454,7 +7580,7 @@ function createMissingGeminiAuthMethodCheck(detail = ""): AgentAuthCheck {
   return {
     checked: true,
     loggedIn: false,
-    summary: `Gemini CLI 인증 방식이 설정되어 있지 않습니다. 현재 로그인된 Gemini 계정을 확인할 수 없습니다. 일반 PowerShell에서 gemini를 실행해 Sign in with Google을 완료하거나 ${settingsPath}의 security.auth.selectedType을 설정하세요. API 방식이면 GEMINI_API_KEY, GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_GENAI_USE_GCA 중 하나를 환경변수나 .env에 설정한 뒤 Obsidian을 완전히 재시작하세요.`,
+    summary: `Gemini CLI 인증 방식이 설정되어 있지 않습니다. Agent Console에서 Gemini를 선택한 뒤 Login을 눌러 Sign in with Google 구독 로그인을 진행하거나 ${settingsPath}의 security.auth.selectedType을 설정하세요. API 방식이면 GEMINI_API_KEY, GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_GENAI_USE_GCA 중 하나를 환경변수나 .env에 설정한 뒤 Obsidian을 완전히 재시작하세요.`,
     detail
   };
 }
@@ -7464,7 +7590,7 @@ function getGeminiAuthValidationFailure(authType: string, env: Record<string, st
     return {
       checked: true,
       loggedIn: false,
-      summary: `Gemini CLI 인증 방식 ${authType}은 현재 플러그인에서 유효한 실행 방식으로 확인되지 않았습니다. 외부 터미널에서 gemini를 실행해 인증 방식을 다시 선택하세요.`,
+      summary: `Gemini CLI 인증 방식 ${authType}은 현재 플러그인에서 유효한 실행 방식으로 확인되지 않았습니다. Agent Console에서 Gemini를 선택한 뒤 Login을 눌러 인증 방식을 다시 선택하세요.`,
       detail
     };
   }
@@ -7901,7 +8027,7 @@ function formatGeminiAuthErrorOutput(output: string): string | null {
   if (/Please set an Auth method/i.test(output)) {
     const home = getUserHome();
     const settingsPath = home ? join(home, ".gemini", "settings.json") : "~/.gemini/settings.json";
-    return `Gemini CLI 인증 방식이 설정되어 있지 않습니다. 일반 PowerShell에서 gemini를 실행해 Sign in with Google을 완료하거나 ${settingsPath}의 security.auth.selectedType을 설정하세요. API 방식이면 GEMINI_API_KEY, GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_GENAI_USE_GCA 중 하나를 환경변수나 .env에 설정한 뒤 Obsidian을 완전히 재시작하세요.`;
+    return `Gemini CLI 인증 방식이 설정되어 있지 않습니다. Agent Console에서 Gemini를 선택한 뒤 Login을 눌러 Sign in with Google 구독 로그인을 진행하거나 ${settingsPath}의 security.auth.selectedType을 설정하세요. API 방식이면 GEMINI_API_KEY, GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_GENAI_USE_GCA 중 하나를 환경변수나 .env에 설정한 뒤 Obsidian을 완전히 재시작하세요.`;
   }
 
   if (/When using Gemini API[\s\S]*GEMINI_API_KEY/i.test(output)) {
@@ -7913,7 +8039,7 @@ function formatGeminiAuthErrorOutput(output: string): string | null {
   }
 
   if (/Invalid auth method selected/i.test(output) || /enforced authentication type|auth type .* is enforced/i.test(output)) {
-    return `Gemini CLI 인증 설정이 현재 실행 방식과 맞지 않습니다. 외부 터미널에서 gemini를 실행해 인증 방식을 다시 선택하세요.\n\n${output}`;
+    return `Gemini CLI 인증 설정이 현재 실행 방식과 맞지 않습니다. Agent Console에서 Gemini를 선택한 뒤 Login을 눌러 인증 방식을 다시 선택하세요.\n\n${output}`;
   }
 
   return null;
@@ -8563,7 +8689,8 @@ function getAgentPromptActions(mode: AgentPromptMode, text: string, urls: string
   }
 
   if (mode !== "auth-code" && !mcpPrompt && (mode === "auth" || isAgentLoginPromptText(text, urls))) {
-    actions.push({ label: "/login", data: "/login\r", description: "Start the agent login flow." });
+    const loginCommand = isGeminiAuthPromptText(text) ? "/auth" : "/login";
+    actions.push({ label: loginCommand, data: `${loginCommand}\r`, description: "Start the agent login flow." });
   }
 
   if (mcpPrompt) {
@@ -8695,8 +8822,12 @@ function isAgentControlPromptLine(line: string): boolean {
 
   return /^>\s*\/login\b/i.test(value) ||
     /^\/login\b/i.test(value) ||
+    /^>\s*\/auth\b/i.test(value) ||
+    /^\/auth\b/i.test(value) ||
     /^login$/i.test(value) ||
+    /^auth$/i.test(value) ||
     /^select login method\b/i.test(value) ||
+    isGeminiAuthPromptText(value) ||
     /^please run\s+\/login\b/i.test(value) ||
     /^api error:\s*401\b/i.test(value) ||
     /\b401 invalid authentication credentials\b/i.test(value) ||
@@ -8741,6 +8872,7 @@ function isAgentPromptContextLine(line: string): boolean {
     /^(?:view tools|re-authenticate|clear authentication|reconnect|disable)\b/i.test(value) ||
     /^claude\.ai\b/i.test(value) ||
     /^claude code can be used\b/i.test(value) ||
+    isGeminiAuthPromptText(value) ||
     /^use the url below\b/i.test(value);
 }
 
@@ -8757,7 +8889,7 @@ function isAgentHookWarningLine(line: string): boolean {
 }
 
 function hasAgentAuthSuccess(text: string): boolean {
-  return /logged in|login successful|already logged in/i.test(text);
+  return /logged in|login successful|already logged in|signed in|sign[- ]?in successful|authenticated successfully|successfully authenticated|authentication successful/i.test(text);
 }
 
 function hasAgentMcpAuthSuccess(text: string): boolean {
@@ -8802,7 +8934,7 @@ function extractMcpEnvVarName(text: string): string | null {
 }
 
 function isAgentLoginRequiredText(text: string): boolean {
-  return /please run\s+\/login\b|api error:\s*401\b.*invalid authentication credentials|401 invalid authentication credentials/i.test(text);
+  return /please run\s+\/login\b|api error:\s*401\b.*invalid authentication credentials|401 invalid authentication credentials|please set an auth method|auth method .*not configured|not authenticated|sign in required/i.test(text);
 }
 
 function isAgentLoginFlowText(text: string): boolean {
@@ -8810,7 +8942,11 @@ function isAgentLoginFlowText(text: string): boolean {
   return urls.some((url) => isAgentLoginUrl(url)) ||
     /^>\s*\/login\b/im.test(text) ||
     /^\/login\b/im.test(text) ||
+    /^>\s*\/auth\b/im.test(text) ||
+    /^\/auth\b/im.test(text) ||
     /^login$/im.test(text) ||
+    /^auth$/im.test(text) ||
+    isGeminiAuthPromptText(text) ||
     /select login method|please run\s+\/login\b/i.test(text) ||
     /browser didn't open.*sign in|use the url below to sign in/i.test(text) ||
     (isAgentLoginCodePromptText(text) && /login|sign in/i.test(text));
@@ -8820,7 +8956,11 @@ function isAgentLoginPromptText(text: string, urls = extractHttpUrls(text)): boo
   return urls.some((url) => isAgentLoginUrl(url)) ||
     /^>\s*\/login\b/im.test(text) ||
     /^\/login\b/im.test(text) ||
+    /^>\s*\/auth\b/im.test(text) ||
+    /^\/auth\b/im.test(text) ||
     /^login$/im.test(text) ||
+    /^auth$/im.test(text) ||
+    isGeminiAuthPromptText(text) ||
     /select login method|please run\s+\/login\b/i.test(text) ||
     /api error:\s*401\b.*invalid authentication credentials|401 invalid authentication credentials/i.test(text) ||
     /browser didn't open.*sign in|use the url below to sign in/i.test(text);
@@ -8828,7 +8968,11 @@ function isAgentLoginPromptText(text: string, urls = extractHttpUrls(text)): boo
 
 function isAgentLoginCodePromptText(text: string): boolean {
   return /paste code here|paste code|authorization code|verification code/i.test(text) &&
-    /login|sign in|browser|claude\.com|claude\.ai|anthropic\.com|oauth|authorize/i.test(text);
+    /login|sign in|browser|claude\.com|claude\.ai|anthropic\.com|google|gemini|oauth|authorize/i.test(text);
+}
+
+function isGeminiAuthPromptText(text: string): boolean {
+  return /gemini cli.*auth|how would you like to authenticate|select.*auth(?:entication)? method|sign in with google|google login|google account|google auth|oauth-personal|login with google|use.*google account/i.test(text);
 }
 
 function isAgentConversationReadyText(text: string): boolean {
@@ -8909,6 +9053,10 @@ function isAgentLoginUrl(url: string): boolean {
     return true;
   }
 
+  if (isGoogleAuthHost(host) && isGoogleAuthPath(path)) {
+    return true;
+  }
+
   return isClaudeHost(host) && isAuthPath(path);
 }
 
@@ -8926,6 +9074,16 @@ function isMcpHelpUrl(url: string): boolean {
   const host = parsed.hostname.toLowerCase();
   const path = parsed.pathname.toLowerCase();
   return isClaudeHost(host) && /\/docs\/[^?#]*\/mcp(?:\/|$)/i.test(path);
+}
+
+function isGoogleAuthHost(host: string): boolean {
+  return host === "accounts.google.com" ||
+    host === "oauth2.googleapis.com" ||
+    host.endsWith(".accounts.google.com");
+}
+
+function isGoogleAuthPath(path: string): boolean {
+  return isAuthPath(path) || /(?:^|\/)(?:signin|servicelogin|o\/oauth2|device)(?:\/|$)/i.test(path);
 }
 
 function isClaudeHost(host: string): boolean {

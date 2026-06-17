@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.42`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.43`.
 
 [한국어 README](README.ko.md)
 
@@ -61,7 +61,8 @@ Gemini CLI uses the same print-command shape as Claude normal chat turns.
 - Sends normal prompts with `gemini --skip-trust --approval-mode yolo --output-format text --prompt=.` to enable headless mode, then passes the real prompt through stdin.
 - Allows long-running work instead of enforcing a 10-minute response cutoff; press `Stop` to terminate the current process tree.
 - Does not use native Gemini `--resume` by default, because several plugin tabs can otherwise attach to the same latest Gemini session. The plugin keeps tabs separated with transcript context and a local Gemini session id.
-- Gemini auth is managed by the Gemini CLI, not by an embedded plugin login flow. Run `gemini` in a normal terminal and choose an auth method such as Sign in with Google, or configure `security.auth.selectedType` in `~/.gemini/settings.json`.
+- Gemini subscription login is started from the Agent Console `Login` button. The plugin opens interactive `gemini --skip-trust --screen-reader` inside its control PTY, then lets the Gemini CLI handle Sign in with Google and write its own auth settings.
+- If a Gemini CLI session is already open, `Login` sends `/auth` so you can change or repair the selected auth method from inside the plugin.
 - For API or Vertex modes, configure `GEMINI_API_KEY`, `GOOGLE_GENAI_USE_VERTEXAI`, or `GOOGLE_GENAI_USE_GCA` in the OS environment or a Gemini-readable `.env`, then fully restart Obsidian.
 - If Gemini CLI is missing or auth is not configured, Start shows a clear install/PATH/auth hint before a prompt is sent.
 
@@ -129,7 +130,7 @@ main.js
 styles.css
 ```
 
-Obst Terminal also needs a native `node-pty` runtime for Claude Code login/control flows. If the runtime is missing or out of date, the plugin reads `runtime-manifest.json` from the matching GitHub Release, downloads the OS-specific runtime ZIP, verifies size and SHA-256, and extracts it into the plugin folder.
+Obst Terminal also needs a native `node-pty` runtime for interactive Claude Code and Gemini CLI login/control flows. If the runtime is missing or out of date, the plugin reads `runtime-manifest.json` from the matching GitHub Release, downloads the OS-specific runtime ZIP, verifies size and SHA-256, and extracts it into the plugin folder.
 
 Runtime commands and settings:
 
@@ -215,8 +216,8 @@ Advanced settings:
 | Setting | Behavior |
 | --- | --- |
 | `Node executable` | Point to Node.js when it is not on PATH. |
-| `Runtime files` | Install or reinstall the native runtime used only for Claude Code login/control flows. |
-| `Windows PTY backend` | Choose the Claude Code control PTY backend on Windows. |
+| `Runtime files` | Install or reinstall the native runtime used for interactive Claude Code and Gemini CLI login/control flows. |
+| `Windows PTY backend` | Choose the interactive agent control PTY backend on Windows. |
 | `Install runtime automatically` | Allows automatic native runtime installation. |
 | `Use system certificate store` | Injects Node system CA behavior for Node-based CLIs. |
 | `Extra CA certificate` | Provides a custom PEM certificate path. |
@@ -281,15 +282,15 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.42
-git push origin 0.6.42
+git tag 0.6.43
+git push origin 0.6.43
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.
 
 ## Security
 
-Obst Terminal no longer starts a raw local shell by default. It may use a separate Node.js PTY host process only for Claude Code login/control flows.
+Obst Terminal no longer starts a raw local shell by default. It may use a separate Node.js PTY host process only for interactive Claude Code and Gemini CLI login/control flows.
 
 - Claude Code, Codex CLI, or Gemini CLI processes started from Agent Console run with your local OS user permissions.
 - Those CLI processes can access local files, network resources, and credentials according to the CLI and OS permissions.
