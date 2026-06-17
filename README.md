@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.47`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.48`.
 
 [한국어 README](README.ko.md)
 
@@ -39,6 +39,7 @@ The Codex Agent Console uses `codex app-server` by default instead of embedding 
 - Queues additional messages while Codex is still answering.
 - Shows a statusline with cwd, git branch, selected model, context usage, and 5h/7d rate-limit meters.
 - Buffers streaming deltas before rendering so Obsidian stays responsive during long answers.
+- Settings expose Codex executable, app-server mode, default model, approval policy, and login method.
 
 ### Claude Code
 
@@ -46,6 +47,8 @@ The Claude Code Agent Console separates normal chat turns from login/control pro
 
 - Checks login with `claude auth status --json`.
 - Sends normal prompts through a session-specific `claude --session-id <uuid> --strict-mcp-config --permission-mode bypassPermissions --output-format json -p`.
+- Settings expose Claude executable, model, effort, permission mode, and strict MCP behavior.
+- The statusline shows the configured Claude model/mode, plugin transcript-context meter, and any usage summary available in Claude's JSON output.
 - Reads Claude's JSON `session_id` after each print turn and keeps the plugin tab bound to the actual Claude Code session.
 - Passes the prompt through stdin and waits for the `claude` process to finish, allowing long-running skills such as audio transcription or large document analysis.
 - If Claude reports that the session ID is already in use, the console retries once with `--resume <sessionId> --fork-session` so the fallback keeps the previous Claude context instead of starting from an empty UUID.
@@ -59,6 +62,8 @@ Gemini CLI uses the same print-command shape as Claude normal chat turns.
 
 - Checks CLI availability with `gemini --version` and checks the Gemini CLI auth method before accepting prompts.
 - Sends normal prompts with `gemini --skip-trust --approval-mode yolo --output-format text --prompt=.` to enable headless mode, then passes the real prompt through stdin.
+- Settings expose Gemini executable, model, approval mode, skip-trust, and sandbox flags.
+- The statusline shows the configured Gemini model/mode, plugin transcript-context meter, and `usage n/a` because Gemini CLI text output does not expose reliable usage data.
 - Allows long-running work instead of enforcing a 10-minute response cutoff; press `Stop` to terminate the current process tree.
 - Does not use native Gemini `--resume` by default, because several plugin tabs can otherwise attach to the same latest Gemini session. The plugin keeps tabs separated with transcript context and a local Gemini session id.
 - Gemini subscription login is started from the Agent Console `Login` button. The plugin opens interactive `gemini --skip-trust --screen-reader` inside its control PTY with `NO_BROWSER=true`, then lets the Gemini CLI handle Sign in with Google through the manual URL/code flow and write its own auth settings.
@@ -285,8 +290,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.47
-git push origin 0.6.47
+git tag 0.6.48
+git push origin 0.6.48
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.

@@ -131,6 +131,16 @@ interface PowerShellSettings {
   codexApprovalPolicy: CodexApprovalPolicy;
   codexLoginMethod: CodexLoginMethod;
   codexModel: string;
+  claudeExecutable: string;
+  claudeModel: string;
+  claudeEffort: ClaudeEffort;
+  claudePermissionMode: ClaudePermissionMode;
+  claudeStrictMcpConfig: boolean;
+  geminiExecutable: string;
+  geminiModel: string;
+  geminiApprovalMode: GeminiApprovalMode;
+  geminiSkipTrust: boolean;
+  geminiSandbox: boolean;
   windowsPtyBackend: WindowsPtyBackend;
   autoInstallRuntime: boolean;
   useSystemCa: boolean;
@@ -145,6 +155,9 @@ type ShiftEnterMode = "bracketed-paste" | "claude-backslash" | "xterm-paste" | "
 type WindowsPtyBackend = "winpty" | "conpty";
 type CodexApprovalPolicy = "untrusted" | "on-failure" | "on-request" | "never";
 type CodexLoginMethod = "browser" | "device-code";
+type ClaudePermissionMode = "acceptEdits" | "auto" | "bypassPermissions" | "default" | "dontAsk" | "plan";
+type ClaudeEffort = "" | "low" | "medium" | "high" | "xhigh" | "max";
+type GeminiApprovalMode = "default" | "auto_edit" | "yolo" | "plan";
 type ShellProfile = "auto" | "pwsh" | "windows-powershell" | "cmd" | "wsl" | "git-bash" | "zsh" | "bash" | "custom";
 type ViewPane = "agent" | "terminal";
 type AgentProvider = "claude" | "codex" | "gemini";
@@ -184,6 +197,7 @@ interface AgentWorkspaceSessionState extends Record<string, unknown> {
   geminiScrollTop?: number;
   inputText?: string;
   statusText?: string;
+  agentLastUsageText?: string | null;
   createdAt: number;
   updatedAt: number;
   claudeTranscriptEl?: HTMLElement | null;
@@ -450,6 +464,16 @@ const DEFAULT_SETTINGS: PowerShellSettings = {
   codexApprovalPolicy: "on-request",
   codexLoginMethod: "browser",
   codexModel: "",
+  claudeExecutable: "",
+  claudeModel: "",
+  claudeEffort: "",
+  claudePermissionMode: "bypassPermissions",
+  claudeStrictMcpConfig: true,
+  geminiExecutable: "",
+  geminiModel: "",
+  geminiApprovalMode: "yolo",
+  geminiSkipTrust: true,
+  geminiSandbox: false,
   windowsPtyBackend: "conpty",
   autoInstallRuntime: true,
   useSystemCa: false,
@@ -583,6 +607,16 @@ export default class VaultPowerShellPlugin extends Plugin {
     this.settings.codexApprovalPolicy = normalizeCodexApprovalPolicy(this.settings.codexApprovalPolicy);
     this.settings.codexLoginMethod = normalizeCodexLoginMethod(this.settings.codexLoginMethod);
     this.settings.codexModel = this.settings.codexModel?.trim() ?? "";
+    this.settings.claudeExecutable = this.settings.claudeExecutable?.trim() ?? "";
+    this.settings.claudeModel = this.settings.claudeModel?.trim() ?? "";
+    this.settings.claudeEffort = normalizeClaudeEffort(this.settings.claudeEffort);
+    this.settings.claudePermissionMode = normalizeClaudePermissionMode(this.settings.claudePermissionMode);
+    this.settings.claudeStrictMcpConfig = this.settings.claudeStrictMcpConfig !== false;
+    this.settings.geminiExecutable = this.settings.geminiExecutable?.trim() ?? "";
+    this.settings.geminiModel = this.settings.geminiModel?.trim() ?? "";
+    this.settings.geminiApprovalMode = normalizeGeminiApprovalMode(this.settings.geminiApprovalMode);
+    this.settings.geminiSkipTrust = this.settings.geminiSkipTrust !== false;
+    this.settings.geminiSandbox = this.settings.geminiSandbox === true;
     this.settings.windowsPtyBackend = normalizeWindowsPtyBackend(this.settings.windowsPtyBackend);
     this.settings.autoInstallRuntime = this.settings.autoInstallRuntime === true;
     this.settings.persistAgentTranscriptSnapshots = this.settings.persistAgentTranscriptSnapshots === true;
@@ -1147,6 +1181,7 @@ class VaultPowerShellView extends ItemView {
   private agentStdoutBuffer = "";
   private agentStatusEl: HTMLElement | null = null;
   private agentStatusText = "Idle";
+  private agentLastUsageText: string | null = null;
   private agentTranscriptEl: HTMLElement | null = null;
   private claudeTranscriptEl: HTMLElement | null = null;
   private codexTranscriptEl: HTMLElement | null = null;
@@ -1578,6 +1613,7 @@ class VaultPowerShellView extends ItemView {
     session.agentSeenEntries ??= new Set<string>();
     session.agentLocalMessageCounter ??= 0;
     session.agentLastRawNotice ??= "";
+    session.agentLastUsageText ??= null;
     session.agentAuthState ??= "idle";
     session.agentConversationReady ??= false;
     session.agentReadyNoticeShown ??= false;
@@ -1644,6 +1680,9 @@ class VaultPowerShellView extends ItemView {
     this.agentSeenEntries = session.agentSeenEntries ?? new Set<string>();
     this.agentLocalMessageCounter = session.agentLocalMessageCounter ?? 0;
     this.agentLastRawNotice = session.agentLastRawNotice ?? "";
+    this.agentLastUsageText = typeof session.agentLastUsageText === "string" && session.agentLastUsageText.trim()
+      ? session.agentLastUsageText.trim()
+      : null;
     this.agentAuthState = session.agentAuthState ?? "idle";
     this.agentConversationReady = session.agentConversationReady ?? false;
     this.agentReadyNoticeShown = session.agentReadyNoticeShown ?? false;
@@ -1736,6 +1775,7 @@ class VaultPowerShellView extends ItemView {
     session.agentSeenEntries = this.agentSeenEntries;
     session.agentLocalMessageCounter = this.agentLocalMessageCounter;
     session.agentLastRawNotice = this.agentLastRawNotice;
+    session.agentLastUsageText = this.agentLastUsageText;
     session.agentAuthState = this.agentAuthState;
     session.agentConversationReady = this.agentConversationReady;
     session.agentReadyNoticeShown = this.agentReadyNoticeShown;
@@ -2340,6 +2380,12 @@ class VaultPowerShellView extends ItemView {
     this.agentProviderButtons.gemini?.toggleClass("is-active", this.agentProvider === "gemini");
     this.renderAgentProviderIndicator();
     this.agentInputEl?.setAttr("placeholder", `Message to ${getAgentProviderLabel(this.agentProvider)}. @all, @codex, @claude, @gemini, or @"session title" delegates to other tabs.`);
+    this.refreshAgentOptionsRow();
+    this.refreshCodexStatusLine();
+  }
+
+  private refreshAgentOptionsRow() {
+    this.codexOptionsRow?.toggleClass("is-hidden", this.agentProvider !== "codex" || this.codexModels.length === 0);
   }
 
   private renderAgentProviderIndicator() {
@@ -2663,8 +2709,12 @@ class VaultPowerShellView extends ItemView {
   }
 
   private getAgentTranscriptContextText(): string {
+    return this.getAgentTranscriptContextSnapshot().text;
+  }
+
+  private getAgentTranscriptContextSnapshot(): { text: string; originalChars: number; usedChars: number; percent: number } {
     if (!this.agentTranscriptEl) {
-      return "";
+      return { text: "", originalChars: 0, usedChars: 0, percent: 0 };
     }
 
     const parts: string[] = [];
@@ -2696,7 +2746,12 @@ class VaultPowerShellView extends ItemView {
     }
 
     const context = parts.join("\n\n").trim();
-    return truncateStart(context, AGENT_TRANSCRIPT_CONTEXT_MAX_CHARS);
+    const text = truncateStart(context, AGENT_TRANSCRIPT_CONTEXT_MAX_CHARS);
+    const usedChars = Math.min(context.length, AGENT_TRANSCRIPT_CONTEXT_MAX_CHARS);
+    const percent = AGENT_TRANSCRIPT_CONTEXT_MAX_CHARS > 0
+      ? Math.min(100, Math.max(0, (usedChars / AGENT_TRANSCRIPT_CONTEXT_MAX_CHARS) * 100))
+      : 0;
+    return { text, originalChars: context.length, usedChars, percent };
   }
 
   // Start one Codex turn and mark it active so further input queues instead of
@@ -2794,20 +2849,19 @@ class VaultPowerShellView extends ItemView {
     if (!this.codexStatusLineEl || !this.isVisibleAgentSessionContext()) {
       return;
     }
-    const visible = this.agentProvider === "codex";
-    this.codexStatusLineEl.toggleClass("is-hidden", !visible);
-    if (!visible) {
-      return;
-    }
-
+    this.codexStatusLineEl.toggleClass("is-hidden", false);
     this.codexStatusLineEl.empty();
     const cwd = this.plugin.getVaultPath() ?? "";
-    const pathText = this.getCodexStatusPath(cwd);
+    const pathText = this.getAgentStatusPath(cwd);
     this.renderStatusTextSegment(pathText, "vault-agent-statusline-path");
-    this.renderStatusTextSegment(this.getSelectedCodexModelLabel(), "vault-agent-statusline-model");
-    this.renderStatusMeterSegment("ctx", this.codexContextPercent, null);
-    for (const window of this.codexRateLimitWindows) {
-      this.renderStatusMeterSegment(window.label, window.usedPercent, window.resetsAt ?? null);
+    this.renderStatusTextSegment(this.getSelectedAgentModelLabel(), "vault-agent-statusline-model");
+    this.renderStatusMeterSegment("ctx", this.getAgentContextPercent(), null);
+    if (this.agentProvider === "codex") {
+      for (const window of this.codexRateLimitWindows) {
+        this.renderStatusMeterSegment(window.label, window.usedPercent, window.resetsAt ?? null);
+      }
+    } else {
+      this.renderStatusTextSegment(`usage ${this.agentLastUsageText ?? "n/a"}`, "vault-agent-statusline-usage");
     }
   }
 
@@ -2855,7 +2909,7 @@ class VaultPowerShellView extends ItemView {
     }
   }
 
-  private getCodexStatusPath(cwd: string): string {
+  private getAgentStatusPath(cwd: string): string {
     const path = cwd ? formatStatusPath(cwd) : "No vault path";
     return this.codexGitBranch ? `${path}  git:${this.codexGitBranch}` : path;
   }
@@ -2863,12 +2917,31 @@ class VaultPowerShellView extends ItemView {
   private async refreshCodexGitBranch(cwd: string, sessionKey: string | null = this.activeAgentSessionKey) {
     const branch = await readGitBranchAsync(cwd);
     this.withAgentSession(sessionKey, () => {
-      if (this.agentProvider !== "codex" || this.plugin.getVaultPath() !== cwd) {
+      if (this.plugin.getVaultPath() !== cwd) {
         return;
       }
       this.codexGitBranch = branch;
       this.refreshCodexStatusLine();
     });
+  }
+
+  private getSelectedAgentModelLabel(): string {
+    if (this.agentProvider === "codex") {
+      return this.getSelectedCodexModelLabel();
+    }
+    if (this.agentProvider === "claude") {
+      const pieces = [this.plugin.settings.claudeModel || "Claude", this.plugin.settings.claudeEffort].filter(Boolean);
+      return pieces.join(" · ");
+    }
+    const pieces = [this.plugin.settings.geminiModel || "Gemini", this.plugin.settings.geminiApprovalMode].filter(Boolean);
+    return pieces.join(" · ");
+  }
+
+  private getAgentContextPercent(): number | null {
+    if (this.agentProvider === "codex") {
+      return this.codexContextPercent;
+    }
+    return this.getAgentTranscriptContextSnapshot().percent;
   }
 
   private getSelectedCodexModelLabel(): string {
@@ -3005,7 +3078,7 @@ class VaultPowerShellView extends ItemView {
         if (this.codexModelSelect) {
           this.codexModelSelect.value = models[0].id;
         }
-        this.codexOptionsRow?.removeClass("is-hidden");
+        this.refreshAgentOptionsRow();
       }
       this.onCodexModelChange();
       this.refreshCodexStatusLine();
@@ -3218,6 +3291,9 @@ class VaultPowerShellView extends ItemView {
     this.agentProvider = provider;
     this.saveAgentViewState();
     this.refreshAgentProviderButtons();
+    this.codexGitBranch = null;
+    this.refreshCodexStatusLine();
+    void this.refreshCodexGitBranch(cwd, sessionKey);
 
     if (provider === "codex" && this.plugin.settings.codexUseAppServer) {
       await this.startCodexBackend(cwd);
@@ -3836,8 +3912,10 @@ class VaultPowerShellView extends ItemView {
     if (provider === "claude") {
       this.agentClaudePrintTurnActive = true;
     }
+    this.agentLastUsageText = null;
     this.clearAgentPromptState();
     this.setAgentStatus(`Waiting for ${getAgentProviderLabel(provider)} response...`);
+    this.refreshCodexStatusLine();
     try {
       const env = buildProcessEnv({
         useSystemCa: this.plugin.settings.useSystemCa,
@@ -3887,6 +3965,7 @@ class VaultPowerShellView extends ItemView {
       }
       this.withAgentSession(sessionKey, () => {
         const output = provider === "gemini" ? formatGeminiPrintOutput(result) : formatClaudePrintOutput(result);
+        this.agentLastUsageText = getPrintCommandUsageSummary(provider, result);
         this.appendAgentTranscript({
           id: this.nextLocalAgentEntryId("assistant"),
           role: "assistant",
@@ -3900,6 +3979,7 @@ class VaultPowerShellView extends ItemView {
           this.markAgentConversationReady();
         }
         this.syncAgentSessionOffsetToLatestEnd();
+        this.refreshCodexStatusLine();
       });
     } finally {
       this.withAgentSession(sessionKey, () => {
@@ -3925,10 +4005,11 @@ class VaultPowerShellView extends ItemView {
     options: { resumeFork?: boolean } = {}
   ): Promise<CapturedCommandResult> {
     const handle = provider === "gemini"
-      ? spawnGeminiPrintCommand(text, cwd, env, CLAUDE_PRINT_TIMEOUT_MS)
+      ? spawnGeminiPrintCommand(text, cwd, env, CLAUDE_PRINT_TIMEOUT_MS, this.plugin.settings)
       : spawnClaudePrintCommand(text, cwd, env, CLAUDE_PRINT_TIMEOUT_MS, {
         ...(options.resumeFork ? { resumeSessionId: sessionId, forkSession: true } : { sessionId }),
-        sessionName: this.agentSessionLabel
+        sessionName: this.agentSessionLabel,
+        settings: this.plugin.settings
       });
 
     if (handle.child) {
@@ -4043,7 +4124,7 @@ class VaultPowerShellView extends ItemView {
   private async checkAgentLoginStatus(provider: AgentProvider, cwd: string, env: { [key: string]: string | undefined }): Promise<AgentAuthCheck> {
     const sessionKey = this.activeAgentSessionKey;
     this.setAgentStatus(provider === "gemini" ? "Checking Gemini CLI..." : `Checking ${getAgentProviderLabel(provider)} login...`);
-    const status = await getAgentAuthCheck(provider, cwd, env);
+    const status = await getAgentAuthCheck(provider, cwd, env, this.plugin.settings);
     this.withAgentSession(sessionKey, () => {
       this.appendAgentTranscript({
         id: this.nextLocalAgentEntryId("system"),
@@ -4545,6 +4626,9 @@ class VaultPowerShellView extends ItemView {
     this.lastAgentLaunchCommand = "";
     this.ensureGeminiSessionId();
     this.refreshAgentPromptActions();
+    this.codexGitBranch = null;
+    this.refreshCodexStatusLine();
+    void this.refreshCodexGitBranch(cwd, sessionKey);
     this.agentReadyForInput = false;
     this.setAgentStatus("Starting Gemini CLI login...");
     this.appendAgentTranscript({
@@ -4561,7 +4645,7 @@ class VaultPowerShellView extends ItemView {
       env.NO_BROWSER = "true";
       const authConfiguration = getGeminiAuthConfiguration(cwd, env);
       this.agentPostLaunchInput = authConfiguration.authType ? "/auth\r" : null;
-      const availabilityFailure = await getGeminiCliAvailabilityFailure(cwd, env);
+      const availabilityFailure = await getGeminiCliAvailabilityFailure(cwd, env, this.plugin.settings);
       if (availabilityFailure) {
         this.withAgentSession(sessionKey, () => {
           this.agentAuthState = "login-required";
@@ -5924,6 +6008,218 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
           })
       );
 
+    const agentDetails = containerEl.createEl("details", { cls: "vault-terminal-advanced-settings" });
+    agentDetails.createEl("summary", { text: "Agent CLI settings" });
+    const agentEl = agentDetails.createDiv("vault-terminal-advanced-settings-body");
+
+    new Setting(agentEl)
+      .setName("Codex executable")
+      .setDesc("Optional command or absolute path. Leave empty to use codex from PATH.")
+      .addText((text) =>
+        text
+          .setPlaceholder("codex")
+          .setValue(this.plugin.settings.codexExecutable)
+          .onChange((value) => {
+            this.plugin.settings.codexExecutable = value.trim();
+            void this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(agentEl)
+      .setName("Codex app-server")
+      .setDesc("Use Codex app-server with model/context/rate-limit statusline support.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.codexUseAppServer)
+          .onChange((value) => {
+            this.plugin.settings.codexUseAppServer = value;
+            void this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(agentEl)
+      .setName("Codex default model")
+      .setDesc("Optional model id passed when a Codex app-server thread starts. Leave empty to use Codex default/model picker.")
+      .addText((text) =>
+        text
+          .setPlaceholder("auto")
+          .setValue(this.plugin.settings.codexModel)
+          .onChange((value) => {
+            this.plugin.settings.codexModel = value.trim();
+            void this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(agentEl)
+      .setName("Codex approval policy")
+      .setDesc("Default approval policy for Codex app-server sessions.")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("on-request", "on-request")
+          .addOption("on-failure", "on-failure")
+          .addOption("untrusted", "untrusted")
+          .addOption("never", "never")
+          .setValue(this.plugin.settings.codexApprovalPolicy)
+          .onChange((value) => {
+            this.plugin.settings.codexApprovalPolicy = normalizeCodexApprovalPolicy(value);
+            void this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(agentEl)
+      .setName("Codex login method")
+      .setDesc("Login button flow for Codex app-server.")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("browser", "Browser")
+          .addOption("device-code", "Device code")
+          .setValue(this.plugin.settings.codexLoginMethod)
+          .onChange((value) => {
+            this.plugin.settings.codexLoginMethod = normalizeCodexLoginMethod(value);
+            void this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(agentEl)
+      .setName("Claude executable")
+      .setDesc("Optional command or absolute path. Leave empty to use claude from PATH.")
+      .addText((text) =>
+        text
+          .setPlaceholder("claude")
+          .setValue(this.plugin.settings.claudeExecutable)
+          .onChange((value) => {
+            this.plugin.settings.claudeExecutable = value.trim();
+            void this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(agentEl)
+      .setName("Claude model")
+      .setDesc("Optional --model value such as sonnet, opus, or a full Claude model id. Leave empty for Claude Code default.")
+      .addText((text) =>
+        text
+          .setPlaceholder("auto")
+          .setValue(this.plugin.settings.claudeModel)
+          .onChange((value) => {
+            this.plugin.settings.claudeModel = value.trim();
+            void this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(agentEl)
+      .setName("Claude effort")
+      .setDesc("Optional --effort value for Claude Code.")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("", "Default")
+          .addOption("low", "low")
+          .addOption("medium", "medium")
+          .addOption("high", "high")
+          .addOption("xhigh", "xhigh")
+          .addOption("max", "max")
+          .setValue(this.plugin.settings.claudeEffort)
+          .onChange((value) => {
+            this.plugin.settings.claudeEffort = normalizeClaudeEffort(value);
+            void this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(agentEl)
+      .setName("Claude permission mode")
+      .setDesc("Claude Code --permission-mode for interactive and print turns.")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("bypassPermissions", "bypassPermissions")
+          .addOption("default", "default")
+          .addOption("auto", "auto")
+          .addOption("acceptEdits", "acceptEdits")
+          .addOption("dontAsk", "dontAsk")
+          .addOption("plan", "plan")
+          .setValue(this.plugin.settings.claudePermissionMode)
+          .onChange((value) => {
+            this.plugin.settings.claudePermissionMode = normalizeClaudePermissionMode(value);
+            void this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(agentEl)
+      .setName("Claude strict MCP config")
+      .setDesc("Pass --strict-mcp-config to avoid loading heavy global MCP servers.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.claudeStrictMcpConfig)
+          .onChange((value) => {
+            this.plugin.settings.claudeStrictMcpConfig = value;
+            void this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(agentEl)
+      .setName("Gemini executable")
+      .setDesc("Optional command or absolute path. Leave empty to use gemini from PATH.")
+      .addText((text) =>
+        text
+          .setPlaceholder("gemini")
+          .setValue(this.plugin.settings.geminiExecutable)
+          .onChange((value) => {
+            this.plugin.settings.geminiExecutable = value.trim();
+            void this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(agentEl)
+      .setName("Gemini model")
+      .setDesc("Optional --model value. Leave empty for Gemini CLI default.")
+      .addText((text) =>
+        text
+          .setPlaceholder("auto")
+          .setValue(this.plugin.settings.geminiModel)
+          .onChange((value) => {
+            this.plugin.settings.geminiModel = value.trim();
+            void this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(agentEl)
+      .setName("Gemini approval mode")
+      .setDesc("Gemini CLI --approval-mode for headless turns and the in-plugin login/control console.")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("yolo", "yolo")
+          .addOption("auto_edit", "auto_edit")
+          .addOption("default", "default")
+          .addOption("plan", "plan")
+          .setValue(this.plugin.settings.geminiApprovalMode)
+          .onChange((value) => {
+            this.plugin.settings.geminiApprovalMode = normalizeGeminiApprovalMode(value);
+            void this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(agentEl)
+      .setName("Gemini skip trust")
+      .setDesc("Pass --skip-trust when launching Gemini CLI from the vault.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.geminiSkipTrust)
+          .onChange((value) => {
+            this.plugin.settings.geminiSkipTrust = value;
+            void this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(agentEl)
+      .setName("Gemini sandbox")
+      .setDesc("Pass --sandbox to Gemini CLI. Off by default to preserve the current behavior.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.geminiSandbox)
+          .onChange((value) => {
+            this.plugin.settings.geminiSandbox = value;
+            void this.plugin.saveSettings();
+          })
+      );
+
     const advancedDetails = containerEl.createEl("details", { cls: "vault-terminal-advanced-settings" });
     advancedDetails.createEl("summary", { text: "Advanced runtime and network settings" });
     const advancedEl = advancedDetails.createDiv("vault-terminal-advanced-settings-body");
@@ -7148,6 +7444,7 @@ function createAgentWorkspaceSessionState(mode: AgentSessionMode): AgentWorkspac
     geminiScrollTop: 0,
     inputText: "",
     statusText: "Idle",
+    agentLastUsageText: null,
     createdAt: now,
     updatedAt: now
   };
@@ -7198,6 +7495,9 @@ function normalizeAgentWorkspaceSessionState(value: unknown): AgentWorkspaceSess
     geminiScrollTop: typeof candidate.geminiScrollTop === "number" ? candidate.geminiScrollTop : 0,
     inputText: typeof candidate.inputText === "string" ? candidate.inputText : "",
     statusText: typeof candidate.statusText === "string" && candidate.statusText.trim() ? candidate.statusText : "Idle",
+    agentLastUsageText: typeof candidate.agentLastUsageText === "string" && candidate.agentLastUsageText.trim()
+      ? candidate.agentLastUsageText.trim()
+      : null,
     createdAt: typeof candidate.createdAt === "number" ? candidate.createdAt : now,
     updatedAt: typeof candidate.updatedAt === "number" ? candidate.updatedAt : now
   };
@@ -7363,20 +7663,47 @@ interface ClaudePrintOptions {
   resumeSessionId?: string;
   forkSession?: boolean;
   sessionName?: string;
+  settings?: PowerShellSettings;
+}
+
+function getClaudeExecutable(settings: PowerShellSettings): string {
+  return settings.claudeExecutable?.trim() || "claude";
+}
+
+function getCodexExecutable(settings: PowerShellSettings): string {
+  return settings.codexExecutable?.trim() || "codex";
+}
+
+function getGeminiExecutable(settings: PowerShellSettings): string {
+  return settings.geminiExecutable?.trim() || "gemini";
 }
 
 function getAgentLaunchCommand(provider: AgentProvider, settings: PowerShellSettings, options: AgentLaunchOptions = {}): string {
   if (provider === "claude") {
+    const executable = quoteShellArg(getClaudeExecutable(settings));
     const sessionArgs = options.claudeSessionId
       ? ` --session-id ${options.claudeSessionId}${options.sessionName ? ` --name ${quoteShellArg(options.sessionName)}` : ""}`
       : " --continue";
-    // --strict-mcp-config: ignore heavy global MCP servers (firebase 30s etc).
-    // --permission-mode bypassPermissions: no file/command prompts (vault is the
-    //   user's own folder; same trust as Codex full access).
-    return `claude${sessionArgs} --strict-mcp-config --permission-mode bypassPermissions`;
+    const args = [
+      sessionArgs.trim(),
+      settings.claudeStrictMcpConfig ? "--strict-mcp-config" : "",
+      "--permission-mode",
+      settings.claudePermissionMode,
+      settings.claudeModel ? `--model ${quoteShellArg(settings.claudeModel)}` : "",
+      settings.claudeEffort ? `--effort ${settings.claudeEffort}` : ""
+    ].filter(Boolean);
+    return `${executable} ${args.join(" ")}`;
   }
   if (provider === "gemini") {
-    return "gemini --skip-trust --screen-reader";
+    const args = [
+      settings.geminiSkipTrust ? "--skip-trust" : "",
+      "--screen-reader",
+      "--approval-mode",
+      settings.geminiApprovalMode,
+      settings.geminiModel ? `--model ${quoteShellArg(settings.geminiModel)}` : "",
+      settings.geminiSandbox ? "--sandbox" : ""
+    ].filter(Boolean);
+    return `${quoteShellArg(getGeminiExecutable(settings))} ${args.join(" ")}`;
   }
 
   // codex resume --last reopens the most recent interactive session (PTY path).
@@ -7386,25 +7713,24 @@ function getAgentLaunchCommand(provider: AgentProvider, settings: PowerShellSett
   }) ?? "codex resume --last";
 }
 
-async function getAgentAuthCheck(provider: AgentProvider, cwd: string, env: { [key: string]: string | undefined }): Promise<AgentAuthCheck> {
+async function getAgentAuthCheck(provider: AgentProvider, cwd: string, env: { [key: string]: string | undefined }, settings: PowerShellSettings): Promise<AgentAuthCheck> {
   if (provider === "claude") {
-    const result = await runCapturedCommand("claude", ["auth", "status", "--json"], cwd, env, 8000);
+    const result = await runCapturedCommand(getClaudeExecutable(settings), ["auth", "status", "--json"], cwd, env, 8000);
     return parseClaudeAuthCheck(result);
   }
   if (provider === "gemini") {
-    const availabilityFailure = await getGeminiCliAvailabilityFailure(cwd, env);
-    if (availabilityFailure) {
-      return availabilityFailure;
+    const result = await runCapturedCommand(getGeminiExecutable(settings), ["--version"], cwd, env, 8000);
+    if (isMissingGeminiCliResult(result)) {
+      return createMissingGeminiCliAuthCheck(`${result.stdout}\n${result.stderr}\n${result.error ?? ""}`.trim());
     }
     const authConfiguration = getGeminiAuthConfiguration(cwd, env);
     if (authConfiguration.failure) {
       return authConfiguration.failure;
     }
-    const result = await runCapturedCommand("gemini", ["--version"], cwd, env, 8000);
     return parseGeminiAuthCheck(result, authConfiguration);
   }
 
-  const result = await runCapturedCommand("codex", ["login", "status"], cwd, env, 8000);
+  const result = await runCapturedCommand(getCodexExecutable(settings), ["login", "status"], cwd, env, 8000);
   return parseCodexAuthCheck(result);
 }
 
@@ -7538,9 +7864,8 @@ function parseGeminiAuthCheck(result: CapturedCommandResult, authConfiguration: 
   };
 }
 
-async function getGeminiCliAvailabilityFailure(cwd: string, env: { [key: string]: string | undefined }): Promise<AgentAuthCheck | null> {
-  const command = process.platform === "win32" ? "where.exe" : "which";
-  const result = await runCapturedCommand(command, ["gemini"], cwd, env, 8000);
+async function getGeminiCliAvailabilityFailure(cwd: string, env: { [key: string]: string | undefined }, settings: PowerShellSettings): Promise<AgentAuthCheck | null> {
+  const result = await runCapturedCommand(getGeminiExecutable(settings), ["--version"], cwd, env, 8000);
   if (!getCapturedCommandFailure(result)) {
     return null;
   }
@@ -7979,17 +8304,20 @@ function spawnClaudePrintCommand(
   timeoutMs: number | null,
   options: ClaudePrintOptions = {}
 ): CapturedCommandHandle {
+  const settings = options.settings ?? DEFAULT_SETTINGS;
   const args = [
     ...getClaudePrintSessionArgs(options),
     ...(options.sessionName ? ["--name", options.sessionName] : []),
-    "--strict-mcp-config",
+    ...(settings.claudeStrictMcpConfig ? ["--strict-mcp-config"] : []),
     "--permission-mode",
-    "bypassPermissions",
+    settings.claudePermissionMode,
+    ...(settings.claudeModel ? ["--model", settings.claudeModel] : []),
+    ...(settings.claudeEffort ? ["--effort", settings.claudeEffort] : []),
     "--output-format",
     "json",
     "-p"
   ];
-  return spawnCapturedCommand("claude", args, cwd, env, timeoutMs, `${prompt}\n`);
+  return spawnCapturedCommand(getClaudeExecutable(settings), args, cwd, env, timeoutMs, `${prompt}\n`);
 }
 
 function getClaudePrintSessionArgs(options: ClaudePrintOptions): string[] {
@@ -8010,17 +8338,20 @@ function spawnGeminiPrintCommand(
   prompt: string,
   cwd: string,
   env: { [key: string]: string | undefined },
-  timeoutMs: number | null
+  timeoutMs: number | null,
+  settings: PowerShellSettings
 ): CapturedCommandHandle {
   const args = [
-    "--skip-trust",
+    ...(settings.geminiSkipTrust ? ["--skip-trust"] : []),
     "--approval-mode",
-    "yolo",
+    settings.geminiApprovalMode,
+    ...(settings.geminiModel ? ["--model", settings.geminiModel] : []),
+    ...(settings.geminiSandbox ? ["--sandbox"] : []),
     "--output-format",
     "text",
     "--prompt=."
   ];
-  return spawnCapturedCommand("gemini", args, cwd, env, timeoutMs, `${prompt}\n`);
+  return spawnCapturedCommand(getGeminiExecutable(settings), args, cwd, env, timeoutMs, `${prompt}\n`);
 }
 
 function formatClaudePrintOutput(result: CapturedCommandResult): string {
@@ -8061,6 +8392,63 @@ function getClaudeResultTextFromPrintOutput(output: string): string | null {
   }
   const error = typeof parsed.error === "string" ? parsed.error.trim() : "";
   return error || null;
+}
+
+function getPrintCommandUsageSummary(provider: AgentProvider, result: CapturedCommandResult): string | null {
+  if (provider !== "claude" || result.cancelled) {
+    return null;
+  }
+  const output = removeClaudeNoStdinWarning(stripTerminalControlSequences(`${result.stdout}\n${result.stderr}`)).trim();
+  const parsed = parseClaudePrintJsonOutput(output);
+  if (!parsed) {
+    return null;
+  }
+  const usage = parsed.usage && typeof parsed.usage === "object" && !Array.isArray(parsed.usage)
+    ? parsed.usage as Record<string, unknown>
+    : null;
+  const inputTokens = getNumericField(usage, "input_tokens") ?? getNumericField(usage, "inputTokens");
+  const outputTokens = getNumericField(usage, "output_tokens") ?? getNumericField(usage, "outputTokens");
+  const cacheCreationTokens = getNumericField(usage, "cache_creation_input_tokens") ?? 0;
+  const cacheReadTokens = getNumericField(usage, "cache_read_input_tokens") ?? 0;
+  const totalTokens = [inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens]
+    .filter((value): value is number => typeof value === "number")
+    .reduce((sum, value) => sum + value, 0);
+  const pieces: string[] = [];
+  if (totalTokens > 0) {
+    pieces.push(formatCompactNumber(totalTokens));
+  }
+  const cost = getNumericField(parsed, "total_cost_usd") ?? getNumericField(parsed, "totalCostUsd");
+  if (typeof cost === "number" && Number.isFinite(cost)) {
+    pieces.push(`$${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(2)}`);
+  }
+  const turns = getNumericField(parsed, "num_turns") ?? getNumericField(parsed, "numTurns");
+  if (typeof turns === "number" && Number.isFinite(turns)) {
+    pieces.push(`${Math.round(turns)}t`);
+  }
+  return pieces.length ? pieces.join(" / ") : null;
+}
+
+function getNumericField(value: Record<string, unknown> | null, key: string): number | null {
+  const raw = value?.[key];
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return raw;
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function formatCompactNumber(value: number): string {
+  const rounded = Math.max(0, Math.round(value));
+  if (rounded >= 1_000_000) {
+    return `${(rounded / 1_000_000).toFixed(1).replace(/\.0$/, "")}m tok`;
+  }
+  if (rounded >= 1_000) {
+    return `${(rounded / 1_000).toFixed(1).replace(/\.0$/, "")}k tok`;
+  }
+  return `${rounded} tok`;
 }
 
 function getClaudeSessionIdFromPrintResult(result: CapturedCommandResult): string | null {
@@ -9592,6 +9980,32 @@ function normalizeCodexApprovalPolicy(value: string | undefined): CodexApprovalP
 
 function normalizeCodexLoginMethod(value: string | undefined): CodexLoginMethod {
   return value === "device-code" ? "device-code" : "browser";
+}
+
+function normalizeClaudePermissionMode(value: string | undefined): ClaudePermissionMode {
+  return value === "acceptEdits" ||
+    value === "auto" ||
+    value === "default" ||
+    value === "dontAsk" ||
+    value === "plan"
+    ? value
+    : "bypassPermissions";
+}
+
+function normalizeClaudeEffort(value: string | undefined): ClaudeEffort {
+  return value === "low" ||
+    value === "medium" ||
+    value === "high" ||
+    value === "xhigh" ||
+    value === "max"
+    ? value
+    : "";
+}
+
+function normalizeGeminiApprovalMode(value: string | undefined): GeminiApprovalMode {
+  return value === "default" || value === "auto_edit" || value === "plan"
+    ? value
+    : "yolo";
 }
 
 function normalizeWindowsPtyBackend(value: string | undefined): WindowsPtyBackend {

@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.47`입니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.48`입니다.
 
 [English README](README.md)
 
@@ -39,6 +39,7 @@ Codex Agent Console은 기본적으로 fullscreen TUI가 아니라 `codex app-se
 - 응답 중 새 메시지를 보내면 Codex app처럼 queue에 넣습니다.
 - statusline에는 현재 볼트 경로, git branch, 선택 모델, context 사용률, 5시간/7일 rate-limit meter를 표시합니다.
 - streaming delta는 일정 간격으로 모아 렌더링해서 Obsidian UI가 멈추는 현상을 줄입니다.
+- 설정에서 Codex executable, app-server 사용 여부, 기본 모델, approval policy, login method를 조정할 수 있습니다.
 
 ### Claude Code
 
@@ -46,6 +47,8 @@ Claude Code Agent Console은 로그인/제어 흐름과 일반 대화 흐름을 
 
 - 시작 시 `claude auth status --json`으로 로그인 상태를 확인합니다.
 - 일반 메시지는 AI 세션별 `claude --session-id <uuid> --strict-mcp-config --permission-mode bypassPermissions --output-format json -p`로 실행하고 prompt를 stdin으로 전달합니다.
+- 설정에서 Claude executable, model, effort, permission mode, strict MCP config 사용 여부를 조정할 수 있습니다.
+- statusline에는 설정된 Claude 모델/모드, 플러그인이 붙이는 transcript context meter, Claude JSON 출력에서 확인 가능한 usage 요약을 표시합니다.
 - Claude print turn 이후 JSON의 `session_id`를 읽어 플러그인 탭을 실제 Claude Code 세션에 계속 묶어둡니다.
 - Claude 응답은 `claude` 프로세스가 종료될 때까지 기다립니다. 전사나 대용량 문서 분석처럼 10분 이상 걸릴 수 있는 장시간 스킬도 중간에 강제 종료하지 않습니다.
 - Claude가 session ID 사용 중 오류를 반환하면 `--resume <sessionId> --fork-session`으로 한 번 자동 재시도합니다. 이 fallback은 빈 UUID로 새로 시작하지 않고 기존 Claude 컨텍스트를 fork합니다.
@@ -59,6 +62,8 @@ Gemini CLI는 Claude 일반 메시지와 같은 print-command 방식으로 실�
 
 - 시작 시 `gemini --version`으로 CLI가 PATH에서 보이는지 확인하고, prompt를 받기 전에 Gemini CLI 인증 방식이 설정되어 있는지도 확인합니다.
 - 일반 메시지는 `gemini --skip-trust --approval-mode yolo --output-format text --prompt=.`로 headless mode를 켜고, 실제 prompt는 stdin으로 전달합니다.
+- 설정에서 Gemini executable, model, approval mode, skip-trust, sandbox flag를 조정할 수 있습니다.
+- statusline에는 설정된 Gemini 모델/모드, 플러그인이 붙이는 transcript context meter, Gemini CLI text 출력에서 reliable usage를 제공하지 않는 경우 `usage n/a`를 표시합니다.
 - Gemini 응답도 장시간 작업을 고려해 10분 제한으로 끊지 않고, `Stop`을 누르면 현재 프로세스 트리를 종료합니다.
 - Gemini의 native `--resume`은 여러 플러그인 탭이 같은 최신 세션을 잡아 충돌할 수 있어 기본 사용하지 않습니다. 대신 플러그인 탭별 transcript context와 Gemini local sessionId로 UI 세션을 분리합니다.
 - Gemini 구독 로그인은 Agent Console의 `Login` 버튼에서 시작합니다. 플러그인은 control PTY 안에서 `NO_BROWSER=true`와 함께 `gemini --skip-trust --screen-reader`를 열고, Sign in with Google은 Gemini CLI의 수동 URL/code 인증 흐름으로 진행하게 합니다.
@@ -284,8 +289,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-git tag 0.6.47
-git push origin 0.6.47
+git tag 0.6.48
+git push origin 0.6.48
 ```
 
 릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.
