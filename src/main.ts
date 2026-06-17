@@ -4496,20 +4496,12 @@ class VaultPowerShellView extends ItemView {
       return false;
     }
 
-    if (this.agentHost && this.agentHostReady) {
-      this.agentConversationReady = false;
-      this.agentAuthState = "login-in-progress";
-      this.agentAutoLoginPending = false;
-      this.agentNeedsAuth = true;
-      this.agentReadyForInput = true;
-      this.setAgentStatus("Gemini CLI login in progress");
+    if (this.agentHost) {
       this.appendAgentTranscript({
         id: this.nextLocalAgentEntryId("system"),
         role: "system",
-        text: `${reason} Gemini CLI 인증 방식 선택 화면을 엽니다. 구독 계정은 Sign in with Google을 선택하세요.`
+        text: "기존 Gemini CLI 로그인 세션을 정리하고 수동 브라우저 인증 모드로 다시 시작합니다."
       });
-      this.sendAgentHostMessage({ type: "data", data: "/auth\r" });
-      return true;
     }
 
     this.disposeAgent();
@@ -4550,6 +4542,7 @@ class VaultPowerShellView extends ItemView {
         useSystemCa: this.plugin.settings.useSystemCa,
         extraCaCertPath: this.plugin.getExtraCaCertPath()
       });
+      env.NO_BROWSER = "true";
       const authConfiguration = getGeminiAuthConfiguration(cwd, env);
       this.agentPostLaunchInput = authConfiguration.authType ? "/auth\r" : null;
       const availabilityFailure = await getGeminiCliAvailabilityFailure(cwd, env);
@@ -8703,7 +8696,7 @@ function getAgentPromptMode(text: string, requiresAuth: boolean): AgentPromptMod
     return "continue";
   }
 
-  if (/select|choose|method|use .*arrow|arrow keys|↑|↓|❯|navigate/i.test(text)) {
+  if (/select|choose|method|how would you like to authenticate|authenticate for this project|use .*arrow|arrow keys|↑|↓|❯|navigate/i.test(text)) {
     return "menu";
   }
 
@@ -8764,6 +8757,10 @@ function getAgentPromptActions(mode: AgentPromptMode, text: string, urls: string
   if (mode !== "auth-code" && !mcpPrompt && (mode === "auth" || isAgentLoginPromptText(text, urls))) {
     const loginCommand = isGeminiAuthPromptText(text) ? "/auth" : "/login";
     actions.push({ label: loginCommand, data: `${loginCommand}\r`, description: "Start the agent login flow." });
+  }
+
+  if (!mcpPrompt && mode !== "menu" && isGeminiAuthPromptText(text)) {
+    actions.push(...extractNumberedPromptOptions(text));
   }
 
   if (mcpPrompt) {
@@ -9045,7 +9042,7 @@ function isAgentLoginCodePromptText(text: string): boolean {
 }
 
 function isGeminiAuthPromptText(text: string): boolean {
-  return /gemini cli.*auth|how would you like to authenticate|select.*auth(?:entication)? method|sign in with google|google login|google account|google auth|oauth-personal|login with google|use.*google account/i.test(text);
+  return /gemini cli.*auth|how would you like to authenticate|select.*auth(?:entication)? method|sign in with google|google login|google account|google auth|oauth-personal|login with google|use.*google account|no_browser=true|manual authentication/i.test(text);
 }
 
 function isAgentConversationReadyText(text: string): boolean {

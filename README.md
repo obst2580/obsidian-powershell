@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.44`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.45`.
 
 [한국어 README](README.ko.md)
 
@@ -61,8 +61,8 @@ Gemini CLI uses the same print-command shape as Claude normal chat turns.
 - Sends normal prompts with `gemini --skip-trust --approval-mode yolo --output-format text --prompt=.` to enable headless mode, then passes the real prompt through stdin.
 - Allows long-running work instead of enforcing a 10-minute response cutoff; press `Stop` to terminate the current process tree.
 - Does not use native Gemini `--resume` by default, because several plugin tabs can otherwise attach to the same latest Gemini session. The plugin keeps tabs separated with transcript context and a local Gemini session id.
-- Gemini subscription login is started from the Agent Console `Login` button. The plugin opens interactive `gemini --skip-trust --screen-reader` inside its control PTY, then lets the Gemini CLI handle Sign in with Google and write its own auth settings.
-- If a Gemini CLI session is already open, `Login` sends `/auth` so you can change or repair the selected auth method from inside the plugin.
+- Gemini subscription login is started from the Agent Console `Login` button. The plugin opens interactive `gemini --skip-trust --screen-reader` inside its control PTY with `NO_BROWSER=true`, then lets the Gemini CLI handle Sign in with Google through the manual URL/code flow and write its own auth settings.
+- `Login` restarts any existing Gemini login PTY before opening `/auth`, so a stale browser-based auth prompt is replaced with manual authentication.
 - For `oauth-personal`, Start requires an active account in Gemini CLI's `google_accounts.json`; `selectedType` alone is treated as login-required.
 - For API or Vertex modes, configure `GEMINI_API_KEY`, `GOOGLE_GENAI_USE_VERTEXAI`, or `GOOGLE_GENAI_USE_GCA` in the OS environment or a Gemini-readable `.env`, then fully restart Obsidian.
 - If Gemini CLI is missing or auth is not configured, Start shows a clear install/PATH/auth hint before a prompt is sent.
@@ -283,8 +283,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.44
-git push origin 0.6.44
+git tag 0.6.45
+git push origin 0.6.45
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.
