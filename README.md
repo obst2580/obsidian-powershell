@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.48`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.49`.
 
 [한국어 README](README.ko.md)
 
@@ -62,7 +62,7 @@ Gemini CLI uses the same print-command shape as Claude normal chat turns.
 
 - Checks CLI availability with `gemini --version` and checks the Gemini CLI auth method before accepting prompts.
 - Sends normal prompts with `gemini --skip-trust --approval-mode yolo --output-format text --prompt=.` to enable headless mode, then passes the real prompt through stdin.
-- Settings expose Gemini executable, model, approval mode, skip-trust, and sandbox flags.
+- Settings expose Gemini executable, model, approval mode, skip-trust, and sandbox flags. The default Gemini model is `flash`; recommended values are `flash`, `pro`, `flash-lite`, `gemini-2.5-flash`, and `gemini-2.5-pro`. `gemini-3.5-flash` can return 404 unless the signed-in account has access.
 - The statusline shows the configured Gemini model/mode, plugin transcript-context meter, and `usage n/a` because Gemini CLI text output does not expose reliable usage data.
 - Allows long-running work instead of enforcing a 10-minute response cutoff; press `Stop` to terminate the current process tree.
 - Does not use native Gemini `--resume` by default, because several plugin tabs can otherwise attach to the same latest Gemini session. The plugin keeps tabs separated with transcript context and a local Gemini session id.
@@ -290,8 +290,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.48
-git push origin 0.6.48
+git tag 0.6.49
+git push origin 0.6.49
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.

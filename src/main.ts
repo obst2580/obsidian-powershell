@@ -470,7 +470,7 @@ const DEFAULT_SETTINGS: PowerShellSettings = {
   claudePermissionMode: "bypassPermissions",
   claudeStrictMcpConfig: true,
   geminiExecutable: "",
-  geminiModel: "",
+  geminiModel: "flash",
   geminiApprovalMode: "yolo",
   geminiSkipTrust: true,
   geminiSandbox: false,
@@ -613,7 +613,7 @@ export default class VaultPowerShellPlugin extends Plugin {
     this.settings.claudePermissionMode = normalizeClaudePermissionMode(this.settings.claudePermissionMode);
     this.settings.claudeStrictMcpConfig = this.settings.claudeStrictMcpConfig !== false;
     this.settings.geminiExecutable = this.settings.geminiExecutable?.trim() ?? "";
-    this.settings.geminiModel = this.settings.geminiModel?.trim() ?? "";
+    this.settings.geminiModel = normalizeGeminiModelInput(this.settings.geminiModel);
     this.settings.geminiApprovalMode = normalizeGeminiApprovalMode(this.settings.geminiApprovalMode);
     this.settings.geminiSkipTrust = this.settings.geminiSkipTrust !== false;
     this.settings.geminiSandbox = this.settings.geminiSandbox === true;
@@ -6169,13 +6169,17 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
 
     new Setting(agentEl)
       .setName("Gemini model")
-      .setDesc("Optional --model value. Leave empty for Gemini CLI default.")
+      .setDesc("Gemini CLI --model value. Recommended: flash, pro, flash-lite, gemini-2.5-flash, gemini-2.5-pro. gemini-3.5-flash can return 404 unless the signed-in account has access.")
       .addText((text) =>
         text
           .setPlaceholder("auto")
           .setValue(this.plugin.settings.geminiModel)
           .onChange((value) => {
-            this.plugin.settings.geminiModel = value.trim();
+            const normalized = normalizeGeminiModelInput(value);
+            this.plugin.settings.geminiModel = normalized;
+            if (value !== normalized) {
+              text.setValue(normalized);
+            }
             void this.plugin.saveSettings();
           })
       );
@@ -8494,6 +8498,10 @@ function formatGeminiPrintOutput(result: CapturedCommandResult): string {
 }
 
 function formatGeminiAuthErrorOutput(output: string): string | null {
+  if (/ModelNotFoundError|Requested entity was not found/i.test(output)) {
+    return "Gemini 모델을 찾을 수 없습니다. 현재 계정에서 접근 가능한 모델로 바꾸세요. 권장값: flash, pro, flash-lite, gemini-2.5-flash, gemini-2.5-pro. gemini-3.5-flash는 현재 로그인된 계정에서 404가 날 수 있습니다. 설정을 바꾼 뒤 Gemini 세션을 Stop/Start 하세요.";
+  }
+
   if (/Please set an Auth method/i.test(output)) {
     const home = getUserHome();
     const settingsPath = home ? join(home, ".gemini", "settings.json") : "~/.gemini/settings.json";
@@ -10006,6 +10014,38 @@ function normalizeGeminiApprovalMode(value: string | undefined): GeminiApprovalM
   return value === "default" || value === "auto_edit" || value === "plan"
     ? value
     : "yolo";
+}
+
+function normalizeGeminiModelInput(value: string | undefined): string {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) {
+    return "";
+  }
+
+  const compact = trimmed
+    .replace(/\s+/g, "-")
+    .replace(/^gemini[-_\s]+/i, "gemini-")
+    .toLowerCase();
+  const aliases: Record<string, string> = {
+    auto: "auto",
+    pro: "pro",
+    flash: "flash",
+    "flash-lite": "flash-lite",
+    "2.5-pro": "gemini-2.5-pro",
+    "2.5-flash": "gemini-2.5-flash",
+    "2.5-flash-lite": "gemini-2.5-flash-lite",
+    "3-pro": "gemini-3-pro-preview",
+    "3-flash": "gemini-3-flash-preview",
+    "3.1-pro": "gemini-3.1-pro-preview",
+    "3.5-flash": "flash"
+  };
+  if (aliases[compact]) {
+    return aliases[compact];
+  }
+  if (/^\d(?:\.\d+)?-(?:pro|flash|flash-lite)(?:-.+)?$/.test(compact)) {
+    return `gemini-${compact}`;
+  }
+  return trimmed;
 }
 
 function normalizeWindowsPtyBackend(value: string | undefined): WindowsPtyBackend {
