@@ -853,6 +853,7 @@
 .vault-agent-block-body * {
   user-select: text;
   -webkit-user-select: text;
+  -webkit-user-drag: none;
 }
 
 .vault-agent-message-role,

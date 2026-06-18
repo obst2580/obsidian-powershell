@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.55`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.56`.
 
 [한국어 README](README.ko.md)
 
@@ -21,6 +21,7 @@ Obst Terminal is not just a single chat console. It is designed as a **multi-ses
 - Delegate prompts to other running AI sessions with `@all`, `@codex`, `@claude`, `@gemini`, or `@"session title"`.
 - Attach files with the Attach button or paste images into the composer. Pasted images are saved in the configured attachment folder and sent to Claude, Codex, or Gemini as local file paths.
 - Korean/current-note references such as `이 문서`, `이문서`, `옆에 문서`, `현재 문서`, and `열린 문서` are resolved to the currently active Obsidian note and injected into the agent prompt as a vault file reference.
+- Mouse selection and copy inside Claude, Codex, and Gemini transcripts are handled by the plugin so copying a partial selection does not expand to the whole message card.
 
 ## Current Behavior
 
@@ -295,8 +296,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.55
-git push origin 0.6.55
+git tag 0.6.56
+git push origin 0.6.56
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.

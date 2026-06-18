@@ -1659,6 +1659,17 @@ class VaultPowerShellView extends ItemView {
     el.addEventListener("scroll", () => {
       this.rememberAgentTranscriptScrollPosition(el);
     }, { passive: true });
+    el.addEventListener("copy", (event) => {
+      const text = getTranscriptSelectionText(el);
+      if (!text) {
+        return;
+      }
+      event.preventDefault();
+      event.clipboardData?.setData("text/plain", text);
+      if (!event.clipboardData) {
+        clipboard.writeText(text);
+      }
+    });
     return el;
   }
 
@@ -10330,5 +10341,41 @@ async function writeClipboardText(text: string) {
     return;
   } catch {
     clipboard.writeText(text);
+  }
+}
+
+function getTranscriptSelectionText(root: HTMLElement): string {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+    return "";
+  }
+
+  const parts: string[] = [];
+  for (let index = 0; index < selection.rangeCount; index += 1) {
+    const range = selection.getRangeAt(index);
+    if (!rangeIntersectsElement(range, root)) {
+      continue;
+    }
+    const fragment = range.cloneContents();
+    const wrapper = document.createElement("div");
+    wrapper.appendChild(fragment);
+    wrapper
+      .querySelectorAll(".vault-agent-message-role, .vault-agent-block-label, .vault-agent-thinking, button, .copy-code-button, .svg-icon")
+      .forEach((el) => el.remove());
+    const text = (wrapper.innerText || wrapper.textContent || "").trim();
+    if (text) {
+      parts.push(text);
+    }
+  }
+
+  return parts.join("\n").trim();
+}
+
+function rangeIntersectsElement(range: Range, element: HTMLElement): boolean {
+  try {
+    return range.intersectsNode(element);
+  } catch {
+    const selection = window.getSelection()?.toString().trim() ?? "";
+    return !!selection && element.contains(document.activeElement);
   }
 }

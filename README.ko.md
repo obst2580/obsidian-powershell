@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.55`입니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.56`입니다.
 
 [English README](README.md)
 
@@ -21,6 +21,7 @@ Obst Terminal은 한 명의 AI와만 대화하는 단일 콘솔이 아니라, **
 - 한 세션에서 `@all`, `@codex`, `@claude`, `@gemini`, `@"세션 제목"`으로 다른 실행 중인 AI 세션에 지시를 전달할 수 있습니다.
 - Attach 버튼 또는 composer 이미지 붙여넣기로 파일을 첨부할 수 있습니다. 붙여넣은 이미지는 설정된 attachment folder에 저장되고 Claude, Codex, Gemini에 로컬 파일 경로로 전달됩니다.
 - `이 문서`, `이문서`, `옆에 문서`, `현재 문서`, `열린 문서` 같은 표현은 현재 Obsidian 볼트에서 활성화된 열린 노트로 해석하고, agent prompt에 vault file reference로 자동 주입합니다.
+- Claude, Codex, Gemini transcript 안에서 마우스로 일부 영역만 선택해 복사할 때 전체 메시지 카드가 복사되지 않도록 플러그인이 선택 범위 기준으로 복사합니다.
 
 ## 현재 동작 기준
 
@@ -294,8 +295,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-git tag 0.6.55
-git push origin 0.6.55
+git tag 0.6.56
+git push origin 0.6.56
 ```
 
 릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.
