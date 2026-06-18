@@ -123,6 +123,7 @@ const GEMINI_MODEL_CHOICES = [
   { value: "gemini-2.5-flash", label: "gemini-2.5-flash (stable)" },
   { value: "gemini-2.5-pro", label: "gemini-2.5-pro (stable)" },
   { value: "gemini-2.5-flash-lite", label: "gemini-2.5-flash-lite (stable, if available)" },
+  { value: "gemini-3.1-pro-preview", label: "gemini-3.1-pro-preview (preview)" },
   { value: "gemini-3.5-flash", label: "gemini-3.5-flash (if available)" },
   { value: "gemini-3-flash", label: "gemini-3-flash" }
 ];

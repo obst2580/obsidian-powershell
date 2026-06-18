@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.60`입니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.61`입니다.
 
 [English README](README.md)
 
@@ -66,7 +66,7 @@ Gemini CLI는 Claude 일반 메시지와 같은 print-command 방식으로 실�
 
 - 시작 시 `gemini --version`으로 CLI가 PATH에서 보이는지 확인하고, prompt를 받기 전에 Gemini CLI 인증 방식이 설정되어 있는지도 확인합니다.
 - 일반 메시지는 Gemini CLI headless stdin 입력으로 실행합니다. Gemini CLI는 `--prompt` 값을 stdin 뒤에 붙이므로, 플러그인은 더 이상 dummy `--prompt=.`를 추가하지 않습니다.
-- Gemini 모델은 Agent Console 안의 드롭다운에서 `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.5-flash-lite`, `gemini-3.5-flash`, `gemini-3-flash` 중 선택합니다. 명시적인 stable 모델을 먼저 표시하고 기본값으로 사용합니다. `flash`, `pro` 같은 CLI alias는 Gemini CLI가 계정 접근 권한이나 서버 capacity에 따라 `gemini-3-flash-preview` 같은 preview 모델로 라우팅할 수 있어 더 이상 기본 선택지로 제공하지 않습니다. 기존에 저장된 preset 밖 전체 모델명은 삭제하지 않고 드롭다운 옵션으로 보존합니다.
+- Gemini 모델은 Agent Console 안의 드롭다운에서 `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.5-flash-lite`, `gemini-3.1-pro-preview`, `gemini-3.5-flash`, `gemini-3-flash` 중 선택합니다. 명시적인 stable 모델을 먼저 표시하고 기본값으로 사용하며, 계정에서 실행 가능한 preview 모델인 `gemini-3.1-pro-preview`도 정확한 모델명으로 선택할 수 있습니다. `flash`, `pro` 같은 CLI alias는 Gemini CLI가 계정 접근 권한이나 서버 capacity에 따라 `gemini-3-flash-preview` 같은 preview 모델로 라우팅할 수 있어 더 이상 기본 선택지로 제공하지 않습니다. 기존에 저장된 preset 밖 전체 모델명은 삭제하지 않고 드롭다운 옵션으로 보존합니다.
 - 설정 스키마 v4는 저장된 Gemini `flash`, `pro`, `gemini-3-flash-preview` 값을 명시 stable 모델(`gemini-2.5-flash`, `gemini-2.5-pro`)로 자동 마이그레이션해서 Gemini CLI stack trace가 반복 노출되는 상황을 줄입니다.
 - Gemini CLI가 `ModelNotFoundError` 또는 `No capacity available`을 반환하면 플러그인이 명시 fallback 모델(`gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.5-flash-lite`)로 자동 재시도하고, 처음 성공한 fallback을 저장해 같은 오류를 반복하지 않게 합니다.
 - Gemini native session 모드는 기본으로 켜져 있습니다. 플러그인 내부 AI 탭의 Gemini local sessionId를 첫 turn에는 Gemini CLI `--session-id`, 이후 turn에는 `--resume <sessionId>`에 연결합니다. 이 모드에서는 플러그인이 이전 transcript를 매 prompt마다 다시 붙이지 않습니다.
@@ -300,8 +300,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-git tag 0.6.60
-git push origin 0.6.60
+git tag 0.6.61
+git push origin 0.6.61
 ```
 
 릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.

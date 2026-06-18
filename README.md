@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.60`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.61`.
 
 [한국어 README](README.ko.md)
 
@@ -66,7 +66,7 @@ Gemini CLI uses the same print-command shape as Claude normal chat turns.
 
 - Checks CLI availability with `gemini --version` and checks the Gemini CLI auth method before accepting prompts.
 - Sends normal prompts with Gemini CLI headless stdin input and does not add a dummy `--prompt=.` argument, because Gemini CLI appends `--prompt` text to stdin.
-- The Gemini model is selected inside the Agent Console from a dropdown (`gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.5-flash-lite`, `gemini-3.5-flash`, `gemini-3-flash`). Explicit stable model ids are listed first and used by default. CLI aliases such as `flash` and `pro` are no longer offered because Gemini CLI can route them to preview models such as `gemini-3-flash-preview`, depending on account access and server capacity. Existing saved full model ids outside the preset list are preserved as a dropdown option instead of being lost.
+- The Gemini model is selected inside the Agent Console from a dropdown (`gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.5-flash-lite`, `gemini-3.1-pro-preview`, `gemini-3.5-flash`, `gemini-3-flash`). Explicit stable model ids are listed first and used by default, while account-enabled preview models such as `gemini-3.1-pro-preview` are available by exact id. CLI aliases such as `flash` and `pro` are no longer offered because Gemini CLI can route them to preview models such as `gemini-3-flash-preview`, depending on account access and server capacity. Existing saved full model ids outside the preset list are preserved as a dropdown option instead of being lost.
 - Settings schema v4 migrates saved Gemini `flash`, `pro`, and `gemini-3-flash-preview` values to explicit stable models (`gemini-2.5-flash` and `gemini-2.5-pro`) to avoid repeated Gemini CLI stack traces.
 - If Gemini CLI returns `ModelNotFoundError` or `No capacity available`, the plugin automatically retries explicit fallback models (`gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.5-flash-lite`) and stores the first successful fallback to avoid repeating the same failure.
 - Gemini native session mode is on by default. Each plugin AI tab maps its Gemini local sessionId to Gemini CLI `--session-id` for the first turn and `--resume <sessionId>` for later turns. In this mode the plugin does not replay the previous transcript into every prompt.
@@ -301,8 +301,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.60
-git push origin 0.6.60
+git tag 0.6.61
+git push origin 0.6.61
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.
