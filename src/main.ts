@@ -99,7 +99,7 @@ const ESCAPE_SEQUENCE = "\x1b";
 const KILL_LINE_SEQUENCE = "\x15";
 const CODEX_RESIZE_REFLOW_CONFIG = "tui.terminal_resize_reflow=false";
 const TERMINAL_FIT_STABILIZATION_DELAYS_MS = [0, 16, 50, 150, 400, 1000];
-const SETTINGS_SCHEMA_VERSION = 3;
+const SETTINGS_SCHEMA_VERSION = 4;
 const AGENT_CONSOLE_COLS = 300;
 const AGENT_CONSOLE_ROWS = 30;
 const WSL_CHECK_TIMEOUT_MS = 3000;
@@ -122,9 +122,7 @@ const CLAUDE_MODEL_CHOICES = [
 const GEMINI_MODEL_CHOICES = [
   { value: "gemini-2.5-flash", label: "gemini-2.5-flash (stable)" },
   { value: "gemini-2.5-pro", label: "gemini-2.5-pro (stable)" },
-  { value: "flash", label: "flash alias (may route to preview)" },
-  { value: "pro", label: "pro alias" },
-  { value: "flash-lite", label: "flash-lite alias" },
+  { value: "gemini-2.5-flash-lite", label: "gemini-2.5-flash-lite (stable, if available)" },
   { value: "gemini-3.5-flash", label: "gemini-3.5-flash (if available)" },
   { value: "gemini-3-flash", label: "gemini-3-flash" }
 ];
@@ -606,7 +604,7 @@ export default class VaultPowerShellPlugin extends Plugin {
     const saved = (await this.loadData()) as Partial<PowerShellSettings> | null;
     const previousSchemaVersion = saved?.settingsSchemaVersion ?? 0;
     const needsCodexScrollbackMigration = previousSchemaVersion < 2;
-    const needsGeminiStableModelMigration = previousSchemaVersion < 3;
+    const needsGeminiStableModelMigration = previousSchemaVersion < 4;
     let shouldSaveSettings = needsCodexScrollbackMigration || needsGeminiStableModelMigration;
     this.settings = Object.assign({}, DEFAULT_SETTINGS, saved ?? {});
     this.settings.settingsSchemaVersion = SETTINGS_SCHEMA_VERSION;
@@ -4101,7 +4099,7 @@ class VaultPowerShellView extends ItemView {
       });
       let sessionId = provider === "claude" ? this.ensureClaudeSessionId() : this.ensureGeminiSessionId();
       let result = await this.runTrackedPrintCommand(provider, text, cwd, env, sessionId, turnId);
-      if (provider === "gemini" && isGeminiModelNotFoundResult(result)) {
+      if (provider === "gemini" && isGeminiModelUnavailableResult(result)) {
         const initialModel = this.plugin.settings.geminiModel || DEFAULT_SETTINGS.geminiModel;
         for (const fallbackModel of getGeminiModelFallbackCandidates(initialModel)) {
           this.withAgentSession(sessionKey, () => {
@@ -4109,13 +4107,13 @@ class VaultPowerShellView extends ItemView {
             this.appendAgentTranscript({
               id: this.nextLocalAgentEntryId("system"),
               role: "system",
-              text: `Gemini 모델 ${initialModel}을 현재 계정에서 찾지 못해 ${fallbackModel}로 자동 재시도합니다.`
+              text: `Gemini 모델 ${initialModel}을 현재 계정/서버에서 사용할 수 없어 ${fallbackModel}로 자동 재시도합니다.`
             });
           });
           result = await this.runTrackedPrintCommand(provider, text, cwd, env, sessionId, turnId, {
             settings: { ...this.plugin.settings, geminiModel: fallbackModel }
           });
-          if (!isGeminiModelNotFoundResult(result)) {
+          if (!isGeminiModelUnavailableResult(result)) {
             if (result.exitCode === 0 && !result.cancelled && !result.timedOut && !result.error) {
               this.withAgentSession(sessionKey, () => {
                 this.plugin.settings.geminiModel = fallbackModel;
@@ -8673,6 +8671,10 @@ function formatGeminiAuthErrorOutput(output: string): string | null {
     return "Gemini 모델을 찾을 수 없습니다. 현재 계정에서 접근 가능한 모델로 바꾸세요. 권장값: gemini-2.5-flash, gemini-2.5-pro. flash/pro 같은 alias는 Gemini CLI가 preview 모델로 라우팅할 수 있어 404가 날 수 있습니다. Agent Console의 Gemini 모델 드롭다운에서 명시 모델로 바꾼 뒤 Gemini 세션을 Stop/Start 하세요.";
   }
 
+  if (/RetryableQuotaError|No capacity available for model/i.test(output)) {
+    return "Gemini 모델 서버 capacity가 현재 없습니다. flash/pro alias나 preview 모델은 Gemini CLI가 gemini-3-flash-preview로 라우팅해 capacity 오류를 낼 수 있습니다. Agent Console의 Gemini 모델 드롭다운에서 gemini-2.5-flash 또는 gemini-2.5-pro 같은 명시 stable 모델로 바꾼 뒤 다시 시도하세요.";
+  }
+
   if (/Please set an Auth method/i.test(output)) {
     const home = getUserHome();
     const settingsPath = home ? join(home, ".gemini", "settings.json") : "~/.gemini/settings.json";
@@ -8699,14 +8701,14 @@ function isClaudeSessionInUseResult(result: CapturedCommandResult): boolean {
   return /Session ID\s+[0-9a-f-]+\s+is already in use/i.test(output);
 }
 
-function isGeminiModelNotFoundResult(result: CapturedCommandResult): boolean {
+function isGeminiModelUnavailableResult(result: CapturedCommandResult): boolean {
   const output = stripTerminalControlSequences(`${result.stdout}\n${result.stderr}\n${result.error ?? ""}`);
-  return /ModelNotFoundError|Requested entity was not found/i.test(output);
+  return /ModelNotFoundError|Requested entity was not found|RetryableQuotaError|No capacity available for model/i.test(output);
 }
 
 function getGeminiModelFallbackCandidates(configuredModel: string | undefined): string[] {
   const normalized = normalizeGeminiModelInput(configuredModel) || DEFAULT_SETTINGS.geminiModel;
-  const candidates = ["gemini-2.5-flash", "gemini-2.5-pro", "flash-lite"];
+  const candidates = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"];
   return candidates.filter((candidate) => candidate !== normalized);
 }
 
@@ -10258,11 +10260,14 @@ function normalizeGeminiModelInput(value: string | undefined): string {
 
 function migrateGeminiModelAliasToStable(value: string | undefined): string {
   const normalized = normalizeGeminiModelInput(value);
-  if (normalized === "flash") {
+  if (normalized === "flash" || normalized === "gemini-3-flash-preview") {
     return "gemini-2.5-flash";
   }
   if (normalized === "pro") {
     return "gemini-2.5-pro";
+  }
+  if (normalized === "flash-lite") {
+    return "gemini-2.5-flash-lite";
   }
   return normalized;
 }
