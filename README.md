@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.61`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.62`.
 
 [한국어 README](README.ko.md)
 
@@ -57,7 +57,7 @@ The Claude Code Agent Console separates normal chat turns from login/control pro
 - Opens the visible turn card and keeps the in-chat `생각 중` indicator attached while the print-command process is running.
 - If Claude reports that the session ID is already in use, the console retries once with `--resume <sessionId> --fork-session` so the fallback keeps the previous Claude context instead of starting from an empty UUID.
 - Claude/Gemini normal-response processes are tracked by pid. `Stop`, tab close, and plugin reload clean them up, and startup checks `agent-processes.json` for stale pids left by a previous crash.
-- Uses the background PTY host for `/login`, MCP connection prompts, permission prompts, and command-style control input.
+- Uses the background PTY host for `/login`, MCP connection prompts, permission prompts, and command-style control input. Typed Claude slash commands are sent to this control host when it is running.
 - Uses Claude session logs to track control flow and keep transcript offsets aligned.
 
 ### Gemini CLI
@@ -77,6 +77,8 @@ Gemini CLI uses the same print-command shape as Claude normal chat turns.
 - Allows long-running work instead of enforcing a 10-minute response cutoff; press `Stop` to terminate the current process tree.
 - Opens the visible turn card and keeps the in-chat `생각 중` indicator attached while the print-command process is running.
 - Does not use Gemini `--resume latest`; plugin tabs resume only their own Gemini sessionId to avoid cross-tab context collisions.
+- Typed Gemini slash commands such as `/auth`, `/mcp`, `/help`, and `/model` are treated as Gemini CLI control commands. If the interactive control PTY is not running, the plugin starts `gemini --screen-reader` on demand and sends the slash command there instead of dropping it into the headless prompt path.
+- Normal Gemini chat turns still use the plugin's Gemini model dropdown and headless session settings. Use the plugin dropdown for the model that normal Agent Console messages should run with.
 - Gemini subscription login is started from the Agent Console `Login` button. The plugin opens interactive `gemini --skip-trust --screen-reader` inside its control PTY with `NO_BROWSER=true`, then lets the Gemini CLI handle Sign in with Google through the manual URL/code flow and write its own auth settings.
 - `Login` restarts any existing Gemini login PTY before opening `/auth`, so a stale browser-based auth prompt is replaced with manual authentication.
 - When Gemini asks for a manual authorization code, paste only that code into the Agent Console message box and press `Send`.
@@ -301,8 +303,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.61
-git push origin 0.6.61
+git tag 0.6.62
+git push origin 0.6.62
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.

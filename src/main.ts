@@ -3966,6 +3966,14 @@ class VaultPowerShellView extends ItemView {
       return;
     }
 
+    if (this.agentProvider === "gemini" && isSlashCommandText(text)) {
+      inputEl.value = "";
+      this.codexPendingAttachments = [];
+      this.renderAttachmentChips();
+      await this.sendGeminiSlashCommand(text, attachments);
+      return;
+    }
+
     if (this.agentBackend) {
       if (!text && attachments.length === 0) {
         return;
@@ -4066,6 +4074,155 @@ class VaultPowerShellView extends ItemView {
     this.clearAgentPromptState();
     this.sendAgentHostMessage({ type: "data", data });
     this.setAgentStatus("Waiting for response...");
+  }
+
+  private async sendGeminiSlashCommand(text: string, attachments: AgentAttachment[]) {
+    const command = text.trim();
+    if (!command) {
+      return;
+    }
+
+    this.agentCurrentTurnStartedAt = Date.now();
+    this.appendAgentTranscript({
+      id: this.nextLocalAgentEntryId("user"),
+      role: "user",
+      text: command
+    });
+
+    if (attachments.length > 0) {
+      this.appendAgentTranscript({
+        id: this.nextLocalAgentEntryId("system"),
+        role: "system",
+        text: `Gemini CLI slash commands do not accept Agent Console attachments. Ignored ${attachments.length} attachment(s).`
+      });
+    }
+
+    const data = `${command}\r`;
+    if (this.agentHost && this.agentHostReady) {
+      this.sendAgentHostMessage({ type: "data", data });
+      this.noteAgentControlFlow(data);
+      this.clearAgentPromptState();
+      this.refreshAgentAuthStatus("Gemini CLI control command sent");
+      return;
+    }
+
+    if (this.agentHost) {
+      this.agentPostLaunchInput = data;
+      this.noteAgentControlFlow(data);
+      this.clearAgentPromptState();
+      this.setAgentStatus("Gemini CLI control command queued");
+      this.appendAgentTranscript({
+        id: this.nextLocalAgentEntryId("system"),
+        role: "system",
+        text: `Gemini CLI control console is still starting. Queued command: ${command}`
+      });
+      this.saveAgentViewState();
+      return;
+    }
+
+    const started = await this.startGeminiControlHostForCommand(command, data);
+    if (!started) {
+      this.appendAgentTranscript({
+        id: this.nextLocalAgentEntryId("system"),
+        role: "system",
+        text: `Gemini CLI control command was not sent: ${command}`
+      });
+    }
+  }
+
+  private async startGeminiControlHostForCommand(command: string, data: string): Promise<boolean> {
+    if (this.agentProvider !== "gemini") {
+      return false;
+    }
+
+    const sessionKey = this.activeAgentSessionKey;
+    const cwd = this.plugin.getVaultPath();
+    if (!cwd) {
+      new Notice("This vault does not expose a local file-system path.");
+      return false;
+    }
+
+    const isLoginCommand = /^\/(?:auth|login)\b/i.test(command);
+    const wasConversationReady = this.agentConversationReady;
+    const wasReadyState = this.agentAuthState === "ready" || this.agentAuthState === "authenticated";
+
+    try {
+      const env = buildProcessEnv({
+        useSystemCa: this.plugin.settings.useSystemCa,
+        extraCaCertPath: this.plugin.getExtraCaCertPath()
+      });
+      env.NO_BROWSER = "true";
+
+      const availabilityFailure = await getGeminiCliAvailabilityFailure(cwd, env, this.plugin.settings);
+      if (availabilityFailure) {
+        this.withAgentSession(sessionKey, () => {
+          this.agentAuthState = "login-required";
+          this.agentNeedsAuth = true;
+          this.setAgentStatus("Gemini CLI missing");
+          this.appendAgentTranscript({
+            id: this.nextLocalAgentEntryId("system"),
+            role: "system",
+            text: availabilityFailure.summary
+          });
+        });
+        return false;
+      }
+
+      const missingRuntimeFiles = this.plugin.getRuntimeMissingFiles();
+      if (missingRuntimeFiles.length > 0) {
+        if (!this.plugin.settings.autoInstallRuntime) {
+          throw new Error("Runtime files are missing. Use Settings > Obst Terminal > Runtime files first.");
+        }
+
+        await this.plugin.installRuntimeIfNeeded((message) => {
+          this.withAgentSession(sessionKey, () => this.setAgentStatus(message));
+        });
+      }
+
+      this.withAgentSession(sessionKey, () => {
+        this.agentStartedAt = Date.now();
+        this.agentSessionPath = null;
+        this.agentSessionOffset = 0;
+        this.agentSessionBaselineOffsets = snapshotAgentSessionOffsets("gemini", cwd);
+        this.agentSeenEntries.clear();
+        this.agentAuthState = isLoginCommand
+          ? "login-in-progress"
+          : wasReadyState || wasConversationReady ? "ready" : "checking";
+        this.agentConversationReady = isLoginCommand ? false : wasConversationReady;
+        this.agentReadyNoticeShown = wasConversationReady;
+        this.agentAutoLoginAttempted = isLoginCommand;
+        this.agentAutoLoginPending = false;
+        this.agentAutoMcpAttempted = /^\/mcp\b/i.test(command);
+        this.agentMcpAuthInProgress = /^\/mcp\b/i.test(command);
+        this.agentNeedsAuth = isLoginCommand ? true : this.agentNeedsAuth && !wasConversationReady;
+        this.agentPromptState = null;
+        this.agentOpenedExternalUrls.clear();
+        this.agentPostLaunchInput = data;
+        this.lastAgentLaunchCommand = "";
+        this.agentReadyForInput = false;
+        this.setAgentStatus("Starting Gemini CLI control...");
+        this.appendAgentTranscript({
+          id: this.nextLocalAgentEntryId("system"),
+          role: "system",
+          text: `Starting Gemini CLI control console for slash command: ${command}`
+        });
+        this.startAgentHost(sessionKey, cwd, env);
+        this.saveAgentViewState();
+      });
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.withAgentSession(sessionKey, () => {
+        this.setAgentStatus("Failed");
+        this.appendAgentTranscript({
+          id: this.nextLocalAgentEntryId("system"),
+          role: "system",
+          text: `Failed to start Gemini CLI control console: ${message}`
+        });
+      });
+      new Notice(`Failed to start Gemini CLI control console: ${message}`);
+      return false;
+    }
   }
 
   private async sendClaudePrintTurn(text: string) {
@@ -7571,6 +7728,10 @@ function isAgentProvider(value: unknown): value is AgentProvider {
 
 function isPrintCommandProvider(provider: AgentProvider): boolean {
   return provider === "claude" || provider === "gemini";
+}
+
+function isSlashCommandText(text: string): boolean {
+  return /^\/\S*/.test(text.trim());
 }
 
 function isAgentDelegationAttempt(text: string): boolean {
