@@ -3852,20 +3852,20 @@ class VaultPowerShellView extends ItemView {
       return { sessionLabel, provider, status: "failed", reason };
     }
 
+    const usePrintMode = isPrintCommandProvider(this.agentProvider) && (!this.agentPromptState || promptMode === "text");
     const contextualRoutedText = this.buildContextualAgentPrompt(routedText);
     const textWithAttachments = appendAgentAttachmentPrompt(contextualRoutedText, attachments);
+    if (usePrintMode && textWithAttachments) {
+      const status = this.queueOrStartPrintTurn(this.agentProvider, textWithAttachments, attachments, visibleText);
+      return { sessionLabel, provider, status };
+    }
+
     this.agentCurrentTurnStartedAt = Date.now();
     this.appendAgentTranscript({
       id: this.nextLocalAgentEntryId("user"),
       role: "user",
       text: visibleText
     });
-
-    const usePrintMode = isPrintCommandProvider(this.agentProvider) && !!textWithAttachments && (!this.agentPromptState || promptMode === "text");
-    if (usePrintMode) {
-      const status = this.queueOrStartPrintTurn(this.agentProvider, textWithAttachments, attachments, visibleText);
-      return { sessionLabel, provider, status };
-    }
 
     this.clearAgentPromptState();
     this.sendAgentHostMessage({ type: "data", data: `${formatTerminalPasteData(textWithAttachments)}\r` });
@@ -3985,16 +3985,22 @@ class VaultPowerShellView extends ItemView {
     this.codexPendingAttachments = [];
     this.renderAttachmentChips();
     const visibleText = text || (attachments.length ? "(attachments)" : "[Enter]");
+    if (usePrintMode) {
+      this.queueOrStartPrintTurn(
+        this.agentProvider,
+        textWithAttachments,
+        attachments,
+        visibleText + (attachments.length ? `\n\n[${attachments.length} file(s) attached]` : "")
+      );
+      return;
+    }
+
     this.agentCurrentTurnStartedAt = Date.now();
     this.appendAgentTranscript({
       id: this.nextLocalAgentEntryId("user"),
       role: "user",
       text: visibleText + (attachments.length ? `\n\n[${attachments.length} file(s) attached]` : "")
     });
-    if (usePrintMode) {
-      this.queueOrStartPrintTurn(this.agentProvider, textWithAttachments, attachments, visibleText);
-      return;
-    }
 
     if (promptMode === "continue" && !text.startsWith("/")) {
       const sessionKey = this.activeAgentSessionKey;
@@ -4018,11 +4024,11 @@ class VaultPowerShellView extends ItemView {
   }
 
   private async sendClaudePrintTurn(text: string) {
-    await this.sendPrintCommandTurn("claude", text);
+    await this.sendPrintCommandTurn("claude", text, text.slice(0, 160));
   }
 
   private async sendGeminiPrintTurn(text: string) {
-    await this.sendPrintCommandTurn("gemini", text);
+    await this.sendPrintCommandTurn("gemini", text, text.slice(0, 160));
   }
 
   private queueOrStartPrintTurn(provider: AgentProvider, text: string, attachments: AgentAttachment[], visibleText: string): "sent" | "queued" {
@@ -4038,7 +4044,7 @@ class VaultPowerShellView extends ItemView {
       return "queued";
     }
 
-    void this.sendPrintCommandTurn(provider, text);
+    void this.sendPrintCommandTurn(provider, text, visibleText);
     return "sent";
   }
 
@@ -4053,10 +4059,10 @@ class VaultPowerShellView extends ItemView {
     }
 
     this.setAgentStatus(`${getAgentProviderLabel(provider)} queued message starting...`);
-    void this.sendPrintCommandTurn(provider, next.text);
+    void this.sendPrintCommandTurn(provider, next.text, next.visibleText);
   }
 
-  private async sendPrintCommandTurn(provider: AgentProvider, text: string) {
+  private async sendPrintCommandTurn(provider: AgentProvider, text: string, visibleText = "") {
     const sessionKey = this.activeAgentSessionKey;
     const cwd = this.plugin.getVaultPath();
     if (!cwd) {
@@ -4082,6 +4088,8 @@ class VaultPowerShellView extends ItemView {
     if (provider === "claude") {
       this.agentClaudePrintTurnActive = true;
     }
+    this.agentCurrentTurnStartedAt = Date.now();
+    this.startCodexTurn(visibleText || text.slice(0, 160));
     this.agentLastUsageText = null;
     this.clearAgentPromptState();
     this.setAgentStatus(`Waiting for ${getAgentProviderLabel(provider)} response...`);
