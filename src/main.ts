@@ -99,7 +99,7 @@ const ESCAPE_SEQUENCE = "\x1b";
 const KILL_LINE_SEQUENCE = "\x15";
 const CODEX_RESIZE_REFLOW_CONFIG = "tui.terminal_resize_reflow=false";
 const TERMINAL_FIT_STABILIZATION_DELAYS_MS = [0, 16, 50, 150, 400, 1000];
-const SETTINGS_SCHEMA_VERSION = 4;
+const SETTINGS_SCHEMA_VERSION = 5;
 const AGENT_CONSOLE_COLS = 300;
 const AGENT_CONSOLE_ROWS = 30;
 const WSL_CHECK_TIMEOUT_MS = 3000;
@@ -154,6 +154,12 @@ interface PowerShellSettings {
   geminiApprovalMode: GeminiApprovalMode;
   geminiSkipTrust: boolean;
   geminiSandbox: boolean;
+  geminiUseNativeSession: boolean;
+  geminiOutputFormat: GeminiOutputFormat;
+  geminiExtensions: string;
+  geminiAllowedMcpServers: string;
+  geminiIncludeDirectories: string;
+  geminiPolicyFiles: string;
   windowsPtyBackend: WindowsPtyBackend;
   autoInstallRuntime: boolean;
   useSystemCa: boolean;
@@ -171,6 +177,7 @@ type CodexLoginMethod = "browser" | "device-code";
 type ClaudePermissionMode = "acceptEdits" | "auto" | "bypassPermissions" | "default" | "dontAsk" | "plan";
 type ClaudeEffort = "" | "low" | "medium" | "high" | "xhigh" | "max";
 type GeminiApprovalMode = "default" | "auto_edit" | "yolo" | "plan";
+type GeminiOutputFormat = "text" | "json" | "stream-json";
 type ShellProfile = "auto" | "pwsh" | "windows-powershell" | "cmd" | "wsl" | "git-bash" | "zsh" | "bash" | "custom";
 type ViewPane = "agent" | "terminal";
 type AgentProvider = "claude" | "codex" | "gemini";
@@ -191,6 +198,7 @@ interface AgentViewSessionState extends Record<string, unknown> {
   claudeControlSessionId?: string;
   codexThreadId?: string | null;
   geminiSessionId?: string | null;
+  geminiNativeSessionStarted?: boolean;
 }
 
 interface AgentWorkspaceSessionState extends Record<string, unknown> {
@@ -202,6 +210,7 @@ interface AgentWorkspaceSessionState extends Record<string, unknown> {
   claudeControlSessionId?: string | null;
   codexThreadId: string | null;
   geminiSessionId?: string | null;
+  geminiNativeSessionStarted?: boolean;
   claudeTranscriptHtml?: string;
   codexTranscriptHtml?: string;
   geminiTranscriptHtml?: string;
@@ -487,6 +496,12 @@ const DEFAULT_SETTINGS: PowerShellSettings = {
   geminiApprovalMode: "yolo",
   geminiSkipTrust: true,
   geminiSandbox: false,
+  geminiUseNativeSession: true,
+  geminiOutputFormat: "stream-json",
+  geminiExtensions: "",
+  geminiAllowedMcpServers: "",
+  geminiIncludeDirectories: "",
+  geminiPolicyFiles: "",
   windowsPtyBackend: "conpty",
   autoInstallRuntime: true,
   useSystemCa: false,
@@ -639,6 +654,15 @@ export default class VaultPowerShellPlugin extends Plugin {
     this.settings.geminiApprovalMode = normalizeGeminiApprovalMode(this.settings.geminiApprovalMode);
     this.settings.geminiSkipTrust = this.settings.geminiSkipTrust !== false;
     this.settings.geminiSandbox = this.settings.geminiSandbox === true;
+    this.settings.geminiUseNativeSession = this.settings.geminiUseNativeSession !== false;
+    this.settings.geminiOutputFormat = normalizeGeminiOutputFormat(this.settings.geminiOutputFormat);
+    this.settings.geminiExtensions = normalizeDelimitedSetting(this.settings.geminiExtensions);
+    this.settings.geminiAllowedMcpServers = normalizeDelimitedSetting(this.settings.geminiAllowedMcpServers);
+    this.settings.geminiIncludeDirectories = normalizeDelimitedSetting(this.settings.geminiIncludeDirectories);
+    this.settings.geminiPolicyFiles = normalizeDelimitedSetting(this.settings.geminiPolicyFiles);
+    if (previousSchemaVersion < SETTINGS_SCHEMA_VERSION) {
+      shouldSaveSettings = true;
+    }
     this.settings.windowsPtyBackend = normalizeWindowsPtyBackend(this.settings.windowsPtyBackend);
     this.settings.autoInstallRuntime = this.settings.autoInstallRuntime === true;
     this.settings.persistAgentTranscriptSnapshots = this.settings.persistAgentTranscriptSnapshots === true;
@@ -1230,6 +1254,7 @@ class VaultPowerShellView extends ItemView {
   private agentClaudeSessionId: string | null = randomUUID();
   private agentClaudeControlSessionId: string | null = null;
   private agentGeminiSessionId: string | null = randomUUID();
+  private agentGeminiNativeSessionStarted = false;
   private agentPrintTurnRuntime: AgentPrintTurnRuntime | null = null;
   private agentPrintQueuedInputs: AgentQueuedPrintInput[] = [];
   private agentPostLaunchInput: string | null = null;
@@ -1422,6 +1447,7 @@ class VaultPowerShellView extends ItemView {
       if (typeof value.geminiSessionId === "string" && value.geminiSessionId.trim()) {
         this.agentGeminiSessionId = value.geminiSessionId.trim();
       }
+      this.agentGeminiNativeSessionStarted = value.geminiNativeSessionStarted === true;
       this.agentSessions = [this.createSessionStateFromActiveFields()];
       this.activeAgentSessionKey = this.agentSessionKey;
       this.visibleAgentSessionKey = this.agentSessionKey;
@@ -1552,6 +1578,7 @@ class VaultPowerShellView extends ItemView {
       claudeControlSessionId: this.agentClaudeControlSessionId,
       codexThreadId: this.agentCodexThreadId,
       geminiSessionId: this.agentGeminiSessionId,
+      geminiNativeSessionStarted: this.agentGeminiNativeSessionStarted,
       claudeTranscriptHtml: sanitizeAgentTranscriptHtml(this.claudeTranscriptEl?.innerHTML ?? ""),
       codexTranscriptHtml: sanitizeAgentTranscriptHtml(this.codexTranscriptEl?.innerHTML ?? ""),
       geminiTranscriptHtml: sanitizeAgentTranscriptHtml(this.geminiTranscriptEl?.innerHTML ?? ""),
@@ -1574,6 +1601,7 @@ class VaultPowerShellView extends ItemView {
     this.agentClaudeControlSessionId = session.claudeControlSessionId ?? null;
     this.agentCodexThreadId = session.codexThreadId;
     this.agentGeminiSessionId = session.geminiSessionId ?? null;
+    this.agentGeminiNativeSessionStarted = session.geminiNativeSessionStarted === true;
   }
 
   private getReadableAgentTranscriptScrollTop(el: HTMLElement | null | undefined, fallback: number): number {
@@ -1752,6 +1780,7 @@ class VaultPowerShellView extends ItemView {
     session.claudeControlSessionId = this.agentClaudeControlSessionId;
     session.codexThreadId = this.agentCodexThreadId;
     session.geminiSessionId = this.agentGeminiSessionId;
+    session.geminiNativeSessionStarted = this.agentGeminiNativeSessionStarted;
     if (this.claudeTranscriptEl) {
       session.claudeTranscriptHtml = sanitizeAgentTranscriptHtml(this.claudeTranscriptEl.innerHTML);
       if (this.isVisibleAgentSessionContext() && this.isAgentTranscriptScrollReadable(this.claudeTranscriptEl)) {
@@ -1841,6 +1870,7 @@ class VaultPowerShellView extends ItemView {
       claudeControlSessionId: session.claudeControlSessionId ?? null,
       codexThreadId: session.codexThreadId,
       geminiSessionId: session.geminiSessionId ?? null,
+      geminiNativeSessionStarted: session.geminiNativeSessionStarted === true,
       claudeTranscriptHtml: includeTranscriptSnapshots ? sanitizeAgentTranscriptHtml(session.claudeTranscriptHtml ?? "") : "",
       codexTranscriptHtml: includeTranscriptSnapshots ? sanitizeAgentTranscriptHtml(session.codexTranscriptHtml ?? "") : "",
       geminiTranscriptHtml: includeTranscriptSnapshots ? sanitizeAgentTranscriptHtml(session.geminiTranscriptHtml ?? "") : "",
@@ -2802,7 +2832,9 @@ class VaultPowerShellView extends ItemView {
 
     const runtimeContext = this.getAgentRuntimeContextText();
     const activeNoteContext = this.getActiveNoteReferenceContextText(trimmed);
-    const context = this.getAgentTranscriptContextText();
+    const context = this.shouldAttachTranscriptContextToPrompt()
+      ? this.getAgentTranscriptContextText()
+      : "";
     if (!runtimeContext && !activeNoteContext && !context) {
       return text;
     }
@@ -2851,6 +2883,8 @@ class VaultPowerShellView extends ItemView {
         "Provider: Gemini CLI",
         `Configured --model: ${configuredModel}`,
         resolvedModel !== configuredModel ? `Model alias resolution: ${configuredModel} -> ${resolvedModel}` : "",
+        `Session mode: ${this.plugin.settings.geminiUseNativeSession ? `native ${this.agentGeminiNativeSessionStarted ? "resume" : "session-id"}` : "plugin transcript context"}`,
+        `Output format: ${this.plugin.settings.geminiOutputFormat}`,
         `Approval mode: ${this.plugin.settings.geminiApprovalMode}`,
         "If the user asks which LLM/model is in use, answer from this runtime setting rather than from model self-introspection."
       ].filter(Boolean).join("\n");
@@ -2879,6 +2913,10 @@ class VaultPowerShellView extends ItemView {
 
   private getAgentTranscriptContextText(): string {
     return this.getAgentTranscriptContextSnapshot().text;
+  }
+
+  private shouldAttachTranscriptContextToPrompt(): boolean {
+    return !(this.agentProvider === "gemini" && this.plugin.settings.geminiUseNativeSession);
   }
 
   private getAgentTranscriptContextSnapshot(): { text: string; originalChars: number; usedChars: number; percent: number } {
@@ -3102,13 +3140,21 @@ class VaultPowerShellView extends ItemView {
       const pieces = [this.plugin.settings.claudeModel || "Claude", this.plugin.settings.claudeEffort].filter(Boolean);
       return pieces.join(" · ");
     }
-    const pieces = [formatGeminiStatusModelLabel(this.plugin.settings.geminiModel), this.plugin.settings.geminiApprovalMode].filter(Boolean);
+    const pieces = [
+      formatGeminiStatusModelLabel(this.plugin.settings.geminiModel),
+      this.plugin.settings.geminiUseNativeSession ? "native" : "ctx",
+      this.plugin.settings.geminiOutputFormat,
+      this.plugin.settings.geminiApprovalMode
+    ].filter(Boolean);
     return pieces.join(" · ");
   }
 
   private getAgentContextPercent(): number | null {
     if (this.agentProvider === "codex") {
       return this.codexContextPercent;
+    }
+    if (this.agentProvider === "gemini" && this.plugin.settings.geminiUseNativeSession) {
+      return null;
     }
     return this.getAgentTranscriptContextSnapshot().percent;
   }
@@ -4098,7 +4144,28 @@ class VaultPowerShellView extends ItemView {
         extraCaCertPath: this.plugin.getExtraCaCertPath()
       });
       let sessionId = provider === "claude" ? this.ensureClaudeSessionId() : this.ensureGeminiSessionId();
-      let result = await this.runTrackedPrintCommand(provider, text, cwd, env, sessionId, turnId);
+      let result = await this.runTrackedPrintCommand(provider, text, cwd, env, sessionId, turnId, {
+        geminiResumeNativeSession: this.agentGeminiNativeSessionStarted
+      });
+      if (
+        provider === "gemini" &&
+        this.plugin.settings.geminiUseNativeSession &&
+        this.agentGeminiNativeSessionStarted &&
+        isGeminiNativeSessionResumeMissingResult(result)
+      ) {
+        this.withAgentSession(sessionKey, () => {
+          this.agentGeminiNativeSessionStarted = false;
+          this.setAgentStatus("Starting new Gemini native session...");
+          this.appendAgentTranscript({
+            id: this.nextLocalAgentEntryId("system"),
+            role: "system",
+            text: "Gemini CLI native session을 찾지 못해 같은 플러그인 sessionId로 새 Gemini session을 시작합니다."
+          });
+        });
+        result = await this.runTrackedPrintCommand(provider, text, cwd, env, sessionId, turnId, {
+          geminiResumeNativeSession: false
+        });
+      }
       if (provider === "gemini" && isGeminiModelUnavailableResult(result)) {
         const initialModel = this.plugin.settings.geminiModel || DEFAULT_SETTINGS.geminiModel;
         for (const fallbackModel of getGeminiModelFallbackCandidates(initialModel)) {
@@ -4111,7 +4178,8 @@ class VaultPowerShellView extends ItemView {
             });
           });
           result = await this.runTrackedPrintCommand(provider, text, cwd, env, sessionId, turnId, {
-            settings: { ...this.plugin.settings, geminiModel: fallbackModel }
+            settings: { ...this.plugin.settings, geminiModel: fallbackModel },
+            geminiResumeNativeSession: this.agentGeminiNativeSessionStarted
           });
           if (!isGeminiModelUnavailableResult(result)) {
             if (result.exitCode === 0 && !result.cancelled && !result.timedOut && !result.error) {
@@ -4171,6 +4239,13 @@ class VaultPowerShellView extends ItemView {
           this.saveAgentViewState();
         });
       }
+      if (provider === "gemini" && this.plugin.settings.geminiUseNativeSession && isSuccessfulPrintCommandResult(result)) {
+        this.withAgentSession(sessionKey, () => {
+          this.agentGeminiNativeSessionStarted = true;
+          this.refreshAgentSessionChrome();
+          this.saveAgentViewState();
+        });
+      }
       this.withAgentSession(sessionKey, () => {
         const output = provider === "gemini" ? formatGeminiPrintOutput(result) : formatClaudePrintOutput(result);
         this.agentLastUsageText = getPrintCommandUsageSummary(provider, result);
@@ -4210,11 +4285,14 @@ class VaultPowerShellView extends ItemView {
     env: { [key: string]: string | undefined },
     sessionId: string,
     turnId: string,
-    options: { resumeFork?: boolean; settings?: PowerShellSettings } = {}
+    options: { resumeFork?: boolean; settings?: PowerShellSettings; geminiResumeNativeSession?: boolean } = {}
   ): Promise<CapturedCommandResult> {
     const settings = options.settings ?? this.plugin.settings;
     const handle = provider === "gemini"
-      ? spawnGeminiPrintCommand(text, cwd, env, CLAUDE_PRINT_TIMEOUT_MS, settings)
+      ? spawnGeminiPrintCommand(text, cwd, env, CLAUDE_PRINT_TIMEOUT_MS, settings, {
+        sessionId,
+        resumeNativeSession: options.geminiResumeNativeSession === true
+      })
       : spawnClaudePrintCommand(text, cwd, env, CLAUDE_PRINT_TIMEOUT_MS, {
         ...(options.resumeFork ? { resumeSessionId: sessionId, forkSession: true } : { sessionId }),
         sessionName: this.agentSessionLabel,
@@ -6390,6 +6468,85 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
           })
       );
 
+    new Setting(agentEl)
+      .setName("Gemini native session")
+      .setDesc("Use Gemini CLI --session-id/--resume per plugin tab and skip plugin transcript replay for faster follow-up turns.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.geminiUseNativeSession)
+          .onChange((value) => {
+            this.plugin.settings.geminiUseNativeSession = value;
+            void this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(agentEl)
+      .setName("Gemini output format")
+      .setDesc("Gemini CLI --output-format. stream-json is parsed back into normal transcript text.")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("stream-json", "stream-json")
+          .addOption("json", "json")
+          .addOption("text", "text")
+          .setValue(this.plugin.settings.geminiOutputFormat)
+          .onChange((value) => {
+            this.plugin.settings.geminiOutputFormat = normalizeGeminiOutputFormat(value);
+            void this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(agentEl)
+      .setName("Gemini extensions")
+      .setDesc("Optional comma/newline list passed as repeated --extensions values. Empty keeps Gemini CLI default behavior.")
+      .addText((text) =>
+        text
+          .setPlaceholder("extension-a, extension-b")
+          .setValue(this.plugin.settings.geminiExtensions)
+          .onChange((value) => {
+            this.plugin.settings.geminiExtensions = normalizeDelimitedSetting(value);
+            void this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(agentEl)
+      .setName("Gemini allowed MCP servers")
+      .setDesc("Optional comma/newline list passed as repeated --allowed-mcp-server-names values.")
+      .addText((text) =>
+        text
+          .setPlaceholder("server-a, server-b")
+          .setValue(this.plugin.settings.geminiAllowedMcpServers)
+          .onChange((value) => {
+            this.plugin.settings.geminiAllowedMcpServers = normalizeDelimitedSetting(value);
+            void this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(agentEl)
+      .setName("Gemini include directories")
+      .setDesc("Optional comma/newline list passed as repeated --include-directories values.")
+      .addText((text) =>
+        text
+          .setPlaceholder("C:\\path\\to\\project")
+          .setValue(this.plugin.settings.geminiIncludeDirectories)
+          .onChange((value) => {
+            this.plugin.settings.geminiIncludeDirectories = normalizeDelimitedSetting(value);
+            void this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(agentEl)
+      .setName("Gemini policy files")
+      .setDesc("Optional comma/newline list passed as repeated --policy values. Use Policy Engine instead of deprecated --allowed-tools.")
+      .addText((text) =>
+        text
+          .setPlaceholder("policies/gemini-policy.json")
+          .setValue(this.plugin.settings.geminiPolicyFiles)
+          .onChange((value) => {
+            this.plugin.settings.geminiPolicyFiles = normalizeDelimitedSetting(value);
+            void this.plugin.saveSettings();
+          })
+      );
+
     const advancedDetails = containerEl.createEl("details", { cls: "vault-terminal-advanced-settings" });
     advancedDetails.createEl("summary", { text: "Advanced runtime and network settings" });
     const advancedEl = advancedDetails.createDiv("vault-terminal-advanced-settings-body");
@@ -7564,6 +7721,7 @@ function ensureUniqueAgentWorkspaceSessionIds(sessions: AgentWorkspaceSessionSta
 
     if (!session.geminiSessionId || usedGeminiIds.has(session.geminiSessionId.toLowerCase())) {
       session.geminiSessionId = createUniqueSessionUuid(usedGeminiIds);
+      session.geminiNativeSessionStarted = false;
     }
     usedGeminiIds.add(session.geminiSessionId.toLowerCase());
   }
@@ -7610,6 +7768,7 @@ function createAgentWorkspaceSessionState(mode: AgentSessionMode): AgentWorkspac
     claudeControlSessionId: null,
     codexThreadId: null,
     geminiSessionId: randomUUID(),
+    geminiNativeSessionStarted: false,
     claudeTranscriptHtml: "",
     codexTranscriptHtml: "",
     geminiTranscriptHtml: "",
@@ -7661,6 +7820,7 @@ function normalizeAgentWorkspaceSessionState(value: unknown): AgentWorkspaceSess
     geminiSessionId: typeof candidate.geminiSessionId === "string" && candidate.geminiSessionId.trim()
       ? candidate.geminiSessionId.trim()
       : randomUUID(),
+    geminiNativeSessionStarted: candidate.geminiNativeSessionStarted === true,
     claudeTranscriptHtml: typeof candidate.claudeTranscriptHtml === "string" ? sanitizeAgentTranscriptHtml(candidate.claudeTranscriptHtml) : "",
     codexTranscriptHtml: typeof candidate.codexTranscriptHtml === "string" ? sanitizeAgentTranscriptHtml(candidate.codexTranscriptHtml) : "",
     geminiTranscriptHtml: typeof candidate.geminiTranscriptHtml === "string" ? sanitizeAgentTranscriptHtml(candidate.geminiTranscriptHtml) : "",
@@ -7875,7 +8035,11 @@ function getAgentLaunchCommand(provider: AgentProvider, settings: PowerShellSett
       "--approval-mode",
       settings.geminiApprovalMode,
       settings.geminiModel ? `--model ${quoteShellArg(settings.geminiModel)}` : "",
-      settings.geminiSandbox ? "--sandbox" : ""
+      settings.geminiSandbox ? "--sandbox" : "",
+      ...getRepeatedGeminiShellArgs("--extensions", settings.geminiExtensions),
+      ...getRepeatedGeminiShellArgs("--allowed-mcp-server-names", settings.geminiAllowedMcpServers),
+      ...getRepeatedGeminiShellArgs("--include-directories", settings.geminiIncludeDirectories),
+      ...getRepeatedGeminiShellArgs("--policy", settings.geminiPolicyFiles)
     ].filter(Boolean);
     return `${quoteShellArg(getGeminiExecutable(settings))} ${args.join(" ")}`;
   }
@@ -8513,18 +8677,39 @@ function spawnGeminiPrintCommand(
   cwd: string,
   env: { [key: string]: string | undefined },
   timeoutMs: number | null,
-  settings: PowerShellSettings
+  settings: PowerShellSettings,
+  options: { sessionId?: string | null; resumeNativeSession?: boolean } = {}
 ): CapturedCommandHandle {
   const args = [
     ...(settings.geminiSkipTrust ? ["--skip-trust"] : []),
+    ...getGeminiNativeSessionArgs(settings, options.sessionId, options.resumeNativeSession === true),
     "--approval-mode",
     settings.geminiApprovalMode,
     ...(settings.geminiModel ? ["--model", settings.geminiModel] : []),
     ...(settings.geminiSandbox ? ["--sandbox"] : []),
+    ...getRepeatedGeminiArgs("--extensions", settings.geminiExtensions),
+    ...getRepeatedGeminiArgs("--allowed-mcp-server-names", settings.geminiAllowedMcpServers),
+    ...getRepeatedGeminiArgs("--include-directories", settings.geminiIncludeDirectories),
+    ...getRepeatedGeminiArgs("--policy", settings.geminiPolicyFiles),
     "--output-format",
-    "text"
+    settings.geminiOutputFormat
   ];
   return spawnCapturedCommand(getGeminiExecutable(settings), args, cwd, env, timeoutMs, `${prompt}\n`);
+}
+
+function getGeminiNativeSessionArgs(settings: PowerShellSettings, sessionId: string | null | undefined, resumeNativeSession: boolean): string[] {
+  if (!settings.geminiUseNativeSession || !sessionId || !isUuidString(sessionId)) {
+    return [];
+  }
+  return resumeNativeSession ? ["--resume", sessionId] : ["--session-id", sessionId];
+}
+
+function getRepeatedGeminiArgs(flag: string, value: string | undefined): string[] {
+  return splitDelimitedSetting(value).flatMap((item) => [flag, item]);
+}
+
+function getRepeatedGeminiShellArgs(flag: string, value: string | undefined): string[] {
+  return splitDelimitedSetting(value).flatMap((item) => [flag, quoteShellArg(item)]);
 }
 
 function formatClaudePrintOutput(result: CapturedCommandResult): string {
@@ -8648,7 +8833,7 @@ function formatGeminiPrintOutput(result: CapturedCommandResult): string {
   }
   const output = removeGeminiCliNoise(stripTerminalControlSequences(`${result.stdout}\n${result.stderr}`)).trim();
   if (output) {
-    return formatGeminiAuthErrorOutput(output) ?? output;
+    return formatGeminiAuthErrorOutput(output) ?? getGeminiResultTextFromPrintOutput(output) ?? output;
   }
 
   if (result.timedOut) {
@@ -8664,6 +8849,60 @@ function formatGeminiPrintOutput(result: CapturedCommandResult): string {
   }
 
   return "Gemini가 빈 응답을 반환했습니다.";
+}
+
+function getGeminiResultTextFromPrintOutput(output: string): string | null {
+  const parsedObject = parseJsonObject(output);
+  if (parsedObject) {
+    const text = extractGeminiJsonText(parsedObject);
+    if (text) {
+      return text;
+    }
+  }
+
+  const pieces: string[] = [];
+  for (const line of output.split(/\r?\n/)) {
+    const parsedLine = parseJsonObject(line);
+    if (!parsedLine) {
+      continue;
+    }
+    const text = extractGeminiJsonText(parsedLine);
+    if (text) {
+      pieces.push(text);
+    }
+  }
+  const joined = pieces.join("").trim();
+  return joined || null;
+}
+
+function extractGeminiJsonText(value: unknown): string {
+  const pieces: string[] = [];
+  collectGeminiJsonText(value, pieces);
+  return pieces.join("").trim();
+}
+
+function collectGeminiJsonText(value: unknown, pieces: string[], keyHint = ""): void {
+  if (typeof value === "string") {
+    if (/^(?:text|delta|content|response|result|answer|output)$/i.test(keyHint)) {
+      pieces.push(value);
+    }
+    return;
+  }
+  if (!value || typeof value !== "object") {
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectGeminiJsonText(item, pieces, keyHint);
+    }
+    return;
+  }
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if (/^(?:error|stack|debug|usage|metadata|role|type|id)$/i.test(key)) {
+      continue;
+    }
+    collectGeminiJsonText(child, pieces, key);
+  }
 }
 
 function formatGeminiAuthErrorOutput(output: string): string | null {
@@ -8704,6 +8943,15 @@ function isClaudeSessionInUseResult(result: CapturedCommandResult): boolean {
 function isGeminiModelUnavailableResult(result: CapturedCommandResult): boolean {
   const output = stripTerminalControlSequences(`${result.stdout}\n${result.stderr}\n${result.error ?? ""}`);
   return /ModelNotFoundError|Requested entity was not found|RetryableQuotaError|No capacity available for model/i.test(output);
+}
+
+function isGeminiNativeSessionResumeMissingResult(result: CapturedCommandResult): boolean {
+  const output = stripTerminalControlSequences(`${result.stdout}\n${result.stderr}\n${result.error ?? ""}`);
+  return /No previous sessions found|session(?:\s+id)?\s+.*(?:not found|does not exist|missing)|could not find.*session|failed to resume/i.test(output);
+}
+
+function isSuccessfulPrintCommandResult(result: CapturedCommandResult): boolean {
+  return !result.cancelled && !result.timedOut && !result.error && result.exitCode === 0;
 }
 
 function getGeminiModelFallbackCandidates(configuredModel: string | undefined): string[] {
@@ -8973,9 +9221,6 @@ function matchesAgentPrintCommandLine(record: AgentPrintProcessRecord, lowerComm
   }
 
   return lowerCommandLine.includes("gemini") &&
-    lowerCommandLine.includes("--skip-trust") &&
-    lowerCommandLine.includes("--approval-mode") &&
-    lowerCommandLine.includes("yolo") &&
     lowerCommandLine.includes("--output-format");
 }
 
@@ -10198,6 +10443,27 @@ function normalizeGeminiApprovalMode(value: string | undefined): GeminiApprovalM
   return value === "default" || value === "auto_edit" || value === "plan"
     ? value
     : "yolo";
+}
+
+function normalizeGeminiOutputFormat(value: string | undefined): GeminiOutputFormat {
+  return value === "text" || value === "json" || value === "stream-json"
+    ? value
+    : "stream-json";
+}
+
+function normalizeDelimitedSetting(value: string | undefined): string {
+  return splitDelimitedSetting(value).join(", ");
+}
+
+function splitDelimitedSetting(value: string | undefined): string[] {
+  const raw = value?.trim() ?? "";
+  if (!raw) {
+    return [];
+  }
+  return raw
+    .split(/[\r\n,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function setSelectChoices(

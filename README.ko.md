@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.59`입니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.60`입니다.
 
 [English README](README.md)
 
@@ -65,16 +65,18 @@ Claude Code Agent Console은 로그인/제어 흐름과 일반 대화 흐름을 
 Gemini CLI는 Claude 일반 메시지와 같은 print-command 방식으로 실행합니다.
 
 - 시작 시 `gemini --version`으로 CLI가 PATH에서 보이는지 확인하고, prompt를 받기 전에 Gemini CLI 인증 방식이 설정되어 있는지도 확인합니다.
-- 일반 메시지는 `gemini --skip-trust --approval-mode yolo --output-format text`로 실행하고, 실제 prompt는 stdin으로 전달합니다. Gemini CLI는 `--prompt` 값을 stdin 뒤에 붙이므로, 플러그인은 더 이상 dummy `--prompt=.`를 추가하지 않습니다.
+- 일반 메시지는 Gemini CLI headless stdin 입력으로 실행합니다. Gemini CLI는 `--prompt` 값을 stdin 뒤에 붙이므로, 플러그인은 더 이상 dummy `--prompt=.`를 추가하지 않습니다.
 - Gemini 모델은 Agent Console 안의 드롭다운에서 `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.5-flash-lite`, `gemini-3.5-flash`, `gemini-3-flash` 중 선택합니다. 명시적인 stable 모델을 먼저 표시하고 기본값으로 사용합니다. `flash`, `pro` 같은 CLI alias는 Gemini CLI가 계정 접근 권한이나 서버 capacity에 따라 `gemini-3-flash-preview` 같은 preview 모델로 라우팅할 수 있어 더 이상 기본 선택지로 제공하지 않습니다. 기존에 저장된 preset 밖 전체 모델명은 삭제하지 않고 드롭다운 옵션으로 보존합니다.
 - 설정 스키마 v4는 저장된 Gemini `flash`, `pro`, `gemini-3-flash-preview` 값을 명시 stable 모델(`gemini-2.5-flash`, `gemini-2.5-pro`)로 자동 마이그레이션해서 Gemini CLI stack trace가 반복 노출되는 상황을 줄입니다.
 - Gemini CLI가 `ModelNotFoundError` 또는 `No capacity available`을 반환하면 플러그인이 명시 fallback 모델(`gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.5-flash-lite`)로 자동 재시도하고, 처음 성공한 fallback을 저장해 같은 오류를 반복하지 않게 합니다.
-- 설정에서는 Gemini executable, approval mode, skip-trust, sandbox flag를 조정합니다.
+- Gemini native session 모드는 기본으로 켜져 있습니다. 플러그인 내부 AI 탭의 Gemini local sessionId를 첫 turn에는 Gemini CLI `--session-id`, 이후 turn에는 `--resume <sessionId>`에 연결합니다. 이 모드에서는 플러그인이 이전 transcript를 매 prompt마다 다시 붙이지 않습니다.
+- Gemini output format은 `stream-json`, `json`, `text` 중 선택할 수 있습니다. `stream-json`은 subprocess가 끝난 뒤 일반 transcript 텍스트로 파싱해 표시합니다.
+- 설정에서는 Gemini executable, approval mode, skip-trust, sandbox, native session, output format, extensions, allowed MCP servers, include directories, policy files를 조정합니다. Gemini CLI에서 deprecated로 표시된 `--allowed-tools`는 노출하지 않고 Policy Engine 경로를 씁니다.
 - statusline에는 설정된 Gemini 모델/모드, 플러그인이 붙이는 transcript context meter, Gemini CLI text 출력에서 reliable usage를 제공하지 않는 경우 `usage n/a`를 표시합니다.
 - 일반 Gemini/Claude prompt에는 현재 CLI 실행 모델 설정을 함께 주입하므로, “현재 어떤 모델을 쓰는지” 질문에는 모델의 자기인식이 아니라 플러그인의 실행 설정 기준으로 답할 수 있습니다.
 - Gemini 응답도 장시간 작업을 고려해 10분 제한으로 끊지 않고, `Stop`을 누르면 현재 프로세스 트리를 종료합니다.
 - print-command 프로세스가 실행 중인 동안 현재 turn 카드 안에 `생각 중` 표시를 유지합니다.
-- Gemini의 native `--resume`은 여러 플러그인 탭이 같은 최신 세션을 잡아 충돌할 수 있어 기본 사용하지 않습니다. 대신 플러그인 탭별 transcript context와 Gemini local sessionId로 UI 세션을 분리합니다.
+- Gemini `--resume latest`는 사용하지 않습니다. 플러그인 탭마다 자기 Gemini sessionId만 resume해서 탭 간 컨텍스트 충돌을 피합니다.
 - Gemini 구독 로그인은 Agent Console의 `Login` 버튼에서 시작합니다. 플러그인은 control PTY 안에서 `NO_BROWSER=true`와 함께 `gemini --skip-trust --screen-reader`를 열고, Sign in with Google은 Gemini CLI의 수동 URL/code 인증 흐름으로 진행하게 합니다.
 - `Login`은 기존 Gemini 로그인 PTY가 떠 있으면 먼저 정리한 뒤 `/auth`를 열어, 브라우저 기반 인증에서 멈춘 prompt를 수동 인증 prompt로 교체합니다.
 - Gemini가 수동 authorization code를 요구하면 Agent Console 메시지 입력창에 코드만 붙여넣고 `Send`를 누릅니다.
@@ -298,8 +300,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-git tag 0.6.59
-git push origin 0.6.59
+git tag 0.6.60
+git push origin 0.6.60
 ```
 
 릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.

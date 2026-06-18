@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.59`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.60`.
 
 [한국어 README](README.ko.md)
 
@@ -65,16 +65,18 @@ The Claude Code Agent Console separates normal chat turns from login/control pro
 Gemini CLI uses the same print-command shape as Claude normal chat turns.
 
 - Checks CLI availability with `gemini --version` and checks the Gemini CLI auth method before accepting prompts.
-- Sends normal prompts with `gemini --skip-trust --approval-mode yolo --output-format text` and passes the real prompt through stdin. The plugin does not add a dummy `--prompt=.` argument, because Gemini CLI appends `--prompt` text to stdin.
+- Sends normal prompts with Gemini CLI headless stdin input and does not add a dummy `--prompt=.` argument, because Gemini CLI appends `--prompt` text to stdin.
 - The Gemini model is selected inside the Agent Console from a dropdown (`gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.5-flash-lite`, `gemini-3.5-flash`, `gemini-3-flash`). Explicit stable model ids are listed first and used by default. CLI aliases such as `flash` and `pro` are no longer offered because Gemini CLI can route them to preview models such as `gemini-3-flash-preview`, depending on account access and server capacity. Existing saved full model ids outside the preset list are preserved as a dropdown option instead of being lost.
 - Settings schema v4 migrates saved Gemini `flash`, `pro`, and `gemini-3-flash-preview` values to explicit stable models (`gemini-2.5-flash` and `gemini-2.5-pro`) to avoid repeated Gemini CLI stack traces.
 - If Gemini CLI returns `ModelNotFoundError` or `No capacity available`, the plugin automatically retries explicit fallback models (`gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.5-flash-lite`) and stores the first successful fallback to avoid repeating the same failure.
-- Settings expose Gemini executable, approval mode, skip-trust, and sandbox flags.
+- Gemini native session mode is on by default. Each plugin AI tab maps its Gemini local sessionId to Gemini CLI `--session-id` for the first turn and `--resume <sessionId>` for later turns. In this mode the plugin does not replay the previous transcript into every prompt.
+- Gemini output format is configurable (`stream-json`, `json`, or `text`). `stream-json` is parsed back into normal transcript text after the subprocess finishes.
+- Settings expose Gemini executable, approval mode, skip-trust, sandbox, native session, output format, extensions, allowed MCP servers, include directories, and policy files. `--allowed-tools` is intentionally not exposed because Gemini CLI marks it deprecated in favor of Policy Engine.
 - The statusline shows the configured Gemini model/mode, plugin transcript-context meter, and `usage n/a` because Gemini CLI text output does not expose reliable usage data.
 - Runtime model settings are injected into normal Gemini/Claude prompts, so "which model are you using?" can be answered from the plugin's CLI launch settings instead of unreliable model self-introspection.
 - Allows long-running work instead of enforcing a 10-minute response cutoff; press `Stop` to terminate the current process tree.
 - Opens the visible turn card and keeps the in-chat `생각 중` indicator attached while the print-command process is running.
-- Does not use native Gemini `--resume` by default, because several plugin tabs can otherwise attach to the same latest Gemini session. The plugin keeps tabs separated with transcript context and a local Gemini session id.
+- Does not use Gemini `--resume latest`; plugin tabs resume only their own Gemini sessionId to avoid cross-tab context collisions.
 - Gemini subscription login is started from the Agent Console `Login` button. The plugin opens interactive `gemini --skip-trust --screen-reader` inside its control PTY with `NO_BROWSER=true`, then lets the Gemini CLI handle Sign in with Google through the manual URL/code flow and write its own auth settings.
 - `Login` restarts any existing Gemini login PTY before opening `/auth`, so a stale browser-based auth prompt is replaced with manual authentication.
 - When Gemini asks for a manual authorization code, paste only that code into the Agent Console message box and press `Send`.
@@ -299,8 +301,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.59
-git push origin 0.6.59
+git tag 0.6.60
+git push origin 0.6.60
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.
