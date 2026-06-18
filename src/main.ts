@@ -272,6 +272,7 @@ interface AgentWorkspaceSessionState extends Record<string, unknown> {
   agentAutoLoginPending?: boolean;
   agentAutoMcpAttempted?: boolean;
   agentMcpAuthInProgress?: boolean;
+  agentControlCommandInProgress?: boolean;
   agentNeedsAuth?: boolean;
   agentPromptState?: AgentPromptState | null;
   agentOpenedExternalUrls?: Set<string>;
@@ -1270,6 +1271,7 @@ class VaultPowerShellView extends ItemView {
   private agentAutoLoginPending = false;
   private agentAutoMcpAttempted = false;
   private agentMcpAuthInProgress = false;
+  private agentControlCommandInProgress = false;
   private agentNeedsAuth = false;
   private agentPromptState: AgentPromptState | null = null;
   private agentOpenedExternalUrls = new Set<string>();
@@ -1680,6 +1682,7 @@ class VaultPowerShellView extends ItemView {
     session.agentAutoLoginPending ??= false;
     session.agentAutoMcpAttempted ??= false;
     session.agentMcpAuthInProgress ??= false;
+    session.agentControlCommandInProgress ??= false;
     session.agentNeedsAuth ??= false;
     session.agentPromptState ??= null;
     session.agentOpenedExternalUrls ??= new Set<string>();
@@ -1760,6 +1763,7 @@ class VaultPowerShellView extends ItemView {
     this.agentAutoLoginPending = session.agentAutoLoginPending ?? false;
     this.agentAutoMcpAttempted = session.agentAutoMcpAttempted ?? false;
     this.agentMcpAuthInProgress = session.agentMcpAuthInProgress ?? false;
+    this.agentControlCommandInProgress = session.agentControlCommandInProgress ?? false;
     this.agentNeedsAuth = session.agentNeedsAuth ?? false;
     this.agentPromptState = session.agentPromptState ?? null;
     this.agentOpenedExternalUrls = session.agentOpenedExternalUrls ?? new Set<string>();
@@ -1854,6 +1858,7 @@ class VaultPowerShellView extends ItemView {
     session.agentAutoLoginPending = this.agentAutoLoginPending;
     session.agentAutoMcpAttempted = this.agentAutoMcpAttempted;
     session.agentMcpAuthInProgress = this.agentMcpAuthInProgress;
+    session.agentControlCommandInProgress = this.agentControlCommandInProgress;
     session.agentNeedsAuth = this.agentNeedsAuth;
     session.agentPromptState = this.agentPromptState;
     session.agentOpenedExternalUrls = this.agentOpenedExternalUrls;
@@ -3719,7 +3724,9 @@ class VaultPowerShellView extends ItemView {
     this.refreshAgentSessionChrome();
     this.lastAgentLaunchCommand = command;
     this.sendAgentHostMessage({ type: "data", data: `${command}\r` });
-    this.setAgentStatus(`Launching ${getAgentProviderLabel(this.agentProvider)}...`);
+    this.setAgentStatus(this.agentControlCommandInProgress && this.agentProvider === "gemini"
+      ? "Gemini CLI control console"
+      : `Launching ${getAgentProviderLabel(this.agentProvider)}...`);
 
     const postLaunchInput = this.agentPostLaunchInput;
     this.agentPostLaunchInput = null;
@@ -4083,10 +4090,11 @@ class VaultPowerShellView extends ItemView {
     }
 
     this.agentCurrentTurnStartedAt = Date.now();
+    this.clearCodexTurnLoadingIndicators(this.agentTranscriptEl);
     this.appendAgentTranscript({
-      id: this.nextLocalAgentEntryId("user"),
-      role: "user",
-      text: command
+      id: this.nextLocalAgentEntryId("system"),
+      role: "system",
+      text: `Gemini CLI control command: ${command}`
     });
 
     if (attachments.length > 0) {
@@ -4099,6 +4107,7 @@ class VaultPowerShellView extends ItemView {
 
     const data = `${command}\r`;
     if (this.agentHost && this.agentHostReady) {
+      this.agentControlCommandInProgress = true;
       this.sendAgentHostMessage({ type: "data", data });
       this.noteAgentControlFlow(data);
       this.clearAgentPromptState();
@@ -4107,6 +4116,7 @@ class VaultPowerShellView extends ItemView {
     }
 
     if (this.agentHost) {
+      this.agentControlCommandInProgress = true;
       this.agentPostLaunchInput = data;
       this.noteAgentControlFlow(data);
       this.clearAgentPromptState();
@@ -4144,8 +4154,6 @@ class VaultPowerShellView extends ItemView {
 
     const isLoginCommand = /^\/(?:auth|login)\b/i.test(command);
     const wasConversationReady = this.agentConversationReady;
-    const wasReadyState = this.agentAuthState === "ready" || this.agentAuthState === "authenticated";
-
     try {
       const env = buildProcessEnv({
         useSystemCa: this.plugin.settings.useSystemCa,
@@ -4185,22 +4193,21 @@ class VaultPowerShellView extends ItemView {
         this.agentSessionOffset = 0;
         this.agentSessionBaselineOffsets = snapshotAgentSessionOffsets("gemini", cwd);
         this.agentSeenEntries.clear();
-        this.agentAuthState = isLoginCommand
-          ? "login-in-progress"
-          : wasReadyState || wasConversationReady ? "ready" : "checking";
+        this.agentAuthState = isLoginCommand ? "login-in-progress" : "ready";
         this.agentConversationReady = isLoginCommand ? false : wasConversationReady;
         this.agentReadyNoticeShown = wasConversationReady;
         this.agentAutoLoginAttempted = isLoginCommand;
         this.agentAutoLoginPending = false;
         this.agentAutoMcpAttempted = /^\/mcp\b/i.test(command);
         this.agentMcpAuthInProgress = /^\/mcp\b/i.test(command);
+        this.agentControlCommandInProgress = true;
         this.agentNeedsAuth = isLoginCommand ? true : this.agentNeedsAuth && !wasConversationReady;
         this.agentPromptState = null;
         this.agentOpenedExternalUrls.clear();
         this.agentPostLaunchInput = data;
         this.lastAgentLaunchCommand = "";
         this.agentReadyForInput = false;
-        this.setAgentStatus("Starting Gemini CLI control...");
+        this.setAgentStatus("Gemini CLI control console opening");
         this.appendAgentTranscript({
           id: this.nextLocalAgentEntryId("system"),
           role: "system",
@@ -4847,8 +4854,13 @@ class VaultPowerShellView extends ItemView {
     // Once the conversation is live, claude's streamed answer (markdown such as
     // "Normalization", "select", "- item") must not be mistaken for an
     // interactive prompt — the session log drives the transcript instead.
-    const actionablePrompt = this.agentConversationReady ? null : extractAgentActionablePrompt(promptSource);
+    // Gemini slash/control commands are different: their only visible output is
+    // the control PTY, so keep prompt extraction enabled for that command.
+    const actionablePrompt = this.agentConversationReady && !this.agentControlCommandInProgress
+      ? null
+      : extractAgentActionablePrompt(promptSource);
     if (actionablePrompt) {
+      this.agentControlCommandInProgress = false;
       this.setAgentPromptState(actionablePrompt);
     }
 
@@ -4880,6 +4892,21 @@ class VaultPowerShellView extends ItemView {
       this.refreshAgentAuthStatus(actionablePrompt?.mode === "mcp" ? "MCP connection in progress" : "Agent prompt needs input");
     }
 
+    const controlOutput = this.agentControlCommandInProgress && !actionablePrompt
+      ? promptSource.slice(-1200).trim()
+      : "";
+    if (controlOutput && controlOutput !== this.agentLastRawNotice) {
+      this.agentLastRawNotice = controlOutput;
+      this.agentControlCommandInProgress = false;
+      this.appendAgentTranscript({
+        id: this.nextLocalAgentEntryId("system"),
+        role: "system",
+        text: `Gemini CLI control output:\n${controlOutput}`
+      });
+      this.markAgentConversationReady();
+      return;
+    }
+
     if (actionablePrompt || (!this.agentConversationReady && /\b(login|sign[- ]?in|authenticate|permission|trust|press enter|\(y\/n\)|not recognized|command not found)\b/i.test(promptSource))) {
       const notice = actionablePrompt?.text ?? promptSource.slice(-1200);
       if (notice !== this.agentLastRawNotice) {
@@ -4889,6 +4916,9 @@ class VaultPowerShellView extends ItemView {
           role: "system",
           text: `Agent prompt:\n${notice}\n\nReply in the message box or use the quick actions below. ${getAgentProviderLabel(this.agentProvider)} login prompts and connection screens are handled inside this console.`
         });
+      }
+      if (actionablePrompt) {
+        this.agentControlCommandInProgress = false;
       }
     }
   }
@@ -5157,6 +5187,12 @@ class VaultPowerShellView extends ItemView {
   }
 
   private noteAgentControlFlow(text: string) {
+    if (this.agentProvider === "gemini" && /^\/\S*/.test(text.trim())) {
+      this.agentControlCommandInProgress = true;
+      this.agentConversationReady = false;
+      this.agentAuthState = "ready";
+    }
+
     if (/\/(?:login|auth)\b/i.test(text)) {
       if (this.agentPromptState?.mode === "mcp") {
         this.agentMcpAuthInProgress = false;
@@ -6336,6 +6372,7 @@ class VaultPowerShellView extends ItemView {
     this.agentAutoLoginPending = false;
     this.agentAutoMcpAttempted = false;
     this.agentMcpAuthInProgress = false;
+    this.agentControlCommandInProgress = false;
     this.agentNeedsAuth = false;
     this.agentPromptState = null;
     this.agentOpenedExternalUrls.clear();
