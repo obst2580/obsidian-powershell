@@ -99,7 +99,7 @@ const ESCAPE_SEQUENCE = "\x1b";
 const KILL_LINE_SEQUENCE = "\x15";
 const CODEX_RESIZE_REFLOW_CONFIG = "tui.terminal_resize_reflow=false";
 const TERMINAL_FIT_STABILIZATION_DELAYS_MS = [0, 16, 50, 150, 400, 1000];
-const SETTINGS_SCHEMA_VERSION = 2;
+const SETTINGS_SCHEMA_VERSION = 3;
 const AGENT_CONSOLE_COLS = 300;
 const AGENT_CONSOLE_ROWS = 30;
 const WSL_CHECK_TIMEOUT_MS = 3000;
@@ -120,13 +120,13 @@ const CLAUDE_MODEL_CHOICES = [
   { value: "haiku", label: "haiku" }
 ];
 const GEMINI_MODEL_CHOICES = [
-  { value: "flash", label: "flash alias" },
+  { value: "gemini-2.5-flash", label: "gemini-2.5-flash (stable)" },
+  { value: "gemini-2.5-pro", label: "gemini-2.5-pro (stable)" },
+  { value: "flash", label: "flash alias (may route to preview)" },
   { value: "pro", label: "pro alias" },
   { value: "flash-lite", label: "flash-lite alias" },
   { value: "gemini-3.5-flash", label: "gemini-3.5-flash (if available)" },
-  { value: "gemini-3-flash", label: "gemini-3-flash" },
-  { value: "gemini-2.5-flash", label: "gemini-2.5-flash" },
-  { value: "gemini-2.5-pro", label: "gemini-2.5-pro" }
+  { value: "gemini-3-flash", label: "gemini-3-flash" }
 ];
 
 interface PowerShellSettings {
@@ -485,7 +485,7 @@ const DEFAULT_SETTINGS: PowerShellSettings = {
   claudePermissionMode: "bypassPermissions",
   claudeStrictMcpConfig: true,
   geminiExecutable: "",
-  geminiModel: "flash",
+  geminiModel: "gemini-2.5-flash",
   geminiApprovalMode: "yolo",
   geminiSkipTrust: true,
   geminiSandbox: false,
@@ -604,8 +604,10 @@ export default class VaultPowerShellPlugin extends Plugin {
 
   async loadSettings() {
     const saved = (await this.loadData()) as Partial<PowerShellSettings> | null;
-    const needsCodexScrollbackMigration = (saved?.settingsSchemaVersion ?? 0) < 2;
-    let shouldSaveSettings = needsCodexScrollbackMigration;
+    const previousSchemaVersion = saved?.settingsSchemaVersion ?? 0;
+    const needsCodexScrollbackMigration = previousSchemaVersion < 2;
+    const needsGeminiStableModelMigration = previousSchemaVersion < 3;
+    let shouldSaveSettings = needsCodexScrollbackMigration || needsGeminiStableModelMigration;
     this.settings = Object.assign({}, DEFAULT_SETTINGS, saved ?? {});
     this.settings.settingsSchemaVersion = SETTINGS_SCHEMA_VERSION;
     this.settings.shellProfile = normalizeShellProfile(this.settings.shellProfile);
@@ -630,6 +632,9 @@ export default class VaultPowerShellPlugin extends Plugin {
     this.settings.geminiExecutable = this.settings.geminiExecutable?.trim() ?? "";
     const savedGeminiModel = this.settings.geminiModel?.trim() ?? "";
     this.settings.geminiModel = normalizeGeminiModelInput(savedGeminiModel);
+    if (needsGeminiStableModelMigration) {
+      this.settings.geminiModel = migrateGeminiModelAliasToStable(this.settings.geminiModel);
+    }
     if (savedGeminiModel !== this.settings.geminiModel) {
       shouldSaveSettings = true;
     }
@@ -8657,7 +8662,7 @@ function formatGeminiPrintOutput(result: CapturedCommandResult): string {
 
 function formatGeminiAuthErrorOutput(output: string): string | null {
   if (/ModelNotFoundError|Requested entity was not found/i.test(output)) {
-    return "Gemini 모델을 찾을 수 없습니다. 현재 계정에서 접근 가능한 모델로 바꾸세요. 권장값: flash, pro, flash-lite, gemini-3.5-flash, gemini-3-flash, gemini-2.5-flash, gemini-2.5-pro. flash/pro 같은 alias는 Gemini CLI가 계정 접근 권한에 따라 실제 모델을 결정합니다. Agent Console의 Gemini 모델 드롭다운에서 바꾼 뒤 Gemini 세션을 Stop/Start 하세요.";
+    return "Gemini 모델을 찾을 수 없습니다. 현재 계정에서 접근 가능한 모델로 바꾸세요. 권장값: gemini-2.5-flash, gemini-2.5-pro. flash/pro 같은 alias는 Gemini CLI가 preview 모델로 라우팅할 수 있어 404가 날 수 있습니다. Agent Console의 Gemini 모델 드롭다운에서 명시 모델로 바꾼 뒤 Gemini 세션을 Stop/Start 하세요.";
   }
 
   if (/Please set an Auth method/i.test(output)) {
@@ -8693,7 +8698,7 @@ function isGeminiModelNotFoundResult(result: CapturedCommandResult): boolean {
 
 function getGeminiModelFallbackCandidates(configuredModel: string | undefined): string[] {
   const normalized = normalizeGeminiModelInput(configuredModel) || DEFAULT_SETTINGS.geminiModel;
-  const candidates = ["flash", "gemini-2.5-flash", "gemini-2.5-pro"];
+  const candidates = ["gemini-2.5-flash", "gemini-2.5-pro", "flash-lite"];
   return candidates.filter((candidate) => candidate !== normalized);
 }
 
@@ -10241,6 +10246,17 @@ function normalizeGeminiModelInput(value: string | undefined): string {
     return `gemini-${compact}`;
   }
   return trimmed;
+}
+
+function migrateGeminiModelAliasToStable(value: string | undefined): string {
+  const normalized = normalizeGeminiModelInput(value);
+  if (normalized === "flash") {
+    return "gemini-2.5-flash";
+  }
+  if (normalized === "pro") {
+    return "gemini-2.5-pro";
+  }
+  return normalized;
 }
 
 function formatGeminiStatusModelLabel(value: string | undefined): string {
