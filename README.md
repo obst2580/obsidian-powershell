@@ -1,16 +1,16 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.63`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.64`.
 
 [한국어 README](README.ko.md)
 
-> Desktop only. Claude Code, Codex CLI, Gemini CLI, Node.js, Git, npm, and other external tools are not bundled. Install them on your machine and make sure they work from a normal terminal.
+> Desktop only. Claude Code, Codex CLI, Antigravity CLI (`agy`), Node.js, Git, npm, and other external tools are not bundled. Install them on your machine and make sure they work from a normal terminal.
 
 ![Obst Terminal agent console in Obsidian's right sidebar](docs/images/obst-terminal-agent-console.png)
 
 ## Multi-Session AI Workspace
 
-Obst Terminal is not just a single chat console. It is designed as a **multi-session AI workspace inside one Obsidian vault**, where several Claude Code, Codex, and Gemini CLI sessions can stay open side by side as plugin tabs.
+Obst Terminal is not just a single chat console. It is designed as a **multi-session AI workspace inside one Obsidian vault**, where several Claude Code, Codex, and Antigravity-backed Gemini sessions can stay open side by side as plugin tabs.
 
 - Add AI session tabs with the plugin `+` button or the `Open new AI session` command.
 - Each tab keeps its own Claude sessionId, Codex threadId, Gemini local sessionId, provider, editable title, transcript, and running state.
@@ -25,7 +25,7 @@ Obst Terminal is not just a single chat console. It is designed as a **multi-ses
 
 ## Current Behavior
 
-The default pane is **Agent Console**. The toolbar lets you choose `Claude`, `Codex`, or `Gemini`, and the active provider is shown as `현재 Claude Code`, `현재 Codex`, or `현재 Gemini CLI`. Claude, Codex, and Gemini keep separate transcripts when you switch providers.
+The default pane is **Agent Console**. The toolbar lets you choose `Claude`, `Codex`, or `Gemini`, and the active provider is shown as `현재 Claude Code`, `현재 Codex`, or `현재 Antigravity CLI`. Claude, Codex, and Gemini/Antigravity keep separate transcripts when you switch providers.
 
 You can split work across multiple AI sessions in the same vault. `Open AI workspace` reuses the first Obst Terminal view, while `Open new AI session` or the Agent Console `+` button adds an AI session tab inside the plugin instead of opening a new Obsidian workspace tab. Each tab keeps its own Claude sessionId, Codex threadId, Gemini local sessionId, selected provider, editable title, visible transcript, and running backend/process state. Switching tabs does not stop the running agent; background sessions keep writing to their own transcripts. This is intended for project-management roles such as PM, Writer, Analyst, and Reviewer working beside the same vault documents. A session can delegate a prompt to other running tabs with `@all`, `@codex`, `@claude`, `@gemini`, or `@"session title"`.
 
@@ -60,38 +60,28 @@ The Claude Code Agent Console separates normal chat turns from login/control pro
 - Uses the background PTY host for `/login`, MCP connection prompts, permission prompts, and command-style control input. Typed Claude slash commands are sent to this control host when it is running.
 - Uses Claude session logs to track control flow and keep transcript offsets aligned.
 
-### Gemini CLI
+### Antigravity CLI for Gemini
 
-Gemini CLI uses the same print-command shape as Claude normal chat turns.
+The Gemini provider slot now uses **Antigravity CLI (`agy`)** instead of the deprecated consumer Gemini CLI login path.
 
-- Checks CLI availability with `gemini --version` and checks the Gemini CLI auth method before accepting prompts.
-- Sends normal prompts with Gemini CLI headless stdin input and does not add a dummy `--prompt=.` argument, because Gemini CLI appends `--prompt` text to stdin.
-- The Gemini model is selected inside the Agent Console from a dropdown (`gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.5-flash-lite`, `gemini-3.1-pro-preview`, `gemini-3.5-flash`, `gemini-3-flash`). Explicit stable model ids are listed first and used by default, while account-enabled preview models such as `gemini-3.1-pro-preview` are available by exact id. CLI aliases such as `flash` and `pro` are no longer offered because Gemini CLI can route them to preview models such as `gemini-3-flash-preview`, depending on account access and server capacity. Existing saved full model ids outside the preset list are preserved as a dropdown option instead of being lost.
-- Settings schema v4 migrates saved Gemini `flash`, `pro`, and `gemini-3-flash-preview` values to explicit stable models (`gemini-2.5-flash` and `gemini-2.5-pro`) to avoid repeated Gemini CLI stack traces.
-- If Gemini CLI returns `ModelNotFoundError` or `No capacity available`, the plugin automatically retries explicit fallback models (`gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.5-flash-lite`) and stores the first successful fallback to avoid repeating the same failure.
-- Gemini native session mode is on by default. Each plugin AI tab maps its Gemini local sessionId to Gemini CLI `--session-id` for the first turn and `--resume <sessionId>` for later turns. In this mode the plugin does not replay the previous transcript into every prompt.
-- Gemini output format is configurable (`stream-json`, `json`, or `text`). `stream-json` is parsed back into normal transcript text after the subprocess finishes.
-- Settings expose Gemini executable, approval mode, skip-trust, sandbox, native session, output format, extensions, allowed MCP servers, include directories, and policy files. `--allowed-tools` is intentionally not exposed because Gemini CLI marks it deprecated in favor of Policy Engine.
-- The statusline shows the configured Gemini model/mode, plugin transcript-context meter, and `usage n/a` because Gemini CLI text output does not expose reliable usage data.
-- Runtime model settings are injected into normal Gemini/Claude prompts, so "which model are you using?" can be answered from the plugin's CLI launch settings instead of unreliable model self-introspection.
+- Checks CLI availability with `agy --version` and treats `agy models` failure as login-required.
+- Sends normal prompts through `agy --print` with stdin input and no 10-minute cutoff.
+- The model dropdown defaults to `Antigravity default`; explicit model ids can still be selected when the account exposes them.
+- Settings schema v6 migrates the old saved `gemini` executable to auto-detected `agy`, clears the old Gemini model default, and disables legacy Gemini native sessions.
+- The statusline shows the configured Antigravity model/mode, plugin transcript-context meter, and `usage n/a`.
+- Runtime model settings are injected into normal Antigravity/Claude prompts, so "which model are you using?" can be answered from the plugin's CLI launch settings instead of unreliable model self-introspection.
 - Allows long-running work instead of enforcing a 10-minute response cutoff; press `Stop` to terminate the current process tree.
 - Opens the visible turn card and keeps the in-chat `생각 중` indicator attached while the print-command process is running.
-- Does not use Gemini `--resume latest`; plugin tabs resume only their own Gemini sessionId to avoid cross-tab context collisions.
-- Typed Gemini slash commands such as `/auth`, `/mcp`, `/help`, and `/model` are treated as Gemini CLI control commands. If the interactive control PTY is not running, the plugin starts `gemini --screen-reader` on demand and sends the slash command there instead of dropping it into the headless prompt path.
-- Normal Gemini chat turns still use the plugin's Gemini model dropdown and headless session settings. Use the plugin dropdown for the model that normal Agent Console messages should run with.
-- Gemini subscription login is started from the Agent Console `Login` button. The plugin opens interactive `gemini --skip-trust --screen-reader` inside its control PTY with `NO_BROWSER=true`, then lets the Gemini CLI handle Sign in with Google through the manual URL/code flow and write its own auth settings.
-- `Login` restarts any existing Gemini login PTY before opening `/auth`, so a stale browser-based auth prompt is replaced with manual authentication.
-- When Gemini asks for a manual authorization code, paste only that code into the Agent Console message box and press `Send`.
-- For `oauth-personal`, Start requires an active account in Gemini CLI's `google_accounts.json`; `selectedType` alone is treated as login-required.
-- Known Gemini CLI startup/tool fallback noise such as Windows terminal warnings, duplicate YOLO notices, and `grep_search` timeout diagnostics is filtered out of the visible transcript.
-- For API or Vertex modes, configure `GEMINI_API_KEY`, `GOOGLE_GENAI_USE_VERTEXAI`, or `GOOGLE_GENAI_USE_GCA` in the OS environment or a Gemini-readable `.env`, then fully restart Obsidian.
-- If Gemini CLI is missing or auth is not configured, Start shows a clear install/PATH/auth hint before a prompt is sent.
+- Antigravity CLI currently uses plugin transcript context in this console rather than Gemini CLI `--session-id` / `--resume`.
+- The Agent Console `Login` button starts `agy --prompt-interactive` in the control PTY to trigger Antigravity OAuth. You can also complete login in a normal terminal with `agy --print "hello"`.
+- Settings expose Antigravity executable, model, permissions, sandbox, and extra `--add-dir` directories. Old Gemini CLI settings remain visible as legacy fields where needed but are ignored by Antigravity.
+- If `agy` is missing, Start shows the official install command: `irm https://antigravity.google/cli/install.ps1 | iex`.
 
 ## Requirements
 
 - Obsidian Desktop.
 - Node.js installed system-wide.
-- Any CLI you want to use from Agent Console, such as `claude`, `codex`, or `gemini`.
+- Any CLI you want to use from Agent Console, such as `claude`, `codex`, or `agy`.
 
 CLI runtimes bundled inside editor extensions are not enough. Obsidian starts this plugin from the normal desktop environment, so these commands should work from PowerShell, Terminal, zsh, or bash:
 
@@ -99,7 +89,7 @@ CLI runtimes bundled inside editor extensions are not enough. Obsidian starts th
 node --version
 claude --version
 codex --version
-gemini --version
+agy --version
 ```
 
 ## Installation
@@ -151,7 +141,7 @@ main.js
 styles.css
 ```
 
-Obst Terminal also needs a native `node-pty` runtime for interactive Claude Code and Gemini CLI login/control flows. If the runtime is missing or out of date, the plugin reads `runtime-manifest.json` from the matching GitHub Release, downloads the OS-specific runtime ZIP, verifies size and SHA-256, and extracts it into the plugin folder.
+Obst Terminal also needs a native `node-pty` runtime for interactive Claude Code and Antigravity CLI login/control flows. If the runtime is missing or out of date, the plugin reads `runtime-manifest.json` from the matching GitHub Release, downloads the OS-specific runtime ZIP, verifies size and SHA-256, and extracts it into the plugin folder.
 
 Runtime commands and settings:
 
@@ -237,7 +227,7 @@ Advanced settings:
 | Setting | Behavior |
 | --- | --- |
 | `Node executable` | Point to Node.js when it is not on PATH. |
-| `Runtime files` | Install or reinstall the native runtime used for interactive Claude Code and Gemini CLI login/control flows. |
+| `Runtime files` | Install or reinstall the native runtime used for interactive Claude Code and Antigravity CLI login/control flows. |
 | `Windows PTY backend` | Choose the interactive agent control PTY backend on Windows. |
 | `Install runtime automatically` | Allows automatic native runtime installation. |
 | `Use system certificate store` | Injects Node system CA behavior for Node-based CLIs. |
@@ -303,19 +293,19 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.63
-git push origin 0.6.63
+git tag 0.6.64
+git push origin 0.6.64
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.
 
 ## Security
 
-Obst Terminal no longer starts a raw local shell by default. It may use a separate Node.js PTY host process only for interactive Claude Code and Gemini CLI login/control flows.
+Obst Terminal no longer starts a raw local shell by default. It may use a separate Node.js PTY host process only for interactive Claude Code and Antigravity CLI login/control flows.
 
-- Claude Code, Codex CLI, or Gemini CLI processes started from Agent Console run with your local OS user permissions.
+- Claude Code, Codex CLI, or Antigravity CLI processes started from Agent Console run with your local OS user permissions.
 - Those CLI processes can access local files, network resources, and credentials according to the CLI and OS permissions.
-- Claude Code, Codex CLI, Gemini CLI, git, npm, and other external tools are not bundled.
+- Claude Code, Codex CLI, Antigravity CLI, git, npm, and other external tools are not bundled.
 - Native runtime files are included in full ZIPs or downloaded from the matching GitHub Release and verified with SHA-256.
 - TLS / CA environment variables are injected only when enabled in settings.
 - Agent transcript snapshots are not saved to plugin `data.json` unless `Persist Agent transcript snapshots` is explicitly enabled.
