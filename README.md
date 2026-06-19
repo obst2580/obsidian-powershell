@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.65`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.66`.
 
 [한국어 README](README.ko.md)
 
@@ -274,6 +274,8 @@ Install into a Windows vault:
 .\install.ps1 -VaultPath "C:\path\to\vault"
 ```
 
+The installer copies the plugin/runtime files and adds `vault-terminal` to the vault's `.obsidian/community-plugins.json`.
+
 Install into a macOS or Linux vault:
 
 ```bash
@@ -293,8 +295,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.65
-git push origin 0.6.65
+git tag 0.6.66
+git push origin 0.6.66
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.

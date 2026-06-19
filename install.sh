@@ -101,4 +101,32 @@ cat > "$TARGET/runtime.json" <<EOF
 }
 EOF
 
+community_plugins_path="$VAULT_PATH/.obsidian/community-plugins.json"
+PLUGIN_ID="$PLUGIN_ID" COMMUNITY_PLUGINS_PATH="$community_plugins_path" node <<'NODE'
+const fs = require("fs");
+
+const pluginId = process.env.PLUGIN_ID;
+const communityPluginsPath = process.env.COMMUNITY_PLUGINS_PATH;
+let enabledPlugins = [];
+
+if (fs.existsSync(communityPluginsPath)) {
+  const content = fs.readFileSync(communityPluginsPath, "utf8").trim();
+  if (content) {
+    enabledPlugins = JSON.parse(content);
+  }
+}
+
+if (!Array.isArray(enabledPlugins)) {
+  throw new Error(`${communityPluginsPath} is not a JSON array`);
+}
+
+if (enabledPlugins.includes(pluginId)) {
+  console.log(`Plugin already enabled in community-plugins.json: ${pluginId}`);
+} else {
+  enabledPlugins.push(pluginId);
+  fs.writeFileSync(communityPluginsPath, `${JSON.stringify(enabledPlugins, null, 2)}\n`);
+  console.log(`Enabled ${pluginId} in community-plugins.json`);
+}
+NODE
+
 echo "Installed $PLUGIN_ID to $TARGET"

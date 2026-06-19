@@ -78,6 +78,38 @@ function Copy-RuntimeMerge {
   }
 }
 
+function Enable-CommunityPlugin {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$VaultRoot,
+
+    [Parameter(Mandatory = $true)]
+    [string]$PluginId
+  )
+
+  $communityPluginsPath = Join-Path $VaultRoot ".obsidian\community-plugins.json"
+  $enabledPlugins = @()
+
+  if (Test-Path -LiteralPath $communityPluginsPath) {
+    $content = Get-Content -Raw -LiteralPath $communityPluginsPath
+    if ($content.Trim()) {
+      $enabledPlugins = @($content | ConvertFrom-Json)
+    }
+  }
+
+  if ($enabledPlugins -contains $PluginId) {
+    Write-Host "Plugin already enabled in community-plugins.json: $PluginId"
+    return
+  }
+
+  $enabledPlugins += $PluginId
+  $enabledPlugins |
+    ConvertTo-Json -Depth 4 |
+    Set-Content -LiteralPath $communityPluginsPath -Encoding utf8
+
+  Write-Host "Enabled $PluginId in community-plugins.json"
+}
+
 if (-not (Test-Path -LiteralPath (Join-Path $resolvedVault ".obsidian"))) {
   throw "The target path does not look like an Obsidian vault: $resolvedVault"
 }
@@ -147,5 +179,7 @@ Repair-UnixRuntimePermissions -RuntimeDir $ptyTarget
 } |
   ConvertTo-Json -Depth 4 |
   Set-Content -LiteralPath (Join-Path $target "runtime.json") -Encoding utf8
+
+Enable-CommunityPlugin -VaultRoot $resolvedVault -PluginId $pluginId
 
 Write-Host "Installed $pluginId to $target"

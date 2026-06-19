@@ -281,6 +281,8 @@ Windows 볼트에 설치:
 .\install.ps1 -VaultPath "C:\path\to\vault"
 ```
 
+설치 스크립트는 플러그인/runtime 파일을 복사하고 볼트의 `.obsidian/community-plugins.json`에 `vault-terminal`을 추가합니다.
+
 macOS/Linux 볼트에 설치:
 
 ```bash
