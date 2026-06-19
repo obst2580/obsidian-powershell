@@ -4458,7 +4458,7 @@ class VaultPowerShellView extends ItemView {
   ): Promise<CapturedCommandResult> {
     const settings = options.settings ?? this.plugin.settings;
     const handle = provider === "gemini"
-      ? spawnGeminiPrintCommand(text, cwd, env, CLAUDE_PRINT_TIMEOUT_MS, settings, {
+      ? spawnGeminiPrintCommand(text, cwd, env, CLAUDE_PRINT_TIMEOUT_MS, settings, this.plugin, {
         sessionId,
         resumeNativeSession: options.geminiResumeNativeSession === true
       })
@@ -8888,10 +8888,12 @@ function spawnGeminiPrintCommand(
   env: { [key: string]: string | undefined },
   timeoutMs: number | null,
   settings: PowerShellSettings,
+  plugin: VaultPowerShellPlugin,
   options: { sessionId?: string | null; resumeNativeSession?: boolean } = {}
 ): CapturedCommandHandle {
   const args = [
     "--print",
+    prompt,
     "--print-timeout",
     "12h",
     ...(settings.geminiModel ? ["--model", settings.geminiModel] : []),
@@ -8899,7 +8901,7 @@ function spawnGeminiPrintCommand(
     ...(settings.geminiSandbox ? ["--sandbox"] : []),
     ...getRepeatedGeminiArgs("--add-dir", settings.geminiIncludeDirectories)
   ];
-  return spawnCapturedCommand(getGeminiExecutable(settings), args, cwd, env, timeoutMs, `${prompt}\n`);
+  return spawnPtyCapturedCommand(getGeminiExecutable(settings), args, cwd, env, timeoutMs, plugin);
 }
 
 function getGeminiNativeSessionArgs(settings: PowerShellSettings, sessionId: string | null | undefined, resumeNativeSession: boolean): string[] {
@@ -9225,6 +9227,148 @@ function truncateStatusOutput(text: string): string {
 
 function runCapturedCommand(command: string, args: string[], cwd: string, env: { [key: string]: string | undefined }, timeoutMs: number | null, stdinText?: string): Promise<CapturedCommandResult> {
   return spawnCapturedCommand(command, args, cwd, env, timeoutMs, stdinText).promise;
+}
+
+function spawnPtyCapturedCommand(
+  command: string,
+  args: string[],
+  cwd: string,
+  env: { [key: string]: string | undefined },
+  timeoutMs: number | null,
+  plugin: VaultPowerShellPlugin
+): CapturedCommandHandle {
+  let child: ChildProcessWithoutNullStreams | null = null;
+  let childPid: number | undefined;
+  let killHandle: (reason?: string) => void = () => {
+    // Replaced once the host exists.
+  };
+
+  const promise = new Promise<CapturedCommandResult>((resolvePromise) => {
+    let stdout = "";
+    let stderr = "";
+    let jsonBuffer = "";
+    let settled = false;
+    let sawHostExit = false;
+    let timeout: number | null = null;
+
+    const finish = (result: Partial<CapturedCommandResult>) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      if (timeout !== null) {
+        window.clearTimeout(timeout);
+      }
+      resolvePromise({
+        stdout,
+        stderr,
+        exitCode: result.exitCode ?? null,
+        timedOut: result.timedOut ?? false,
+        error: result.error,
+        cancelled: result.cancelled ?? false,
+        cancelReason: result.cancelReason
+      });
+    };
+
+    if (typeof timeoutMs === "number" && timeoutMs > 0) {
+      timeout = window.setTimeout(() => {
+        killCapturedCommandProcess(child);
+        finish({ timedOut: true });
+      }, timeoutMs);
+    }
+
+    try {
+      child = spawn(plugin.getNodeExecutable(), [plugin.getPtyHostPath(), encodeConfig({
+        shell: command,
+        args,
+        fallbackShells: [],
+        cols: AGENT_CONSOLE_COLS,
+        rows: AGENT_CONSOLE_ROWS,
+        cwd,
+        env,
+        windowsPtyBackend: plugin.settings.windowsPtyBackend
+      })], {
+        cwd: plugin.getPluginBasePath(),
+        env,
+        windowsHide: true
+      });
+    } catch (error) {
+      finish({ error: error instanceof Error ? error.message : String(error) });
+      return;
+    }
+
+    const spawned = child;
+    if (!spawned) {
+      finish({ error: "Failed to spawn PTY command." });
+      return;
+    }
+    childPid = spawned.pid;
+
+    killHandle = (reason = "cancelled") => {
+      try {
+        if (spawned.stdin.writable) {
+          spawned.stdin.write(`${JSON.stringify({ type: "kill" })}\n`);
+        }
+      } catch {
+        // best-effort graceful PTY shutdown
+      }
+      killCapturedCommandProcess(spawned);
+      finish({ cancelled: true, cancelReason: reason });
+    };
+
+    spawned.stdout.on("data", (chunk: Buffer) => {
+      jsonBuffer += chunk.toString();
+      while (true) {
+        const newlineIndex = jsonBuffer.indexOf("\n");
+        if (newlineIndex === -1) {
+          return;
+        }
+
+        const line = jsonBuffer.slice(0, newlineIndex).trim();
+        jsonBuffer = jsonBuffer.slice(newlineIndex + 1);
+        if (!line) {
+          continue;
+        }
+
+        try {
+          const message = JSON.parse(line) as HostOutputMessage;
+          if (message.type === "data") {
+            stdout += message.data;
+          } else if (message.type === "exit") {
+            sawHostExit = true;
+            finish({ exitCode: message.exitCode ?? null });
+          } else if (message.type === "error") {
+            stderr += `${message.message}\n`;
+            finish({ error: message.message });
+          }
+        } catch {
+          stdout += `${line}\n`;
+        }
+      }
+    });
+
+    spawned.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+
+    spawned.on("error", (error: Error) => {
+      finish({ error: error.message });
+    });
+
+    spawned.on("close", (code: number | null) => {
+      if (!sawHostExit) {
+        finish({ exitCode: code });
+      }
+    });
+  });
+
+  return {
+    child,
+    pid: childPid,
+    promise,
+    kill: (reason?: string) => killHandle(reason)
+  };
 }
 
 function spawnCapturedCommand(command: string, args: string[], cwd: string, env: { [key: string]: string | undefined }, timeoutMs: number | null, stdinText?: string): CapturedCommandHandle {
