@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.67`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.68`.
 
 [한국어 README](README.ko.md)
 
@@ -66,7 +66,7 @@ The Gemini provider slot now uses **Antigravity CLI (`agy`)** instead of the dep
 
 - Checks CLI availability with `agy --version` and treats `agy models` failure as login-required.
 - Sends normal prompts through `agy --print` in the PTY capture path, with no 10-minute cutoff.
-- The model dropdown defaults to `Antigravity default`; explicit model ids can still be selected when the account exposes them.
+- The model dropdown defaults to `Antigravity default`; explicit model ids such as `gemini-3.5-flash` can still be selected when the account exposes them.
 - Settings schema v6 migrates the old saved `gemini` executable to auto-detected `agy`, clears the old Gemini model default, and disables legacy Gemini native sessions.
 - The statusline shows the configured Antigravity model/mode, plugin transcript-context meter, and `usage n/a`.
 - Runtime model settings are injected into normal Antigravity/Claude prompts, so "which model are you using?" can be answered from the plugin's CLI launch settings instead of unreliable model self-introspection.
@@ -295,8 +295,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.67
-git push origin 0.6.67
+git tag 0.6.68
+git push origin 0.6.68
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.

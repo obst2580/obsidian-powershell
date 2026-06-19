@@ -67,7 +67,7 @@ Gemini provider 슬롯은 deprecated된 consumer Gemini CLI 로그인 경로 대
 - 시작 시 `agy --version`으로 CLI 설치를 확인하고, `agy models` 실패는 로그인 필요 상태로 처리합니다.
 - 일반 메시지는 `agy --print`를 PTY capture 경로로 실행하며, 10분 제한으로 끊지 않습니다.
 - `agy` 실행 파일은 설정값이 있으면 그 값을 쓰고, 없으면 PATH의 `agy`를 먼저 찾은 뒤 `%LOCALAPPDATA%\agy\bin\agy.exe`로 fallback합니다.
-- 모델은 Agent Console 안의 드롭다운에서 선택합니다. 기본값은 `Antigravity default`이며 계정에서 노출되는 명시 모델 ID를 선택할 수 있습니다.
+- 모델은 Agent Console 안의 드롭다운에서 선택합니다. 기본값은 `Antigravity default`이며 계정에서 노출되는 `gemini-3.5-flash` 같은 명시 모델 ID를 선택할 수 있습니다.
 - 일반 Antigravity/Claude prompt에는 현재 CLI 실행 모델 설정을 함께 주입하므로, “현재 어떤 모델을 쓰는지” 질문에는 모델의 자기인식이 아니라 플러그인의 실행 설정 기준으로 답할 수 있습니다.
 - print-command 프로세스가 실행 중인 동안 현재 turn 카드 안에 `생각 중` 표시를 유지합니다.
 - Agent Console의 `Login` 버튼은 control PTY에서 `agy --prompt-interactive`를 시작해 Antigravity OAuth를 진행합니다. 일반 PowerShell에서 `agy --print "hello"`로 로그인해도 됩니다.
