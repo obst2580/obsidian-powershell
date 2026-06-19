@@ -32,6 +32,7 @@ let shuttingDown = false;
 
 const MIN_PTY_COLS = 80;
 const MIN_PTY_ROWS = 5;
+const EXIT_FLUSH_DELAY_MS = 250;
 
 function clampCols(cols) {
   return Math.max(Math.floor(cols || 80), MIN_PTY_COLS);
@@ -110,6 +111,18 @@ function shutdown(code = 0) {
   process.exit(code);
 }
 
+function finishTerminalExit(exitCode = 0, signal = undefined) {
+  if (shuttingDown) {
+    return;
+  }
+
+  shuttingDown = true;
+  setTimeout(() => {
+    send({ type: "exit", exitCode, signal });
+    setTimeout(() => process.exit(exitCode || 0), 25);
+  }, EXIT_FLUSH_DELAY_MS);
+}
+
 try {
   const config = decodeConfig(process.argv[2]);
   repairRuntimePermissions();
@@ -176,8 +189,7 @@ try {
   });
 
   terminal.onExit(({ exitCode, signal }) => {
-    send({ type: "exit", exitCode, signal });
-    process.exit(exitCode || 0);
+    finishTerminalExit(exitCode, signal);
   });
 
   send({ type: "ready" });

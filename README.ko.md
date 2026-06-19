@@ -4,13 +4,13 @@ Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 �
 
 [English README](README.md)
 
-> 데스크톱 전용 플러그인입니다. Claude Code, Codex CLI, Gemini CLI, Node.js, Git, npm 같은 외부 도구는 포함하지 않습니다. 사용자의 PC에 설치되어 있고 일반 터미널에서 실행되어야 합니다.
+> 데스크톱 전용 플러그인입니다. Claude Code, Codex CLI, Antigravity CLI(`agy`), Node.js, Git, npm 같은 외부 도구는 포함하지 않습니다. 사용자의 PC에 설치되어 있고 일반 터미널에서 실행되어야 합니다.
 
 ![Obsidian 우측 사이드바에서 AI agent를 실행한 Obst Terminal 화면](docs/images/obst-terminal-agent-console.png)
 
 ## 멀티 AI 세션 작업 공간
 
-Obst Terminal은 한 명의 AI와만 대화하는 단일 콘솔이 아니라, **하나의 Obsidian 볼트 안에 여러 Claude Code / Codex / Gemini CLI 세션을 탭으로 열어두고 동시에 운용하는 작업 공간**입니다.
+Obst Terminal은 한 명의 AI와만 대화하는 단일 콘솔이 아니라, **하나의 Obsidian 볼트 안에 여러 Claude Code / Codex / Gemini/Antigravity 세션을 탭으로 열어두고 동시에 운용하는 작업 공간**입니다.
 
 - 플러그인 내부 `+` 버튼 또는 `Open new AI session` 명령으로 AI 세션 탭을 추가합니다.
 - 각 탭은 독립적인 Claude sessionId / Codex threadId / Gemini local sessionId, provider, 제목, transcript, 실행 상태를 유지합니다.
@@ -25,7 +25,7 @@ Obst Terminal은 한 명의 AI와만 대화하는 단일 콘솔이 아니라, **
 
 ## 현재 동작 기준
 
-Obst Terminal을 열면 기본 화면은 **Agent Console**입니다. 상단에서 `Claude`, `Codex`, `Gemini`를 선택할 수 있고, 현재 선택된 provider는 `현재 Claude Code`, `현재 Codex`, `현재 Gemini CLI` chip으로 표시됩니다. Claude, Codex, Gemini transcript는 서로 섞이지 않고 따로 유지됩니다.
+Obst Terminal을 열면 기본 화면은 **Agent Console**입니다. 상단에서 `Claude`, `Codex`, `Gemini`를 선택할 수 있고, 현재 선택된 provider는 `현재 Claude Code`, `현재 Codex`, `현재 Antigravity CLI` chip으로 표시됩니다. Claude, Codex, Gemini/Antigravity transcript는 서로 섞이지 않고 따로 유지됩니다.
 
 한 볼트 안에서 여러 AI 세션을 나눠 사용할 수 있습니다. `Open AI workspace` 명령은 첫 Obst Terminal 뷰를 재사용하고, `Open new AI session` 명령이나 Agent Console의 `+` 버튼은 Obsidian 탭을 새로 만들지 않고 플러그인 내부 상단에 AI 세션 탭을 추가합니다. 각 탭은 독립 Claude sessionId / Codex threadId / Gemini local sessionId, 선택 provider, 수정 가능한 제목, 표시 중인 transcript, 실행 중인 backend/프로세스 상태를 유지합니다. 탭을 바꿔도 실행 중인 에이전트는 정지되지 않고 자기 세션 transcript에 계속 기록됩니다. 이 구조는 PM, Writer, Reviewer처럼 역할이 다른 여러 AI를 같은 프로젝트 문서 옆에 나눠두는 용도입니다. 한 세션에서 `@all`, `@codex`, `@claude`, `@gemini`, `@"세션 제목"`으로 다른 실행 중인 탭에 지시를 전달할 수 있습니다.
 
@@ -60,36 +60,26 @@ Claude Code Agent Console은 로그인/제어 흐름과 일반 대화 흐름을 
 - `/login`, MCP 연결, permission 또는 command prompt처럼 interactive 응답이 필요한 경우에는 뒤쪽 PTY host를 통해 입력을 전달합니다.
 - Claude Code 세션 로그는 login/control 흐름 추적과 transcript 보정에 사용합니다.
 
-### Gemini CLI
+### Antigravity CLI for Gemini
 
-Gemini CLI는 Claude 일반 메시지와 같은 print-command 방식으로 실행합니다.
+Gemini provider 슬롯은 deprecated된 consumer Gemini CLI 로그인 경로 대신 **Antigravity CLI(`agy`)**를 사용합니다.
 
-- 시작 시 `gemini --version`으로 CLI가 PATH에서 보이는지 확인하고, prompt를 받기 전에 Gemini CLI 인증 방식이 설정되어 있는지도 확인합니다.
-- 일반 메시지는 Gemini CLI headless stdin 입력으로 실행합니다. Gemini CLI는 `--prompt` 값을 stdin 뒤에 붙이므로, 플러그인은 더 이상 dummy `--prompt=.`를 추가하지 않습니다.
-- Gemini 모델은 Agent Console 안의 드롭다운에서 `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.5-flash-lite`, `gemini-3.1-pro-preview`, `gemini-3.5-flash`, `gemini-3-flash` 중 선택합니다. 명시적인 stable 모델을 먼저 표시하고 기본값으로 사용하며, 계정에서 실행 가능한 preview 모델인 `gemini-3.1-pro-preview`도 정확한 모델명으로 선택할 수 있습니다. `flash`, `pro` 같은 CLI alias는 Gemini CLI가 계정 접근 권한이나 서버 capacity에 따라 `gemini-3-flash-preview` 같은 preview 모델로 라우팅할 수 있어 더 이상 기본 선택지로 제공하지 않습니다. 기존에 저장된 preset 밖 전체 모델명은 삭제하지 않고 드롭다운 옵션으로 보존합니다.
-- 설정 스키마 v4는 저장된 Gemini `flash`, `pro`, `gemini-3-flash-preview` 값을 명시 stable 모델(`gemini-2.5-flash`, `gemini-2.5-pro`)로 자동 마이그레이션해서 Gemini CLI stack trace가 반복 노출되는 상황을 줄입니다.
-- Gemini CLI가 `ModelNotFoundError` 또는 `No capacity available`을 반환하면 플러그인이 명시 fallback 모델(`gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.5-flash-lite`)로 자동 재시도하고, 처음 성공한 fallback을 저장해 같은 오류를 반복하지 않게 합니다.
-- Gemini native session 모드는 기본으로 켜져 있습니다. 플러그인 내부 AI 탭의 Gemini local sessionId를 첫 turn에는 Gemini CLI `--session-id`, 이후 turn에는 `--resume <sessionId>`에 연결합니다. 이 모드에서는 플러그인이 이전 transcript를 매 prompt마다 다시 붙이지 않습니다.
-- Gemini output format은 `stream-json`, `json`, `text` 중 선택할 수 있습니다. `stream-json`은 subprocess가 끝난 뒤 일반 transcript 텍스트로 파싱해 표시합니다.
-- 설정에서는 Gemini executable, approval mode, skip-trust, sandbox, native session, output format, extensions, allowed MCP servers, include directories, policy files를 조정합니다. Gemini CLI에서 deprecated로 표시된 `--allowed-tools`는 노출하지 않고 Policy Engine 경로를 씁니다.
-- statusline에는 설정된 Gemini 모델/모드, 플러그인이 붙이는 transcript context meter, Gemini CLI text 출력에서 reliable usage를 제공하지 않는 경우 `usage n/a`를 표시합니다.
-- 일반 Gemini/Claude prompt에는 현재 CLI 실행 모델 설정을 함께 주입하므로, “현재 어떤 모델을 쓰는지” 질문에는 모델의 자기인식이 아니라 플러그인의 실행 설정 기준으로 답할 수 있습니다.
-- Gemini 응답도 장시간 작업을 고려해 10분 제한으로 끊지 않고, `Stop`을 누르면 현재 프로세스 트리를 종료합니다.
+- 시작 시 `agy --version`으로 CLI 설치를 확인하고, `agy models` 실패는 로그인 필요 상태로 처리합니다.
+- 일반 메시지는 `agy --print`를 PTY capture 경로로 실행하며, 10분 제한으로 끊지 않습니다.
+- `agy` 실행 파일은 설정값이 있으면 그 값을 쓰고, 없으면 PATH의 `agy`를 먼저 찾은 뒤 `%LOCALAPPDATA%\agy\bin\agy.exe`로 fallback합니다.
+- 모델은 Agent Console 안의 드롭다운에서 선택합니다. 기본값은 `Antigravity default`이며 계정에서 노출되는 명시 모델 ID를 선택할 수 있습니다.
+- 일반 Antigravity/Claude prompt에는 현재 CLI 실행 모델 설정을 함께 주입하므로, “현재 어떤 모델을 쓰는지” 질문에는 모델의 자기인식이 아니라 플러그인의 실행 설정 기준으로 답할 수 있습니다.
 - print-command 프로세스가 실행 중인 동안 현재 turn 카드 안에 `생각 중` 표시를 유지합니다.
-- Gemini `--resume latest`는 사용하지 않습니다. 플러그인 탭마다 자기 Gemini sessionId만 resume해서 탭 간 컨텍스트 충돌을 피합니다.
-- Gemini 구독 로그인은 Agent Console의 `Login` 버튼에서 시작합니다. 플러그인은 control PTY 안에서 `NO_BROWSER=true`와 함께 `gemini --skip-trust --screen-reader`를 열고, Sign in with Google은 Gemini CLI의 수동 URL/code 인증 흐름으로 진행하게 합니다.
-- `Login`은 기존 Gemini 로그인 PTY가 떠 있으면 먼저 정리한 뒤 `/auth`를 열어, 브라우저 기반 인증에서 멈춘 prompt를 수동 인증 prompt로 교체합니다.
-- Gemini가 수동 authorization code를 요구하면 Agent Console 메시지 입력창에 코드만 붙여넣고 `Send`를 누릅니다.
-- `oauth-personal` 방식에서는 Gemini CLI의 `google_accounts.json`에 활성 계정이 있어야 로그인 완료로 봅니다. `selectedType`만 있으면 로그인 필요 상태로 처리합니다.
-- Windows terminal 경고, 중복 YOLO 안내, `grep_search` timeout 진단처럼 알려진 Gemini CLI startup/tool fallback noise는 visible transcript에서 숨깁니다.
-- API 또는 Vertex 방식은 `GEMINI_API_KEY`, `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_GENAI_USE_GCA` 중 필요한 값을 OS 환경변수나 Gemini가 읽는 `.env`에 설정한 뒤 Obsidian을 완전히 재시작합니다.
-- Gemini CLI가 설치되어 있지 않거나 인증 방식이 없으면 Start 단계에서 설치/PATH/인증 안내를 표시하고 prompt를 보내지 않습니다.
+- Agent Console의 `Login` 버튼은 control PTY에서 `agy --prompt-interactive`를 시작해 Antigravity OAuth를 진행합니다. 일반 PowerShell에서 `agy --print "hello"`로 로그인해도 됩니다.
+- `Authentication required` 또는 `authentication timed out` 출력은 빈 응답이 아니라 로그인 필요 상태로 표시합니다.
+- Windows terminal 경고, 중복 YOLO 안내, `grep_search` timeout 진단처럼 알려진 Antigravity startup/tool fallback noise는 visible transcript에서 숨깁니다.
+- Antigravity CLI가 설치되어 있지 않거나 인증이 필요하면 Start/응답 단계에서 설치/PATH/로그인 안내를 표시하고 prompt를 계속 보내지 않습니다.
 
 ## 요구사항
 
 - Obsidian Desktop
 - 시스템에 설치된 Node.js
-- 사용할 CLI 도구: `claude`, `codex`, `gemini`
+- 사용할 CLI 도구: `claude`, `codex`, `agy`
 
 VS Code extension에 포함된 Node.js나 CLI는 Obsidian에서 보이지 않을 수 있습니다. 아래 명령이 일반 PowerShell, Terminal, zsh, bash에서 실행되는지 확인하세요.
 
@@ -97,7 +87,7 @@ VS Code extension에 포함된 Node.js나 CLI는 Obsidian에서 보이지 않을
 node --version
 claude --version
 codex --version
-gemini --version
+agy --version
 ```
 
 ## 설치
@@ -149,7 +139,7 @@ main.js
 styles.css
 ```
 
-Obst Terminal은 Claude Code와 Gemini CLI의 interactive 로그인/제어 흐름을 위해 native `node-pty` runtime이 필요합니다. runtime이 없거나 오래된 경우 같은 버전의 GitHub Release에서 `runtime-manifest.json`을 읽고, OS/아키텍처에 맞는 runtime ZIP을 내려받아 SHA-256 검증 후 설치합니다.
+Obst Terminal은 Claude Code와 Antigravity CLI의 interactive 로그인/제어 흐름을 위해 native `node-pty` runtime이 필요합니다. runtime이 없거나 오래된 경우 같은 버전의 GitHub Release에서 `runtime-manifest.json`을 읽고, OS/아키텍처에 맞는 runtime ZIP을 내려받아 SHA-256 검증 후 설치합니다.
 
 관련 명령과 설정:
 
@@ -202,7 +192,7 @@ Agent Console composer의 `Attach` 버튼으로 파일을 첨부할 수 있습�
 - chip의 `x` 버튼으로 개별 첨부를 제거할 수 있습니다.
 - 텍스트 없이 첨부 파일만 보내는 것도 가능합니다.
 
-Codex app-server 경로에서는 이미지가 `localImage`, 일반 파일이 `mention` 입력으로 전달됩니다. Claude Code와 Gemini CLI 경로에서는 prompt 하단에 `첨부 파일:` 목록을 붙여 전달합니다.
+Codex app-server 경로에서는 이미지가 `localImage`, 일반 파일이 `mention` 입력으로 전달됩니다. Claude Code와 Antigravity 경로에서는 prompt 하단에 `첨부 파일:` 목록을 붙여 전달합니다.
 
 Agent Console에서 이미지를 붙여넣으면 첨부 chip으로 추가합니다.
 
@@ -234,7 +224,7 @@ Settings > Obst Terminal > Attachment folder
 | 설정 | 동작 |
 | --- | --- |
 | `Node executable` | Node.js가 PATH에 없을 때 절대경로를 지정합니다. |
-| `Runtime files` | Claude Code와 Gemini CLI의 interactive 로그인/제어 흐름에 쓰는 native runtime을 설치/재설치합니다. |
+| `Runtime files` | Claude Code와 Antigravity CLI의 interactive 로그인/제어 흐름에 쓰는 native runtime을 설치/재설치합니다. |
 | `Windows PTY backend` | Windows에서 interactive agent 제어용 PTY backend를 선택합니다. |
 | `Install runtime automatically` | runtime이 없거나 오래된 경우 자동 설치를 허용합니다. |
 | `Use system certificate store` | Node 기반 CLI에 system CA store 옵션을 주입합니다. |
@@ -310,11 +300,11 @@ git push origin 0.6.61
 
 ## 보안
 
-Obst Terminal은 로컬 interactive shell을 기본으로 실행하지 않습니다. Claude Code와 Gemini CLI의 interactive 로그인/제어 흐름에서만 별도 Node.js PTY host process를 사용할 수 있습니다.
+Obst Terminal은 로컬 interactive shell을 기본으로 실행하지 않습니다. Claude Code와 Antigravity CLI의 interactive 로그인/제어 흐름에서만 별도 Node.js PTY host process를 사용할 수 있습니다.
 
-- Agent Console에서 시작한 Claude Code, Codex CLI, Gemini CLI는 사용자의 OS 계정 권한으로 실행됩니다.
+- Agent Console에서 시작한 Claude Code, Codex CLI, Antigravity CLI는 사용자의 OS 계정 권한으로 실행됩니다.
 - 실행한 CLI는 로컬 파일, 네트워크, 인증 정보에 접근할 수 있습니다.
-- Claude Code, Codex CLI, Gemini CLI, git, npm 등 외부 도구는 이 플러그인에 포함되지 않습니다.
+- Claude Code, Codex CLI, Antigravity CLI, git, npm 등 외부 도구는 이 플러그인에 포함되지 않습니다.
 - native runtime은 전체 ZIP에 포함되거나 같은 버전 GitHub Release에서 SHA-256 검증 후 설치됩니다.
 - TLS/CA 환경변수는 사용자가 설정한 경우에만 주입합니다.
 - `Persist Agent transcript snapshots`를 명시적으로 켠 경우가 아니면 Agent transcript는 플러그인 `data.json`에 저장하지 않습니다.

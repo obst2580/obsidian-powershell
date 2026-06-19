@@ -7468,6 +7468,33 @@ function firstExistingPath(candidates: string[]): string | null {
   return candidates.find((candidate) => existsSync(candidate)) ?? null;
 }
 
+function findExecutableOnPath(command: string): string | null {
+  if (!command || command.includes("/") || command.includes("\\")) {
+    return null;
+  }
+
+  const pathKey = getPathKey(process.env);
+  const pathValue = process.env[pathKey] ?? "";
+  const separator = process.platform === "win32" ? ";" : ":";
+  const extensions = process.platform === "win32"
+    ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)
+    : [""];
+  const names = process.platform === "win32" && !/\.[a-z0-9]+$/i.test(command)
+    ? extensions.map((extension) => `${command}${extension.toLowerCase()}`)
+    : [command];
+
+  for (const entry of pathValue.split(separator).filter(Boolean)) {
+    for (const name of names) {
+      const candidate = join(entry, name);
+      if (existsSync(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  return null;
+}
+
 function getAutoShellCandidates(): string[] {
   if (process.platform === "win32") {
     return [DEFAULT_PWSH_PATH, WINDOWS_POWERSHELL_PATH, WINDOWS_CMD_PATH, WINDOWS_WSL_PATH, ...WINDOWS_GIT_BASH_PATHS]
@@ -8213,6 +8240,11 @@ function getGeminiExecutable(settings: PowerShellSettings): string {
   const configured = settings.geminiExecutable?.trim();
   if (configured) {
     return configured;
+  }
+
+  const pathAgy = findExecutableOnPath("agy");
+  if (pathAgy) {
+    return pathAgy;
   }
 
   const localAppData = process.env.LOCALAPPDATA;
@@ -9055,7 +9087,7 @@ function formatGeminiPrintOutput(result: CapturedCommandResult): string {
     return `Antigravity가 응답 없이 종료되었습니다 (코드 ${result.exitCode}).`;
   }
 
-  return "Antigravity가 빈 응답을 반환했습니다. 아직 로그인되지 않았으면 PowerShell에서 `agy --print \"hello\"`를 실행해 OAuth 로그인을 완료하세요.";
+  return "Antigravity가 빈 응답을 반환했습니다. 일반 PowerShell에서 `agy --print \"hello\"`가 실제 답변을 출력하는지 확인하고, 필요하면 Agent Console의 Login으로 OAuth 로그인을 다시 완료하세요.";
 }
 
 function getGeminiResultTextFromPrintOutput(output: string): string | null {
@@ -9113,7 +9145,7 @@ function collectGeminiJsonText(value: unknown, pieces: string[], keyHint = ""): 
 }
 
 function formatGeminiAuthErrorOutput(output: string): string | null {
-  if (/not logged into Antigravity|not authenticated|OAuth.*timed out|auth timed out/i.test(output)) {
+  if (/not logged into Antigravity|not authenticated|OAuth.*timed out|auth(?:entication)? timed out|Authentication required|paste the authorization code/i.test(output)) {
     return "Antigravity CLI 로그인이 필요합니다. Agent Console의 Login을 누르거나 일반 PowerShell에서 `agy --print \"hello\"`를 실행해 OAuth 로그인을 완료하세요.";
   }
 
@@ -9249,7 +9281,9 @@ function spawnPtyCapturedCommand(
     let jsonBuffer = "";
     let settled = false;
     let sawHostExit = false;
+    let hostExitCode: number | null = null;
     let timeout: number | null = null;
+    let exitDrainTimeout: number | null = null;
 
     const finish = (result: Partial<CapturedCommandResult>) => {
       if (settled) {
@@ -9260,6 +9294,9 @@ function spawnPtyCapturedCommand(
       if (timeout !== null) {
         window.clearTimeout(timeout);
       }
+      if (exitDrainTimeout !== null) {
+        window.clearTimeout(exitDrainTimeout);
+      }
       resolvePromise({
         stdout,
         stderr,
@@ -9269,6 +9306,43 @@ function spawnPtyCapturedCommand(
         cancelled: result.cancelled ?? false,
         cancelReason: result.cancelReason
       });
+    };
+
+    const handleHostLine = (line: string) => {
+      if (!line) {
+        return;
+      }
+
+      try {
+        const message = JSON.parse(line) as HostOutputMessage;
+        if (message.type === "data") {
+          stdout += message.data;
+        } else if (message.type === "exit") {
+          sawHostExit = true;
+          hostExitCode = message.exitCode ?? null;
+          if (exitDrainTimeout !== null) {
+            window.clearTimeout(exitDrainTimeout);
+          }
+          exitDrainTimeout = window.setTimeout(() => {
+            finish({ exitCode: hostExitCode });
+          }, 300);
+        } else if (message.type === "error") {
+          stderr += `${message.message}\n`;
+          finish({ error: message.message });
+        }
+      } catch {
+        stdout += `${line}\n`;
+      }
+    };
+
+    const flushJsonBuffer = () => {
+      const line = jsonBuffer.trim();
+      if (!line) {
+        return;
+      }
+
+      jsonBuffer = "";
+      handleHostLine(line);
     };
 
     if (typeof timeoutMs === "number" && timeoutMs > 0) {
@@ -9331,20 +9405,7 @@ function spawnPtyCapturedCommand(
           continue;
         }
 
-        try {
-          const message = JSON.parse(line) as HostOutputMessage;
-          if (message.type === "data") {
-            stdout += message.data;
-          } else if (message.type === "exit") {
-            sawHostExit = true;
-            finish({ exitCode: message.exitCode ?? null });
-          } else if (message.type === "error") {
-            stderr += `${message.message}\n`;
-            finish({ error: message.message });
-          }
-        } catch {
-          stdout += `${line}\n`;
-        }
+        handleHostLine(line);
       }
     });
 
@@ -9357,9 +9418,8 @@ function spawnPtyCapturedCommand(
     });
 
     spawned.on("close", (code: number | null) => {
-      if (!sawHostExit) {
-        finish({ exitCode: code });
-      }
+      flushJsonBuffer();
+      finish({ exitCode: sawHostExit ? hostExitCode : code });
     });
   });
 
