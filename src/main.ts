@@ -6947,6 +6947,10 @@ function addExtraCaCert(env: { [key: string]: string | undefined }, extraCaCertP
   env.NODE_EXTRA_CA_CERTS = extraCaCertPath;
   env.SSL_CERT_FILE = extraCaCertPath;
   env.REQUESTS_CA_BUNDLE = extraCaCertPath;
+  env.CURL_CA_BUNDLE = extraCaCertPath;
+  env.GIT_SSL_CAINFO = extraCaCertPath;
+  env.GRPC_DEFAULT_SSL_ROOTS_FILE_PATH = extraCaCertPath;
+  env.AWS_CA_BUNDLE = extraCaCertPath;
 }
 
 function getDefaultExtraCaCertCandidates(pluginBasePath: string): string[] {

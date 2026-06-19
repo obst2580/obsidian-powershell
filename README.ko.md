@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.69`입니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.70`입니다.
 
 [English README](README.md)
 
@@ -228,11 +228,11 @@ Settings > Obst Terminal > Attachment folder
 | `Windows PTY backend` | Windows에서 interactive agent 제어용 PTY backend를 선택합니다. |
 | `Install runtime automatically` | runtime이 없거나 오래된 경우 자동 설치를 허용합니다. |
 | `Use system certificate store` | Node 기반 CLI에 system CA store 옵션을 주입합니다. |
-| `Extra CA certificate` | 사용자 PEM 인증서 경로를 지정합니다. |
+| `Extra CA certificate` | 사용자 PEM 인증서 경로를 지정하고 Claude, Codex, Antigravity, Python, curl, git, gRPC 계열 도구가 쓰는 공통 CA bundle 환경변수로 전달합니다. |
 
 ## TLS / 사내 인증서
 
-기본 상태에서는 Node TLS 동작을 바꾸지 않습니다. TLS inspection proxy 또는 사내 CA가 필요한 네트워크에서 Claude Code 같은 Node 기반 CLI가 인증서 오류를 내면 아래 설정을 사용합니다.
+기본 상태에서는 TLS 동작을 바꾸지 않습니다. TLS inspection proxy 또는 사내 CA가 필요한 네트워크에서 Claude Code 같은 Node 기반 CLI가 인증서 오류를 내거나, Antigravity CLI 토큰 교환 중 `x509: certificate signed by unknown authority`가 나오면 아래 설정을 사용합니다.
 
 ```text
 Settings > Obst Terminal > Use system certificate store
@@ -257,6 +257,8 @@ Windows 릴리스에는 인증서 설정 helper가 포함됩니다.
 .\configure-corporate-ca.ps1 -VaultPath "C:\path\to\vault" -Thumbprint "<root-ca-thumbprint>"
 .\configure-corporate-ca.ps1 -VaultPath "C:\path\to\vault" -PemPath "C:\path\to\custom-ca.pem"
 ```
+
+Obsidian 밖의 일반 PowerShell에서도 `agy --print "hello"` 같은 명령이 같은 PEM을 보게 하려면 `-SetUserEnvironment`를 추가합니다. 사용자 환경변수 반영 후에는 새 PowerShell을 열어 테스트하세요.
 
 ## 개발
 
@@ -292,8 +294,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-git tag 0.6.69
-git push origin 0.6.69
+git tag 0.6.70
+git push origin 0.6.70
 ```
 
 릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.

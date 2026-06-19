@@ -11,7 +11,9 @@ param(
 
   [string]$ExtraCaRelativePath = "certs/extra-ca.pem",
 
-  [switch]$UseSystemCaOnly
+  [switch]$UseSystemCaOnly,
+
+  [switch]$SetUserEnvironment
 )
 
 $ErrorActionPreference = "Stop"
@@ -137,8 +139,34 @@ if ($UseSystemCaOnly) {
 
 $data | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $dataPath -Encoding UTF8
 
+if ($SetUserEnvironment) {
+  if ($data.extraCaCertPath) {
+    $resolvedExtraCaPath = Resolve-Path -LiteralPath $extraCaPath
+    $envNames = @(
+      "NODE_EXTRA_CA_CERTS",
+      "SSL_CERT_FILE",
+      "REQUESTS_CA_BUNDLE",
+      "CURL_CA_BUNDLE",
+      "GIT_SSL_CAINFO",
+      "GRPC_DEFAULT_SSL_ROOTS_FILE_PATH",
+      "AWS_CA_BUNDLE",
+      "OBST_TERMINAL_EXTRA_CA_CERT"
+    )
+
+    foreach ($envName in $envNames) {
+      [Environment]::SetEnvironmentVariable($envName, $resolvedExtraCaPath, "User")
+      Set-Item -Path "Env:$envName" -Value $resolvedExtraCaPath
+    }
+  } else {
+    Write-Warning "SetUserEnvironment was requested, but no PEM file was configured. Pass -Thumbprint or -PemPath instead of -UseSystemCaOnly."
+  }
+}
+
 Write-Host "Configured Obst Terminal corporate CA settings:"
 Write-Host "  Vault: $resolvedVault"
 Write-Host "  Plugin: $pluginDir"
 Write-Host "  Use system CA: true"
 Write-Host "  Extra CA: $($data.extraCaCertPath)"
+if ($SetUserEnvironment -and $data.extraCaCertPath) {
+  Write-Host "  User environment CA variables: updated for new PowerShell/Obsidian processes"
+}

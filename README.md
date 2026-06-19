@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.69`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.70`.
 
 [한국어 README](README.ko.md)
 
@@ -231,11 +231,11 @@ Advanced settings:
 | `Windows PTY backend` | Choose the interactive agent control PTY backend on Windows. |
 | `Install runtime automatically` | Allows automatic native runtime installation. |
 | `Use system certificate store` | Injects Node system CA behavior for Node-based CLIs. |
-| `Extra CA certificate` | Provides a custom PEM certificate path. |
+| `Extra CA certificate` | Provides a custom PEM certificate path and exports it through common CA bundle variables for Claude, Codex, Antigravity, Python, curl, git, and gRPC-style tools. |
 
 ## TLS / Custom CA
 
-By default, Obst Terminal does not change Node TLS behavior. If a corporate proxy or private CA causes certificate errors in Node-based CLIs such as Claude Code, use:
+By default, Obst Terminal does not change TLS behavior. If a corporate proxy or private CA causes certificate errors in Node-based CLIs such as Claude Code, or in Antigravity CLI token exchange such as `x509: certificate signed by unknown authority`, use:
 
 ```text
 Settings > Obst Terminal > Use system certificate store
@@ -260,6 +260,8 @@ Windows release packages include helper scripts:
 .\configure-corporate-ca.ps1 -VaultPath "C:\path\to\vault" -Thumbprint "<root-ca-thumbprint>"
 .\configure-corporate-ca.ps1 -VaultPath "C:\path\to\vault" -PemPath "C:\path\to\custom-ca.pem"
 ```
+
+Add `-SetUserEnvironment` when you also want normal PowerShell sessions outside Obsidian to see the same PEM for commands such as `agy --print "hello"`. Open a new PowerShell after setting user environment variables.
 
 ## Development
 
@@ -295,8 +297,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.69
-git push origin 0.6.69
+git tag 0.6.70
+git push origin 0.6.70
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.
