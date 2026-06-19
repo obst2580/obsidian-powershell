@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.68`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.69`.
 
 [한국어 README](README.ko.md)
 
@@ -73,7 +73,7 @@ The Gemini provider slot now uses **Antigravity CLI (`agy`)** instead of the dep
 - Allows long-running work instead of enforcing a 10-minute response cutoff; press `Stop` to terminate the current process tree.
 - Opens the visible turn card and keeps the in-chat `생각 중` indicator attached while the print-command process is running.
 - Antigravity CLI currently uses plugin transcript context in this console rather than Gemini CLI `--session-id` / `--resume`.
-- The Agent Console `Login` button starts `agy --prompt-interactive` in the control PTY to trigger Antigravity OAuth. You can also complete login in a normal terminal with `agy --print "hello"`.
+- The Agent Console `Login` button starts `agy --prompt-interactive` in the control PTY and sends `/auth` to trigger Antigravity OAuth. You can also complete login in a normal terminal with `agy --print "hello"`.
 - Settings expose Antigravity executable, model, permissions, sandbox, and extra `--add-dir` directories. Old Gemini CLI settings remain visible as legacy fields where needed but are ignored by Antigravity.
 - If `agy` is missing, Start shows the official install command: `irm https://antigravity.google/cli/install.ps1 | iex`.
 
@@ -295,8 +295,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.68
-git push origin 0.6.68
+git tag 0.6.69
+git push origin 0.6.69
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.

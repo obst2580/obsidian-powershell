@@ -3590,7 +3590,7 @@ class VaultPowerShellView extends ItemView {
       }
 
       await this.checkAgentLoginStatus(provider, cwd, env);
-      this.startAgentHost(sessionKey, cwd, env);
+      this.startAgentHost(sessionKey, cwd, env, provider);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.withAgentSession(sessionKey, () => {
@@ -3605,7 +3605,7 @@ class VaultPowerShellView extends ItemView {
     }
   }
 
-  private startAgentHost(sessionKey: string | null, cwd: string, env: { [key: string]: string | undefined }) {
+  private startAgentHost(sessionKey: string | null, cwd: string, env: { [key: string]: string | undefined }, provider: AgentProvider = this.agentProvider) {
     const shell = this.plugin.getShellExecutable();
     const host = spawn(this.plugin.getNodeExecutable(), [this.plugin.getPtyHostPath(), encodeConfig({
       shell,
@@ -3623,13 +3623,14 @@ class VaultPowerShellView extends ItemView {
     });
 
     this.withAgentSession(sessionKey, () => {
+      this.agentProvider = provider;
       this.agentHost = host;
       this.agentHostReady = false;
       this.startAgentSessionPolling();
     });
 
     host.stdout.on("data", (chunk: Buffer) => {
-      this.withAgentSession(sessionKey, () => this.handleAgentHostStdout(chunk.toString()));
+      this.withAgentSession(sessionKey, () => this.handleAgentHostStdout(chunk.toString(), provider));
     });
 
     host.stderr.on("data", (chunk: Buffer) => {
@@ -3675,7 +3676,7 @@ class VaultPowerShellView extends ItemView {
     });
   }
 
-  private handleAgentHostStdout(chunk: string) {
+  private handleAgentHostStdout(chunk: string, provider: AgentProvider = this.agentProvider) {
     this.agentStdoutBuffer += chunk;
 
     while (true) {
@@ -3694,7 +3695,7 @@ class VaultPowerShellView extends ItemView {
         const message = JSON.parse(line) as HostOutputMessage;
         if (message.type === "ready") {
           this.agentHostReady = true;
-          this.launchAgentCli();
+          this.launchAgentCli(provider);
         } else if (message.type === "data") {
           this.rememberAgentRawOutput(message.data);
         } else if (message.type === "exit") {
@@ -3717,13 +3718,14 @@ class VaultPowerShellView extends ItemView {
     }
   }
 
-  private launchAgentCli() {
+  private launchAgentCli(provider: AgentProvider = this.agentProvider) {
     const sessionKey = this.activeAgentSessionKey;
+    this.agentProvider = provider;
     // Keep Claude's background control PTY out of the normal conversation
     // session. Claude Code locks a sessionId per running process, so the
     // persistent PTY and one-shot `claude -p` turns must not share the same id.
-    const claudeSessionId = this.agentProvider === "claude" ? this.ensureClaudeControlSessionId() : undefined;
-    let command = getAgentLaunchCommand(this.agentProvider, this.plugin.settings, {
+    const claudeSessionId = provider === "claude" ? this.ensureClaudeControlSessionId() : undefined;
+    let command = getAgentLaunchCommand(provider, this.plugin.settings, {
       claudeSessionId,
       sessionName: this.agentSessionLabel
     });
@@ -3731,9 +3733,9 @@ class VaultPowerShellView extends ItemView {
     this.refreshAgentSessionChrome();
     this.lastAgentLaunchCommand = command;
     this.sendAgentHostMessage({ type: "data", data: `${command}\r` });
-    this.setAgentStatus(this.agentControlCommandInProgress && this.agentProvider === "gemini"
+    this.setAgentStatus(this.agentControlCommandInProgress && provider === "gemini"
       ? "Antigravity CLI control console"
-      : `Launching ${getAgentProviderLabel(this.agentProvider)}...`);
+      : `Launching ${getAgentProviderLabel(provider)}...`);
 
     const postLaunchInput = this.agentPostLaunchInput;
     this.agentPostLaunchInput = null;
@@ -4193,6 +4195,7 @@ class VaultPowerShellView extends ItemView {
       }
 
       this.withAgentSession(sessionKey, () => {
+        this.agentProvider = "gemini";
         this.agentStartedAt = Date.now();
         this.agentSessionPath = null;
         this.agentSessionOffset = 0;
@@ -4218,7 +4221,7 @@ class VaultPowerShellView extends ItemView {
           role: "system",
           text: `Starting Antigravity CLI control console for slash command: ${command}`
         });
-        this.startAgentHost(sessionKey, cwd, env);
+        this.startAgentHost(sessionKey, cwd, env, "gemini");
         this.saveAgentViewState();
       });
       return true;
@@ -5083,6 +5086,7 @@ class VaultPowerShellView extends ItemView {
 
     this.disposeAgent();
     this.agentProvider = "gemini";
+    this.captureActiveAgentSessionState();
     this.saveAgentViewState();
     this.refreshAgentProviderButtons();
 
@@ -5122,7 +5126,7 @@ class VaultPowerShellView extends ItemView {
         useSystemCa: this.plugin.settings.useSystemCa,
         extraCaCertPath: this.plugin.getExtraCaCertPath()
       });
-      this.agentPostLaunchInput = "로그인 상태를 확인하고 필요한 경우 Antigravity OAuth 로그인을 시작해줘.\r";
+      this.agentPostLaunchInput = "/auth\r";
       const availabilityFailure = await getGeminiCliAvailabilityFailure(cwd, env, this.plugin.settings);
       if (availabilityFailure) {
         this.withAgentSession(sessionKey, () => {
@@ -5150,10 +5154,11 @@ class VaultPowerShellView extends ItemView {
       }
 
       this.withAgentSession(sessionKey, () => {
+        this.agentProvider = "gemini";
         this.agentAuthState = "login-in-progress";
         this.agentNeedsAuth = true;
         this.setAgentStatus("Antigravity CLI login in progress");
-        this.startAgentHost(sessionKey, cwd, env);
+        this.startAgentHost(sessionKey, cwd, env, "gemini");
       });
       return true;
     } catch (error) {

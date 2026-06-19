@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.61`입니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.69`입니다.
 
 [English README](README.md)
 
@@ -70,7 +70,7 @@ Gemini provider 슬롯은 deprecated된 consumer Gemini CLI 로그인 경로 대
 - 모델은 Agent Console 안의 드롭다운에서 선택합니다. 기본값은 `Antigravity default`이며 계정에서 노출되는 `gemini-3.5-flash` 같은 명시 모델 ID를 선택할 수 있습니다.
 - 일반 Antigravity/Claude prompt에는 현재 CLI 실행 모델 설정을 함께 주입하므로, “현재 어떤 모델을 쓰는지” 질문에는 모델의 자기인식이 아니라 플러그인의 실행 설정 기준으로 답할 수 있습니다.
 - print-command 프로세스가 실행 중인 동안 현재 turn 카드 안에 `생각 중` 표시를 유지합니다.
-- Agent Console의 `Login` 버튼은 control PTY에서 `agy --prompt-interactive`를 시작해 Antigravity OAuth를 진행합니다. 일반 PowerShell에서 `agy --print "hello"`로 로그인해도 됩니다.
+- Agent Console의 `Login` 버튼은 control PTY에서 `agy --prompt-interactive`를 시작하고 `/auth`를 보내 Antigravity OAuth를 진행합니다. 일반 PowerShell에서 `agy --print "hello"`로 로그인해도 됩니다.
 - `Authentication required` 또는 `authentication timed out` 출력은 빈 응답이 아니라 로그인 필요 상태로 표시합니다.
 - Windows terminal 경고, 중복 YOLO 안내, `grep_search` timeout 진단처럼 알려진 Antigravity startup/tool fallback noise는 visible transcript에서 숨깁니다.
 - Antigravity CLI가 설치되어 있지 않거나 인증이 필요하면 Start/응답 단계에서 설치/PATH/로그인 안내를 표시하고 prompt를 계속 보내지 않습니다.
@@ -292,8 +292,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-git tag 0.6.61
-git push origin 0.6.61
+git tag 0.6.69
+git push origin 0.6.69
 ```
 
 릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.
