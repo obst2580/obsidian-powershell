@@ -1485,8 +1485,7 @@ class VaultPowerShellView extends ItemView {
     const mode = this.agentSessionMode === "isolated" ? "isolated" : "latest fallback";
     const codex = this.agentCodexThreadId ? ` · codex:${shortSessionId(this.agentCodexThreadId)}` : "";
     const claude = this.agentClaudeSessionId ? ` · claude:${shortSessionId(this.agentClaudeSessionId)}` : "";
-    const gemini = this.agentGeminiSessionId ? ` · gemini:${shortSessionId(this.agentGeminiSessionId)}` : "";
-    this.agentSessionSubtitleEl?.setText(`${path} · ${mode}${claude}${codex}${gemini}`);
+    this.agentSessionSubtitleEl?.setText(`${path} · ${mode}${claude}${codex}`);
   }
 
   private commitAgentSessionLabel(value: string) {
@@ -1920,7 +1919,7 @@ class VaultPowerShellView extends ItemView {
       this.appendAgentTranscript({
         id: this.nextLocalAgentEntryId("system"),
         role: "system",
-        text: `${this.agentSessionLabel} 세션입니다. Claude, Codex, Gemini 중 하나를 시작하세요. 이 플러그인 안의 각 탭은 고유 Claude sessionId / Codex threadId / Gemini local sessionId를 유지합니다.`
+        text: `${this.agentSessionLabel} 세션입니다. Claude 또는 Codex 중 하나를 시작하세요. 이 플러그인 안의 각 탭은 고유 Claude sessionId / Codex threadId를 유지합니다.`
       });
       this.captureActiveAgentSessionState();
     }
@@ -2282,7 +2281,6 @@ class VaultPowerShellView extends ItemView {
     const providerGroup = toolbar.createDiv("vault-agent-provider-group");
     this.agentProviderButtons.claude = this.createAgentProviderButton(providerGroup, "Claude", "claude", CLAUDE_ICON_PATH);
     this.agentProviderButtons.codex = this.createAgentProviderButton(providerGroup, "Codex", "codex", CODEX_ICON_PATH);
-    this.agentProviderButtons.gemini = this.createAgentProviderButton(providerGroup, "Gemini", "gemini", GEMINI_ICON_PATH);
     this.agentProviderIndicatorEl = toolbar.createDiv({
       cls: "vault-agent-current-provider",
       attr: { "aria-live": "polite" }
@@ -2331,11 +2329,6 @@ class VaultPowerShellView extends ItemView {
 
       if (this.agentPromptState?.mode === "mcp") {
         new Notice("MCP connection is separate from Claude login. Use the MCP actions or press Esc.");
-        return;
-      }
-
-      if (this.agentProvider === "gemini") {
-        void this.startGeminiLoginFlow("Antigravity CLI 로그인이 필요합니다.");
         return;
       }
 
@@ -2402,15 +2395,10 @@ class VaultPowerShellView extends ItemView {
       this.codexAccessSelect.createEl("option", { value: opt.v, text: opt.t });
     }
     this.codexAccessSelect.value = "full";
-    this.geminiModelSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Gemini model" } });
-    for (const opt of GEMINI_MODEL_CHOICES) {
-      this.geminiModelSelect.createEl("option", { value: opt.value, text: opt.label });
-    }
     this.claudeModelSelect.addEventListener("change", () => this.onClaudeModelChange());
     this.codexModelSelect.addEventListener("change", () => this.onCodexModelChange());
     this.codexEffortSelect.addEventListener("change", () => this.applyCodexTurnOptions());
     this.codexAccessSelect.addEventListener("change", () => this.applyCodexTurnOptions());
-    this.geminiModelSelect.addEventListener("change", () => this.onGeminiModelChange());
     this.refreshAgentOptionsRow();
 
     const composerActions = composer.createDiv("vault-agent-composer-actions");
@@ -2476,9 +2464,8 @@ class VaultPowerShellView extends ItemView {
     }
     this.agentProviderButtons.claude?.toggleClass("is-active", this.agentProvider === "claude");
     this.agentProviderButtons.codex?.toggleClass("is-active", this.agentProvider === "codex");
-    this.agentProviderButtons.gemini?.toggleClass("is-active", this.agentProvider === "gemini");
     this.renderAgentProviderIndicator();
-    this.agentInputEl?.setAttr("placeholder", `Message to ${getAgentProviderLabel(this.agentProvider)}. @all, @codex, @claude, @gemini, or @"session title" delegates to other tabs.`);
+    this.agentInputEl?.setAttr("placeholder", `Message to ${getAgentProviderLabel(this.agentProvider)}. @all, @codex, @claude, or @"session title" delegates to other tabs.`);
     this.refreshAgentOptionsRow();
     this.refreshCodexStatusLine();
   }
@@ -2491,18 +2478,15 @@ class VaultPowerShellView extends ItemView {
     this.codexOptionsRow.toggleClass("is-hidden", false);
     const isClaude = this.agentProvider === "claude";
     const isCodex = this.agentProvider === "codex";
-    const isGemini = this.agentProvider === "gemini";
     this.claudeModelSelect?.toggleClass("is-hidden", !isClaude);
     this.codexModelSelect?.toggleClass("is-hidden", !isCodex);
     this.codexEffortSelect?.toggleClass("is-hidden", !isCodex);
     this.codexAccessSelect?.toggleClass("is-hidden", !isCodex);
-    this.geminiModelSelect?.toggleClass("is-hidden", !isGemini);
   }
 
   private refreshAgentModelControls() {
     setSelectChoices(this.claudeModelSelect, CLAUDE_MODEL_CHOICES, this.plugin.settings.claudeModel, "Saved");
     this.refreshCodexModelSelect(false);
-    setSelectChoices(this.geminiModelSelect, GEMINI_MODEL_CHOICES, this.plugin.settings.geminiModel || DEFAULT_SETTINGS.geminiModel, "Saved");
   }
 
   private refreshCodexModelSelect(selectFirstAvailable: boolean) {
@@ -3832,10 +3816,6 @@ class VaultPowerShellView extends ItemView {
       return otherSessions.filter((session) => session.agentProvider === "claude");
     }
 
-    if (target === "gemini" || target === "제미나이" || target === "구글제미나이") {
-      return otherSessions.filter((session) => session.agentProvider === "gemini");
-    }
-
     return otherSessions.filter((session) => agentSessionMatchesDelegationTarget(session, targetText));
   }
 
@@ -3868,7 +3848,7 @@ class VaultPowerShellView extends ItemView {
 
   private isAgentReadyForTextInput(provider: AgentProvider): boolean {
     if (provider === "gemini") {
-      return this.agentReadyForInput || this.agentConversationReady;
+      return false;
     }
     return !!this.agentHost && this.agentHostReady && this.agentReadyForInput;
   }
@@ -3978,7 +3958,7 @@ class VaultPowerShellView extends ItemView {
     }
 
     if (isAgentDelegationAttempt(text)) {
-      new Notice("Use @all, @codex, @claude, @gemini, or @\"session title\" followed by a message.");
+      new Notice("Use @all, @codex, @claude, or @\"session title\" followed by a message.");
       return;
     }
 
@@ -6485,7 +6465,7 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Persist Agent transcript snapshots")
-      .setDesc("Off by default. When enabled, the visible Claude/Codex/Gemini transcript HTML is saved in .obsidian/plugins/vault-terminal/data.json so the UI can restore it after Obsidian restarts.")
+      .setDesc("Off by default. When enabled, the visible Claude/Codex transcript HTML is saved in .obsidian/plugins/vault-terminal/data.json so the UI can restore it after Obsidian restarts.")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.persistAgentTranscriptSnapshots)
@@ -6614,138 +6594,6 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.claudeStrictMcpConfig)
           .onChange((value) => {
             this.plugin.settings.claudeStrictMcpConfig = value;
-            void this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(agentEl)
-      .setName("Antigravity executable")
-      .setDesc("Optional command or absolute path. Leave empty to use agy from PATH or %LOCALAPPDATA%\\agy\\bin\\agy.exe.")
-      .addText((text) =>
-        text
-          .setPlaceholder("agy")
-          .setValue(this.plugin.settings.geminiExecutable)
-          .onChange((value) => {
-            this.plugin.settings.geminiExecutable = value.trim();
-            void this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(agentEl)
-      .setName("Antigravity permissions")
-      .setDesc("Set to yolo to pass --dangerously-skip-permissions for Antigravity CLI turns.")
-      .addDropdown((dropdown) =>
-        dropdown
-          .addOption("yolo", "yolo")
-          .addOption("auto_edit", "auto_edit")
-          .addOption("default", "default")
-          .addOption("plan", "plan")
-          .setValue(this.plugin.settings.geminiApprovalMode)
-          .onChange((value) => {
-            this.plugin.settings.geminiApprovalMode = normalizeGeminiApprovalMode(value);
-            void this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(agentEl)
-      .setName("Legacy Gemini skip trust")
-      .setDesc("Legacy Gemini CLI option. Ignored by Antigravity CLI.")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.geminiSkipTrust)
-          .onChange((value) => {
-            this.plugin.settings.geminiSkipTrust = value;
-            void this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(agentEl)
-      .setName("Antigravity sandbox")
-      .setDesc("Pass --sandbox to Antigravity CLI.")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.geminiSandbox)
-          .onChange((value) => {
-            this.plugin.settings.geminiSandbox = value;
-            void this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(agentEl)
-      .setName("Legacy Gemini native session")
-      .setDesc("Legacy Gemini CLI option. Antigravity CLI currently uses plugin transcript context in this console.")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.geminiUseNativeSession)
-          .onChange((value) => {
-            this.plugin.settings.geminiUseNativeSession = value;
-            void this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(agentEl)
-      .setName("Legacy Gemini output format")
-      .setDesc("Legacy Gemini CLI option. Ignored by Antigravity CLI print mode.")
-      .addDropdown((dropdown) =>
-        dropdown
-          .addOption("stream-json", "stream-json")
-          .addOption("json", "json")
-          .addOption("text", "text")
-          .setValue(this.plugin.settings.geminiOutputFormat)
-          .onChange((value) => {
-            this.plugin.settings.geminiOutputFormat = normalizeGeminiOutputFormat(value);
-            void this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(agentEl)
-      .setName("Legacy Gemini extensions")
-      .setDesc("Legacy Gemini CLI option. Use Antigravity CLI plugins separately.")
-      .addText((text) =>
-        text
-          .setPlaceholder("extension-a, extension-b")
-          .setValue(this.plugin.settings.geminiExtensions)
-          .onChange((value) => {
-            this.plugin.settings.geminiExtensions = normalizeDelimitedSetting(value);
-            void this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(agentEl)
-      .setName("Legacy Gemini allowed MCP servers")
-      .setDesc("Legacy Gemini CLI option. Ignored by Antigravity CLI.")
-      .addText((text) =>
-        text
-          .setPlaceholder("server-a, server-b")
-          .setValue(this.plugin.settings.geminiAllowedMcpServers)
-          .onChange((value) => {
-            this.plugin.settings.geminiAllowedMcpServers = normalizeDelimitedSetting(value);
-            void this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(agentEl)
-      .setName("Antigravity add directories")
-      .setDesc("Optional comma/newline list passed as repeated --add-dir values.")
-      .addText((text) =>
-        text
-          .setPlaceholder("C:\\path\\to\\project")
-          .setValue(this.plugin.settings.geminiIncludeDirectories)
-          .onChange((value) => {
-            this.plugin.settings.geminiIncludeDirectories = normalizeDelimitedSetting(value);
-            void this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(agentEl)
-      .setName("Legacy Gemini policy files")
-      .setDesc("Legacy Gemini CLI option. Ignored by Antigravity CLI.")
-      .addText((text) =>
-        text
-          .setPlaceholder("policies/gemini-policy.json")
-          .setValue(this.plugin.settings.geminiPolicyFiles)
-          .onChange((value) => {
-            this.plugin.settings.geminiPolicyFiles = normalizeDelimitedSetting(value);
             void this.plugin.saveSettings();
           })
       );
@@ -7799,11 +7647,11 @@ function getAgentProviderIconPath(provider: AgentProvider): string {
 }
 
 function isAgentProvider(value: unknown): value is AgentProvider {
-  return value === "claude" || value === "codex" || value === "gemini";
+  return value === "claude" || value === "codex";
 }
 
 function isPrintCommandProvider(provider: AgentProvider): boolean {
-  return provider === "claude" || provider === "gemini";
+    return provider === "claude";
 }
 
 function isSlashCommandText(text: string): boolean {
@@ -7835,7 +7683,6 @@ function isKnownAgentDelegationTarget(text: string): boolean {
     target === "claudecode" ||
     target === "클로드" ||
     target === "클로드코드" ||
-    target === "gemini" ||
     target === "제미나이" ||
     target === "구글제미나이";
 }

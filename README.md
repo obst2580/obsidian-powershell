@@ -1,33 +1,33 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.70`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.71`.
 
 [한국어 README](README.ko.md)
 
-> Desktop only. Claude Code, Codex CLI, Antigravity CLI (`agy`), Node.js, Git, npm, and other external tools are not bundled. Install them on your machine and make sure they work from a normal terminal.
+> Desktop only. Claude Code, Codex CLI, Node.js, Git, npm, and other external tools are not bundled. Install them on your machine and make sure they work from a normal terminal.
 
 ![Obst Terminal agent console in Obsidian's right sidebar](docs/images/obst-terminal-agent-console.png)
 
 ## Multi-Session AI Workspace
 
-Obst Terminal is not just a single chat console. It is designed as a **multi-session AI workspace inside one Obsidian vault**, where several Claude Code, Codex, and Antigravity-backed Gemini sessions can stay open side by side as plugin tabs.
+Obst Terminal is not just a single chat console. It is designed as a **multi-session AI workspace inside one Obsidian vault**, where several Claude Code and Codex sessions can stay open side by side as plugin tabs.
 
 - Add AI session tabs with the plugin `+` button or the `Open new AI session` command.
-- Each tab keeps its own Claude sessionId, Codex threadId, Gemini local sessionId, provider, editable title, transcript, and running state.
+- Each tab keeps its own Claude sessionId, Codex threadId, provider, editable title, transcript, and running state.
 - Switching tabs does not stop the running agent; background sessions continue writing to their own transcripts.
-- Claude, Codex, and Gemini transcripts preserve their scroll positions per session/provider, so background updates and tab switches do not pull the view back to the top.
+- Claude and Codex transcripts preserve their scroll positions per session/provider, so background updates and tab switches do not pull the view back to the top.
 - By default, transcript HTML is not persisted to `.obsidian/plugins/vault-terminal/data.json`; only session metadata such as titles and provider IDs are kept. Enable `Persist Agent transcript snapshots` if you want exact UI transcript restoration after restart.
 - Use role-based sessions such as PM, Writer, Reviewer, and Researcher next to the same project documents.
-- Delegate prompts to other running AI sessions with `@all`, `@codex`, `@claude`, `@gemini`, or `@"session title"`.
-- Attach files with the Attach button or paste images into the composer. Pasted images are saved in the configured attachment folder and sent to Claude, Codex, or Gemini as local file paths.
+- Delegate prompts to other running AI sessions with `@all`, `@codex`, `@claude`, or `@"session title"`.
+- Attach files with the Attach button or paste images into the composer. Pasted images are saved in the configured attachment folder and sent to Claude or Codex as local file paths.
 - Korean/current-note references such as `이 문서`, `이문서`, `옆에 문서`, `현재 문서`, and `열린 문서` are resolved to the currently active Obsidian note and injected into the agent prompt as a vault file reference.
-- Mouse selection and copy inside Claude, Codex, and Gemini transcripts are handled by the plugin so copying a partial selection does not expand to the whole message card.
+- Mouse selection and copy inside Claude and Codex transcripts are handled by the plugin so copying a partial selection does not expand to the whole message card.
 
 ## Current Behavior
 
-The default pane is **Agent Console**. The toolbar lets you choose `Claude`, `Codex`, or `Gemini`, and the active provider is shown as `현재 Claude Code`, `현재 Codex`, or `현재 Antigravity CLI`. Claude, Codex, and Gemini/Antigravity keep separate transcripts when you switch providers.
+The default pane is **Agent Console**. The toolbar lets you choose `Claude` or `Codex`, and the active provider is shown as `현재 Claude Code` or `현재 Codex`. Claude and Codex keep separate transcripts when you switch providers.
 
-You can split work across multiple AI sessions in the same vault. `Open AI workspace` reuses the first Obst Terminal view, while `Open new AI session` or the Agent Console `+` button adds an AI session tab inside the plugin instead of opening a new Obsidian workspace tab. Each tab keeps its own Claude sessionId, Codex threadId, Gemini local sessionId, selected provider, editable title, visible transcript, and running backend/process state. Switching tabs does not stop the running agent; background sessions keep writing to their own transcripts. This is intended for project-management roles such as PM, Writer, Analyst, and Reviewer working beside the same vault documents. A session can delegate a prompt to other running tabs with `@all`, `@codex`, `@claude`, `@gemini`, or `@"session title"`.
+You can split work across multiple AI sessions in the same vault. `Open AI workspace` reuses the first Obst Terminal view, while `Open new AI session` or the Agent Console `+` button adds an AI session tab inside the plugin instead of opening a new Obsidian workspace tab. Each tab keeps its own Claude sessionId, Codex threadId, selected provider, editable title, visible transcript, and running backend/process state. Switching tabs does not stop the running agent; background sessions keep writing to their own transcripts. This is intended for project-management roles such as PM, Writer, Analyst, and Reviewer working beside the same vault documents. A session can delegate a prompt to other running tabs with `@all`, `@codex`, `@claude`, or `@"session title"`.
 
 ### Codex
 
@@ -56,32 +56,15 @@ The Claude Code Agent Console separates normal chat turns from login/control pro
 - Passes the prompt through stdin and waits for the `claude` process to finish, allowing long-running skills such as audio transcription or large document analysis.
 - Opens the visible turn card and keeps the in-chat `생각 중` indicator attached while the print-command process is running.
 - If Claude reports that the session ID is already in use, the console retries once with `--resume <sessionId> --fork-session` so the fallback keeps the previous Claude context instead of starting from an empty UUID.
-- Claude/Gemini normal-response processes are tracked by pid. `Stop`, tab close, and plugin reload clean them up, and startup checks `agent-processes.json` for stale pids left by a previous crash.
+- Claude normal-response processes are tracked by pid. `Stop`, tab close, and plugin reload clean them up, and startup checks `agent-processes.json` for stale pids left by a previous crash.
 - Uses the background PTY host for `/login`, MCP connection prompts, permission prompts, and command-style control input. Typed Claude slash commands are sent to this control host when it is running.
 - Uses Claude session logs to track control flow and keep transcript offsets aligned.
-
-### Antigravity CLI for Gemini
-
-The Gemini provider slot now uses **Antigravity CLI (`agy`)** instead of the deprecated consumer Gemini CLI login path.
-
-- Checks CLI availability with `agy --version` and treats `agy models` failure as login-required.
-- Sends normal prompts through `agy --print` in the PTY capture path, with no 10-minute cutoff.
-- The model dropdown defaults to `Antigravity default`; explicit model ids such as `gemini-3.5-flash` can still be selected when the account exposes them.
-- Settings schema v6 migrates the old saved `gemini` executable to auto-detected `agy`, clears the old Gemini model default, and disables legacy Gemini native sessions.
-- The statusline shows the configured Antigravity model/mode, plugin transcript-context meter, and `usage n/a`.
-- Runtime model settings are injected into normal Antigravity/Claude prompts, so "which model are you using?" can be answered from the plugin's CLI launch settings instead of unreliable model self-introspection.
-- Allows long-running work instead of enforcing a 10-minute response cutoff; press `Stop` to terminate the current process tree.
-- Opens the visible turn card and keeps the in-chat `생각 중` indicator attached while the print-command process is running.
-- Antigravity CLI currently uses plugin transcript context in this console rather than Gemini CLI `--session-id` / `--resume`.
-- The Agent Console `Login` button starts `agy --prompt-interactive` in the control PTY and sends `/auth` to trigger Antigravity OAuth. You can also complete login in a normal terminal with `agy --print "hello"`.
-- Settings expose Antigravity executable, model, permissions, sandbox, and extra `--add-dir` directories. Old Gemini CLI settings remain visible as legacy fields where needed but are ignored by Antigravity.
-- If `agy` is missing, Start shows the official install command: `irm https://antigravity.google/cli/install.ps1 | iex`.
 
 ## Requirements
 
 - Obsidian Desktop.
 - Node.js installed system-wide.
-- Any CLI you want to use from Agent Console, such as `claude`, `codex`, or `agy`.
+- Any CLI you want to use from Agent Console, such as `claude` or `codex`.
 
 CLI runtimes bundled inside editor extensions are not enough. Obsidian starts this plugin from the normal desktop environment, so these commands should work from PowerShell, Terminal, zsh, or bash:
 
@@ -89,7 +72,6 @@ CLI runtimes bundled inside editor extensions are not enough. Obsidian starts th
 node --version
 claude --version
 codex --version
-agy --version
 ```
 
 ## Installation
@@ -141,7 +123,7 @@ main.js
 styles.css
 ```
 
-Obst Terminal also needs a native `node-pty` runtime for interactive Claude Code and Antigravity CLI login/control flows. If the runtime is missing or out of date, the plugin reads `runtime-manifest.json` from the matching GitHub Release, downloads the OS-specific runtime ZIP, verifies size and SHA-256, and extracts it into the plugin folder.
+Obst Terminal also needs a native `node-pty` runtime for interactive Claude Code login/control flows. If the runtime is missing or out of date, the plugin reads `runtime-manifest.json` from the matching GitHub Release, downloads the OS-specific runtime ZIP, verifies size and SHA-256, and extracts it into the plugin folder.
 
 Runtime commands and settings:
 
@@ -162,14 +144,14 @@ https://github.com/obst2580/obsidian-powershell
 
 1. Open the project vault in Obsidian.
 2. Run `Open AI workspace` from the command palette or open the Obst Terminal right-sidebar tab.
-3. Choose `Claude`, `Codex`, or `Gemini`.
+3. Choose `Claude` or `Codex`.
 4. Press `Start`.
 5. Use `Login` if the selected provider needs authentication.
 6. Type a message and press `Send`.
 
-When Codex, Claude, or Gemini is answering, `Send` acts as `Stop`. Additional messages are queued until the active turn finishes.
+When Codex or Claude is answering, `Send` acts as `Stop`. Additional messages are queued until the active turn finishes.
 
-For multiple AI collaborators, run `Open new AI session` from the command palette or press the Agent Console `+` button. Each session appears as an internal Agent Console tab, gets an editable title, and shows short Claude/Codex/Gemini session identifiers in the subtitle.
+For multiple AI collaborators, run `Open new AI session` from the command palette or press the Agent Console `+` button. Each session appears as an internal Agent Console tab, gets an editable title, and shows short Claude/Codex session identifiers in the subtitle.
 
 Delegation commands are typed in the same composer:
 
@@ -177,7 +159,6 @@ Delegation commands are typed in the same composer:
 @all Review the current project plan and list risks.
 @codex Check whether the implementation looks consistent.
 @claude Draft the handoff note.
-@gemini Find missing decisions in the meeting-note draft.
 @"Reviewer" Summarize open questions from this vault.
 /send @"PM" Turn this into a task list.
 ```
@@ -195,7 +176,7 @@ Use the composer `Attach` button to attach files.
 - Use the chip `x` button to remove one attachment.
 - You can send attachments without text.
 
-On the Codex app-server path, images are sent as `localImage` inputs and other files as `mention` inputs. On the Claude and Gemini paths, attachments are appended to the prompt as an `첨부 파일:` list.
+On the Codex app-server path, images are sent as `localImage` inputs and other files as `mention` inputs. On the Claude path, attachments are appended to the prompt as an `첨부 파일:` list.
 
 Pasting an image in Agent Console adds it as an attachment chip.
 
@@ -227,15 +208,15 @@ Advanced settings:
 | Setting | Behavior |
 | --- | --- |
 | `Node executable` | Point to Node.js when it is not on PATH. |
-| `Runtime files` | Install or reinstall the native runtime used for interactive Claude Code and Antigravity CLI login/control flows. |
+| `Runtime files` | Install or reinstall the native runtime used for interactive Claude Code login/control flows. |
 | `Windows PTY backend` | Choose the interactive agent control PTY backend on Windows. |
 | `Install runtime automatically` | Allows automatic native runtime installation. |
 | `Use system certificate store` | Injects Node system CA behavior for Node-based CLIs. |
-| `Extra CA certificate` | Provides a custom PEM certificate path and exports it through common CA bundle variables for Claude, Codex, Antigravity, Python, curl, git, and gRPC-style tools. |
+| `Extra CA certificate` | Provides a custom PEM certificate path and exports it through common CA bundle variables for Claude, Codex, Python, curl, git, and gRPC-style tools. |
 
 ## TLS / Custom CA
 
-By default, Obst Terminal does not change TLS behavior. If a corporate proxy or private CA causes certificate errors in Node-based CLIs such as Claude Code, or in Antigravity CLI token exchange such as `x509: certificate signed by unknown authority`, use:
+By default, Obst Terminal does not change TLS behavior. If a corporate proxy or private CA causes certificate errors in Node-based CLIs such as Claude Code, use:
 
 ```text
 Settings > Obst Terminal > Use system certificate store
@@ -261,7 +242,7 @@ Windows release packages include helper scripts:
 .\configure-corporate-ca.ps1 -VaultPath "C:\path\to\vault" -PemPath "C:\path\to\custom-ca.pem"
 ```
 
-Add `-SetUserEnvironment` when you also want normal PowerShell sessions outside Obsidian to see the same PEM for commands such as `agy --print "hello"`. Open a new PowerShell after setting user environment variables.
+Add `-SetUserEnvironment` when you also want normal PowerShell sessions outside Obsidian to see the same PEM. Open a new PowerShell after setting user environment variables.
 
 ## Development
 
@@ -305,11 +286,11 @@ The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime
 
 ## Security
 
-Obst Terminal no longer starts a raw local shell by default. It may use a separate Node.js PTY host process only for interactive Claude Code and Antigravity CLI login/control flows.
+Obst Terminal no longer starts a raw local shell by default. It may use a separate Node.js PTY host process only for interactive Claude Code login/control flows.
 
-- Claude Code, Codex CLI, or Antigravity CLI processes started from Agent Console run with your local OS user permissions.
+- Claude Code or Codex CLI processes started from Agent Console run with your local OS user permissions.
 - Those CLI processes can access local files, network resources, and credentials according to the CLI and OS permissions.
-- Claude Code, Codex CLI, Antigravity CLI, git, npm, and other external tools are not bundled.
+- Claude Code, Codex CLI, git, npm, and other external tools are not bundled.
 - Native runtime files are included in full ZIPs or downloaded from the matching GitHub Release and verified with SHA-256.
 - TLS / CA environment variables are injected only when enabled in settings.
 - Agent transcript snapshots are not saved to plugin `data.json` unless `Persist Agent transcript snapshots` is explicitly enabled.
