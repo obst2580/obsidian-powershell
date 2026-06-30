@@ -1189,7 +1189,6 @@ class VaultPowerShellView extends ItemView {
   private paneTabEls: Record<ViewPane, HTMLElement | null> = { agent: null, terminal: null };
   private agentPaneEl: HTMLElement | null = null;
   private terminalPaneEl: HTMLElement | null = null;
-  private terminalHostEl: HTMLElement | null = null;
   private terminalStarted = false;
   private agentSessions: AgentWorkspaceSessionState[] = [];
   private activeAgentSessionKey: string | null = null;
@@ -1247,6 +1246,7 @@ class VaultPowerShellView extends ItemView {
   private suppressAgentTranscriptScrollMemory = false;
   private agentLoadingEl: HTMLElement | null = null;
   private agentLoadingTextEl: HTMLElement | null = null;
+  private agentProgressTimer: number | null = null;
   private agentPromptActionsEl: HTMLElement | null = null;
   private agentLoginButton: HTMLButtonElement | null = null;
   private agentInputEl: HTMLTextAreaElement | null = null;
@@ -1294,7 +1294,7 @@ class VaultPowerShellView extends ItemView {
   }
 
   getDisplayText(): string {
-    return this.agentSessionLabel ? `Obst ${this.agentSessionLabel}` : "Obst Terminal";
+    return "Obst Terminal";
   }
 
   getIcon(): string {
@@ -1371,6 +1371,7 @@ class VaultPowerShellView extends ItemView {
     }
     this.pendingShiftEnterTimers.forEach((timer) => window.clearTimeout(timer));
     this.pendingShiftEnterTimers.clear();
+    this.stopTurnProgressTimer();
     this.pendingInsertTexts = [];
     this.terminal?.dispose();
     this.terminal = null;
@@ -1379,7 +1380,6 @@ class VaultPowerShellView extends ItemView {
     this.terminalStarted = false;
     this.agentPaneEl = null;
     this.terminalPaneEl = null;
-    this.terminalHostEl = null;
     this.agentStatusEl = null;
     this.agentSessionTabsEl = null;
     this.agentSessionTabEls.clear();
@@ -1467,6 +1467,7 @@ class VaultPowerShellView extends ItemView {
     this.activePane = "agent";
 
     this.ensureInternalAgentSessions();
+    this.applyAgentSessionFields(this.getActiveAgentSessionState());
   }
 
   private saveAgentViewState() {
@@ -1475,17 +1476,7 @@ class VaultPowerShellView extends ItemView {
   }
 
   private refreshAgentSessionChrome() {
-    if (!this.isVisibleAgentSessionContext()) {
-      return;
-    }
-    if (this.agentSessionTitleInputEl && this.agentSessionTitleInputEl.value !== this.agentSessionLabel) {
-      this.agentSessionTitleInputEl.value = this.agentSessionLabel;
-    }
-    const path = this.plugin.getVaultPath() ?? "No local vault path";
-    const mode = this.agentSessionMode === "isolated" ? "isolated" : "latest fallback";
-    const codex = this.agentCodexThreadId ? ` · codex:${shortSessionId(this.agentCodexThreadId)}` : "";
-    const claude = this.agentClaudeSessionId ? ` · claude:${shortSessionId(this.agentClaudeSessionId)}` : "";
-    this.agentSessionSubtitleEl?.setText(`${path} · ${mode}${claude}${codex}`);
+    // The console header was intentionally removed; session labels now live in tabs only.
   }
 
   private commitAgentSessionLabel(value: string) {
@@ -1534,6 +1525,7 @@ class VaultPowerShellView extends ItemView {
     const session = createAgentWorkspaceSessionState("isolated");
     this.ensureAgentSessionRuntime(session);
     this.agentSessions.push(session);
+    session.agentSessionLabel = getUniqueProviderAgentSessionLabel(this.agentSessions, session.agentProvider, session.agentSessionKey);
     this.activeAgentSessionKey = session.agentSessionKey;
     this.visibleAgentSessionKey = session.agentSessionKey;
     this.applyAgentSessionRuntime(session);
@@ -1548,11 +1540,13 @@ class VaultPowerShellView extends ItemView {
       const session = this.createSessionStateFromActiveFields();
       this.ensureAgentSessionRuntime(session);
       this.agentSessions = [session];
+      ensureProviderAgentSessionLabels(this.agentSessions);
       this.activeAgentSessionKey = session.agentSessionKey;
       this.visibleAgentSessionKey = session.agentSessionKey;
       return;
     }
 
+    ensureProviderAgentSessionLabels(this.agentSessions);
     if (!this.activeAgentSessionKey || !this.agentSessions.some((session) => session.agentSessionKey === this.activeAgentSessionKey)) {
       this.activeAgentSessionKey = this.agentSessions[0].agentSessionKey;
     }
@@ -1946,6 +1940,7 @@ class VaultPowerShellView extends ItemView {
     } finally {
       this.suppressAgentTranscriptScrollMemory = false;
     }
+    this.syncTurnProgressTimer();
   }
 
   private rememberAgentTranscriptScrollPosition(el: HTMLElement) {
@@ -2153,6 +2148,8 @@ class VaultPowerShellView extends ItemView {
     const list = this.agentSessionTabsEl.createDiv("vault-agent-session-tab-list");
     for (const session of this.agentSessions) {
       const item = list.createDiv("vault-agent-session-tab-item");
+      item.addClass(`vault-agent-session-tab-item-${session.agentProvider}`);
+      item.toggleClass("is-active", session.agentSessionKey === this.activeAgentSessionKey);
       const tab = item.createEl("button", {
         cls: "vault-agent-session-tab",
         attr: {
@@ -2186,7 +2183,7 @@ class VaultPowerShellView extends ItemView {
       }
     }
 
-    const add = this.agentSessionTabsEl.createEl("button", {
+    const add = list.createEl("button", {
       cls: "vault-agent-session-add",
       attr: {
         "aria-label": "New AI session",
@@ -2240,62 +2237,18 @@ class VaultPowerShellView extends ItemView {
     this.agentSessionTabsEl = container.createDiv("vault-agent-session-tabs");
     this.renderAgentSessionTabs();
 
-    const header = container.createDiv("vault-agent-header");
-    const titleWrap = header.createDiv("vault-agent-title-wrap");
-    this.agentSessionTitleInputEl = titleWrap.createEl("input", {
-      cls: "vault-agent-title vault-agent-title-input",
-      attr: {
-        type: "text",
-        "aria-label": "AI session title",
-        title: "AI session title"
-      }
-    });
-    this.agentSessionTitleInputEl.value = this.agentSessionLabel;
-    this.agentSessionTitleInputEl.addEventListener("change", () => {
-      this.commitAgentSessionLabel(this.agentSessionTitleInputEl?.value ?? "");
-    });
-    this.agentSessionTitleInputEl.addEventListener("blur", () => {
-      this.commitAgentSessionLabel(this.agentSessionTitleInputEl?.value ?? "");
-    });
-    this.agentSessionTitleInputEl.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        this.commitAgentSessionLabel(this.agentSessionTitleInputEl?.value ?? "");
-        this.agentSessionTitleInputEl?.blur();
-      }
-      if (event.key === "Escape") {
-        event.preventDefault();
-        this.refreshAgentSessionChrome();
-        this.agentSessionTitleInputEl?.blur();
-      }
-    });
-    this.agentSessionSubtitleEl = titleWrap.createEl("div", {
-      cls: "vault-agent-subtitle",
-    });
-    this.refreshAgentSessionChrome();
-
-    this.agentStatusEl = header.createDiv("vault-agent-status");
-    this.setAgentStatus("Idle");
+    this.agentSessionTitleInputEl = null;
+    this.agentSessionSubtitleEl = null;
+    this.agentStatusEl = null;
 
     const toolbar = container.createDiv("vault-agent-toolbar");
     const providerGroup = toolbar.createDiv("vault-agent-provider-group");
     this.agentProviderButtons.claude = this.createAgentProviderButton(providerGroup, "Claude", "claude", CLAUDE_ICON_PATH);
     this.agentProviderButtons.codex = this.createAgentProviderButton(providerGroup, "Codex", "codex", CODEX_ICON_PATH);
-    this.agentProviderIndicatorEl = toolbar.createDiv({
-      cls: "vault-agent-current-provider",
-      attr: { "aria-live": "polite" }
-    });
+    this.agentProviderIndicatorEl = null;
     this.refreshAgentProviderButtons();
 
     const actions = toolbar.createDiv("vault-agent-actions");
-    const newSessionButton = actions.createEl("button", {
-      cls: "vault-agent-action vault-agent-action-new-session",
-      attr: { "aria-label": "Open new AI session", title: "Open new AI session" }
-    });
-    setIcon(newSessionButton, "plus");
-    newSessionButton.addEventListener("click", () => {
-      void this.plugin.activateNewSessionView();
-    });
     const startButton = actions.createEl("button", {
       cls: "vault-agent-action vault-agent-action-start",
       attr: { "aria-label": "Start", title: "Start" }
@@ -2319,20 +2272,7 @@ class VaultPowerShellView extends ItemView {
     });
     this.agentLoginButton = actions.createEl("button", { text: "Login" });
     this.agentLoginButton.addEventListener("click", () => {
-      if (this.agentBackend) {
-        const method = this.plugin.settings.codexLoginMethod === "device-code"
-          ? "chatgpt-device-code"
-          : "chatgpt";
-        void this.agentBackend.beginLogin(method);
-        return;
-      }
-
-      if (this.agentPromptState?.mode === "mcp") {
-        new Notice("MCP connection is separate from Claude login. Use the MCP actions or press Esc.");
-        return;
-      }
-
-      this.sendAgentControlInput("/login");
+      this.showExternalLoginHint();
     });
     this.refreshAgentLoginButton();
 
@@ -2353,8 +2293,7 @@ class VaultPowerShellView extends ItemView {
     });
 
     const composer = container.createDiv("vault-agent-composer");
-    this.codexStatusLineEl = composer.createDiv("vault-agent-statusline is-hidden");
-    this.refreshCodexStatusLine();
+    this.codexStatusLineEl = null;
     this.agentPromptActionsEl = composer.createDiv("vault-agent-prompt-actions");
     this.refreshAgentPromptActions();
     this.agentInputEl = composer.createEl("textarea", {
@@ -2449,7 +2388,9 @@ class VaultPowerShellView extends ItemView {
       }
 
       this.agentProvider = provider;
+      this.agentSessionLabel = getUniqueProviderAgentSessionLabel(this.agentSessions, provider, this.agentSessionKey);
       this.captureActiveAgentSessionState();
+      this.renderAgentSessionTabs();
       this.saveAgentViewState();
       this.refreshAgentProviderButtons();
       this.switchAgentTranscript(provider);
@@ -2524,6 +2465,8 @@ class VaultPowerShellView extends ItemView {
   }
 
   private renderAgentProviderIndicator() {
+    return;
+    /*
     if (!this.agentProviderIndicatorEl || !this.isVisibleAgentSessionContext()) {
       return;
     }
@@ -2540,9 +2483,12 @@ class VaultPowerShellView extends ItemView {
     });
     svg.createSvg("path", { attr: { d: iconPath, fill: "currentColor" } });
     this.agentProviderIndicatorEl.createSpan({
-      cls: "vault-agent-current-provider-label",
+      cls: "",
       text: `현재 ${label}`
     });
+  }
+
+    */
   }
 
   private getProviderTranscriptEl(provider: AgentProvider): HTMLElement | null {
@@ -2580,6 +2526,7 @@ class VaultPowerShellView extends ItemView {
       this.codexCurrentTurnEl = null;
       this.codexCurrentAnswerEl = null;
       this.codexTurnLoadingEl = null;
+      this.stopTurnProgressTimer();
     }
     this.refreshCodexStatusLine();
   }
@@ -2663,7 +2610,7 @@ class VaultPowerShellView extends ItemView {
         this.appendAgentTranscript({
           id: this.nextLocalAgentEntryId("system"),
           role: "system",
-          text: "Codex is not signed in. Click Login to sign in with ChatGPT."
+          text: "Codex is not signed in. Run `codex login` in an external terminal, then press Start again."
         });
         break;
       case "auth-url":
@@ -2966,6 +2913,7 @@ class VaultPowerShellView extends ItemView {
       return;
     }
     this.codexTurnActive = true;
+    this.agentCurrentTurnStartedAt = Date.now();
     this.updateSendButtonMode();
     const noteSuffix = attachments.length ? `\n\n[${attachments.length} file(s) attached]` : "";
     const sendText = this.buildContextualAgentPrompt(text);
@@ -3021,6 +2969,7 @@ class VaultPowerShellView extends ItemView {
   private clearCodexTurnLoadingIndicators(root: ParentNode | null | undefined = this.agentTranscriptEl ?? this.codexTranscriptEl) {
     this.codexTurnLoadingEl?.remove();
     this.codexTurnLoadingEl = null;
+    this.stopTurnProgressTimer();
     removeAgentThinkingIndicators(root);
   }
 
@@ -3041,33 +2990,85 @@ class VaultPowerShellView extends ItemView {
   private showTurnThinking(answer: HTMLElement) {
     this.clearCodexTurnLoadingIndicators(answer);
     const thinking = answer.createDiv("vault-agent-thinking");
-    thinking.dataset.startedAt = String(Date.now());
+    const startedAt = this.agentCurrentTurnStartedAt || Date.now();
+    this.agentCurrentTurnStartedAt = startedAt;
+    thinking.dataset.startedAt = String(startedAt);
     const dots = thinking.createDiv("vault-agent-thinking-dots");
     dots.createSpan();
     dots.createSpan();
     dots.createSpan();
     thinking.createSpan({ cls: "vault-agent-thinking-text", text: "생각 중" });
     this.codexTurnLoadingEl = thinking;
+    this.updateTurnProgressIndicator();
+    this.startTurnProgressTimer();
+  }
+
+  private syncTurnProgressTimer() {
+    if (this.codexTurnLoadingEl?.isConnected && this.isVisibleAgentSessionContext()) {
+      this.updateTurnProgressIndicator();
+      this.startTurnProgressTimer();
+      return;
+    }
+    this.stopTurnProgressTimer();
+  }
+
+  private startTurnProgressTimer() {
+    if (this.agentProgressTimer !== null) {
+      return;
+    }
+    this.agentProgressTimer = window.setInterval(() => {
+      this.updateTurnProgressIndicator();
+    }, 1000);
+  }
+
+  private stopTurnProgressTimer() {
+    if (this.agentProgressTimer === null) {
+      return;
+    }
+    window.clearInterval(this.agentProgressTimer);
+    this.agentProgressTimer = null;
+  }
+
+  private updateTurnProgressIndicator() {
+    const thinking = this.codexTurnLoadingEl;
+    if (!thinking?.isConnected) {
+      this.stopTurnProgressTimer();
+      return;
+    }
+    const textEl = thinking.querySelector(".vault-agent-thinking-text");
+    if (!(textEl instanceof HTMLElement)) {
+      return;
+    }
+    textEl.setText(this.getTurnProgressText(thinking));
+  }
+
+  private getTurnProgressText(thinking: HTMLElement): string {
+    const provider = getAgentProviderLabel(this.agentProvider);
+    const status = this.getTurnProgressStatusText();
+    const startedAt = Number(thinking.dataset.startedAt) || this.agentCurrentTurnStartedAt || Date.now();
+    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+    return `${provider} · ${status} · ${formatElapsedSeconds(elapsedSeconds)}`;
+  }
+
+  private getTurnProgressStatusText(): string {
+    const activePrintTurn = this.agentPrintTurnRuntime && !this.agentPrintTurnRuntime.settled
+      ? this.agentPrintTurnRuntime
+      : null;
+    const text = this.agentStatusText.trim();
+    if (activePrintTurn && !isAgentLoadingStatus(text)) {
+      return `Waiting for ${getAgentProviderLabel(activePrintTurn.provider)} response...`;
+    }
+    if (text && text !== "Idle") {
+      return text;
+    }
+    if (this.codexTurnActive || activePrintTurn) {
+      return "Working...";
+    }
+    return "Waiting...";
   }
 
   private refreshCodexStatusLine() {
-    if (!this.codexStatusLineEl || !this.isVisibleAgentSessionContext()) {
-      return;
-    }
-    this.codexStatusLineEl.toggleClass("is-hidden", false);
-    this.codexStatusLineEl.empty();
-    const cwd = this.plugin.getVaultPath() ?? "";
-    const pathText = this.getAgentStatusPath(cwd);
-    this.renderStatusTextSegment(pathText, "vault-agent-statusline-path");
-    this.renderStatusTextSegment(this.getSelectedAgentModelLabel(), "vault-agent-statusline-model");
-    this.renderStatusMeterSegment("ctx", this.getAgentContextPercent(), null);
-    if (this.agentProvider === "codex") {
-      for (const window of this.codexRateLimitWindows) {
-        this.renderStatusMeterSegment(window.label, window.usedPercent, window.resetsAt ?? null);
-      }
-    } else {
-      this.renderStatusTextSegment(`usage ${this.agentLastUsageText ?? "n/a"}`, "vault-agent-statusline-usage");
-    }
+    // Status/path chrome was intentionally removed from the composer.
   }
 
   private scheduleCodexStatusLineRefresh() {
@@ -3081,42 +3082,6 @@ class VaultPowerShellView extends ItemView {
         this.refreshCodexStatusLine();
       });
     });
-  }
-
-  private renderStatusTextSegment(text: string, cls: string) {
-    this.codexStatusLineEl?.createSpan({
-      cls: `vault-agent-statusline-segment ${cls}`,
-      text
-    });
-  }
-
-  private renderStatusMeterSegment(label: string, percent: number | null, resetsAt: number | null) {
-    if (!this.codexStatusLineEl) {
-      return;
-    }
-    const segment = this.codexStatusLineEl.createDiv("vault-agent-statusline-segment vault-agent-statusline-meter");
-    if (percent !== null) {
-      segment.toggleClass("is-low", percent < 30);
-      segment.toggleClass("is-mid", percent >= 50 && percent < 80);
-      segment.toggleClass("is-high", percent >= 80);
-    }
-    segment.createSpan({ cls: "vault-agent-statusline-label", text: label });
-    const bar = segment.createDiv("vault-agent-statusline-bar");
-    const fill = bar.createDiv("vault-agent-statusline-fill");
-    fill.style.width = `${percent === null ? 0 : Math.min(100, Math.max(0, percent))}%`;
-    segment.createSpan({
-      cls: "vault-agent-statusline-value",
-      text: percent === null ? "--%" : `${Math.round(percent)}%`
-    });
-    const resetText = formatResetTime(resetsAt);
-    if (resetText) {
-      segment.createSpan({ cls: "vault-agent-statusline-reset", text: `(${resetText})` });
-    }
-  }
-
-  private getAgentStatusPath(cwd: string): string {
-    const path = cwd ? formatStatusPath(cwd) : "No vault path";
-    return this.codexGitBranch ? `${path}  git:${this.codexGitBranch}` : path;
   }
 
   private async refreshCodexGitBranch(cwd: string, sessionKey: string | null = this.activeAgentSessionKey) {
@@ -3765,7 +3730,7 @@ class VaultPowerShellView extends ItemView {
         this.appendAgentTranscript({
           id: this.nextLocalAgentEntryId("system"),
           role: "system",
-          text: `${getAgentProviderLabel(this.agentProvider)} is running. This console will detect login prompts and start the login flow automatically when required. MCP connection screens are handled separately with /mcp when the CLI reports them.`
+          text: `${getAgentProviderLabel(this.agentProvider)} is running. If login is required, complete the CLI login in an external terminal, then return to Agent and press Start again. MCP connection screens are handled separately with /mcp when the CLI reports them.`
         });
       });
     }, AGENT_READY_DELAY_MS);
@@ -3998,13 +3963,13 @@ class VaultPowerShellView extends ItemView {
       const loginStarted = this.agentProvider === "gemini"
         ? await this.startGeminiLoginFlow(`${label} login is required before normal messages can be sent.`)
         : this.startAgentLoginFlow(`${label} login is required before normal messages can be sent.`);
-      new Notice(loginStarted ? `Starting ${label} login.` : "The agent is asking for login.");
+      new Notice(loginStarted ? `Use an external terminal for ${label} login.` : `${label} is asking for login.`);
       this.appendAgentTranscript({
         id: this.nextLocalAgentEntryId("system"),
         role: "system",
         text: loginStarted
-          ? `${label} login is required before normal messages can be sent. Starting the login flow automatically.`
-          : `${label} login is required before normal messages can be sent. Answer the active login prompt in this console.`
+          ? `${label} login is required before normal messages can be sent. Complete login in an external terminal, then return to Agent and press Start again.`
+          : `${label} login is required before normal messages can be sent. Complete the CLI login in an external terminal, then press Start again.`
       });
       return;
     }
@@ -4618,21 +4583,20 @@ class VaultPowerShellView extends ItemView {
     }
 
     if (prompt.mode === "auth" || prompt.mode === "auth-code") {
+      if (this.agentProvider === "claude") {
+        this.agentPromptState = null;
+        this.refreshAgentPromptActions();
+        this.startAgentLoginFlow("Claude Code login is required.");
+        return;
+      }
+
       const loginUrl = prompt.urls.find((url) => isAgentLoginUrl(url));
       if (loginUrl && !this.agentOpenedExternalUrls.has(loginUrl)) {
         this.agentOpenedExternalUrls.add(loginUrl);
         this.openAgentExternalUrl(loginUrl);
       }
 
-      if (this.agentAuthState === "login-required") {
-        if (this.agentProvider === "claude") {
-          this.startAgentLoginFlow("Claude Code에 로그인이 필요합니다.");
-        } else {
-          this.refreshAgentAuthStatus();
-        }
-      } else {
-        this.refreshAgentAuthStatus();
-      }
+      this.refreshAgentAuthStatus();
       return;
     }
 
@@ -4720,14 +4684,24 @@ class VaultPowerShellView extends ItemView {
       return;
     }
 
-    const mcpPromptActive = this.agentPromptState?.mode === "mcp";
-    button.toggleAttribute("disabled", mcpPromptActive);
-    button.setAttr("aria-disabled", mcpPromptActive ? "true" : "false");
-    if (mcpPromptActive) {
-      button.setAttr("title", "MCP connection screens are separate from Claude login.");
-    } else {
-      button.removeAttribute("title");
+    button.setText("Login");
+    button.removeAttribute("disabled");
+    button.setAttr("aria-disabled", "false");
+    button.setAttr("title", this.getExternalLoginHint(this.agentProvider));
+  }
+
+  private showExternalLoginHint() {
+    new Notice(this.getExternalLoginHint(this.agentProvider));
+  }
+
+  private getExternalLoginHint(provider: AgentProvider): string {
+    if (provider === "codex") {
+      return "Run `codex login` in an external terminal, then return to Agent and press Start.";
     }
+    if (provider === "claude") {
+      return "Run `claude` in an external terminal, complete `/login` if prompted, then return to Agent and press Start.";
+    }
+    return "Complete the CLI login in an external terminal, then return to Agent and press Start.";
   }
 
   private openAgentExternalUrl(url: string) {
@@ -4902,7 +4876,7 @@ class VaultPowerShellView extends ItemView {
         this.appendAgentTranscript({
           id: this.nextLocalAgentEntryId("system"),
           role: "system",
-          text: `Agent prompt:\n${notice}\n\nReply in the message box or use the quick actions below. ${getAgentProviderLabel(this.agentProvider)} login prompts and connection screens are handled inside this console.`
+          text: `Agent prompt:\n${notice}\n\nReply in the message box or use the quick actions below. For login prompts, complete CLI login in an external terminal, then return to Agent and press Start again.`
         });
       }
       if (actionablePrompt) {
@@ -5023,23 +4997,25 @@ class VaultPowerShellView extends ItemView {
   }
 
   private startAgentLoginFlow(reason: string): boolean {
-    if (this.agentProvider !== "claude" || this.agentAutoLoginAttempted || !this.agentHost || !this.agentHostReady) {
+    if (this.agentProvider !== "claude") {
       this.refreshAgentAuthStatus();
       return false;
     }
 
-    this.agentAutoLoginAttempted = true;
     this.agentConversationReady = false;
-    this.agentAuthState = "login-in-progress";
+    this.agentAuthState = "login-required";
     this.agentAutoLoginPending = false;
     this.agentNeedsAuth = true;
-    this.setAgentStatus("Claude Code login in progress");
-    this.appendAgentTranscript({
-      id: this.nextLocalAgentEntryId("system"),
-      role: "system",
-      text: `${reason} Starting /login automatically.`
-    });
-    this.sendAgentHostMessage({ type: "data", data: "/login\r" });
+    this.setAgentStatus("Claude Code login required");
+    if (!this.agentAutoLoginAttempted) {
+      this.agentAutoLoginAttempted = true;
+      this.appendAgentTranscript({
+        id: this.nextLocalAgentEntryId("system"),
+        role: "system",
+        text: `${reason} Run Claude Code login in an external terminal, then press Start again.`
+      });
+    }
+    this.showExternalLoginHint();
     return true;
   }
 
@@ -5281,6 +5257,7 @@ class VaultPowerShellView extends ItemView {
       // The visible answer arrived — drop the thinking indicator.
       this.codexTurnLoadingEl?.remove();
       this.codexTurnLoadingEl = null;
+      this.stopTurnProgressTimer();
       // Same block class as Codex so the theme markdown + spacing apply identically.
       const block = answer.createDiv("vault-agent-block vault-agent-block-agentMessage");
       void this.renderCodexMarkdown(block.createDiv("vault-agent-block-body"), text)
@@ -5338,6 +5315,10 @@ class VaultPowerShellView extends ItemView {
     this.agentLoadingEl?.toggleClass("is-hidden", !loading);
     if (this.agentLoadingTextEl) {
       this.agentLoadingTextEl.setText(displayText);
+    }
+    this.updateTurnProgressIndicator();
+    if (loading && this.codexTurnLoadingEl?.isConnected) {
+      this.startTurnProgressTimer();
     }
   }
 
@@ -6519,20 +6500,6 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.codexApprovalPolicy)
           .onChange((value) => {
             this.plugin.settings.codexApprovalPolicy = normalizeCodexApprovalPolicy(value);
-            void this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(agentEl)
-      .setName("Codex login method")
-      .setDesc("Login button flow for Codex app-server.")
-      .addDropdown((dropdown) =>
-        dropdown
-          .addOption("browser", "Browser")
-          .addOption("device-code", "Device code")
-          .setValue(this.plugin.settings.codexLoginMethod)
-          .onChange((value) => {
-            this.plugin.settings.codexLoginMethod = normalizeCodexLoginMethod(value);
             void this.plugin.saveSettings();
           })
       );
@@ -7731,7 +7698,62 @@ function shortSessionId(id: string): string {
 }
 
 function createAgentSessionLabel(sessionKey: string): string {
-  return `Agent ${shortSessionId(sessionKey)}`;
+  return "Claude Code";
+}
+
+function isGeneratedAgentSessionLabel(label: string): boolean {
+  return /^Agent [a-zA-Z0-9]{1,16}$/.test(label.trim());
+}
+
+function isProviderAgentSessionLabel(label: string): boolean {
+  return /^(Claude Code|Codex|Antigravity CLI)(?: \d+)?$/.test(label.trim());
+}
+
+function getUniqueProviderAgentSessionLabel(
+  sessions: AgentWorkspaceSessionState[],
+  provider: AgentProvider,
+  sessionKey: string
+): string {
+  const base = getAgentProviderLabel(provider);
+  const used = new Set(
+    sessions
+      .filter((session) => session.agentSessionKey !== sessionKey)
+      .map((session) => session.agentSessionLabel.trim().toLowerCase())
+      .filter(Boolean)
+  );
+  if (!used.has(base.toLowerCase())) {
+    return base;
+  }
+  for (let index = 2; index < 1000; index += 1) {
+    const candidate = `${base} ${index}`;
+    if (!used.has(candidate.toLowerCase())) {
+      return candidate;
+    }
+  }
+  return `${base} ${Date.now()}`;
+}
+
+function ensureProviderAgentSessionLabels(sessions: AgentWorkspaceSessionState[]) {
+  const used = new Set(
+    sessions
+      .filter((session) => {
+        const label = session.agentSessionLabel.trim();
+        return label && !isGeneratedAgentSessionLabel(label) && !isProviderAgentSessionLabel(label);
+      })
+      .map((session) => session.agentSessionLabel.trim().toLowerCase())
+  );
+  for (const session of sessions) {
+    const label = session.agentSessionLabel.trim();
+    if (!label || isGeneratedAgentSessionLabel(label) || isProviderAgentSessionLabel(label)) {
+      const base = getAgentProviderLabel(session.agentProvider);
+      let next = base;
+      for (let index = 2; used.has(next.toLowerCase()); index += 1) {
+        next = `${base} ${index}`;
+      }
+      session.agentSessionLabel = next;
+      used.add(next.toLowerCase());
+    }
+  }
 }
 
 function createAgentViewSessionState(mode: AgentSessionMode): AgentViewSessionState {
@@ -7765,6 +7787,7 @@ function normalizeAgentViewSessionState(value: unknown): AgentViewSessionState |
     return null;
   }
   ensureUniqueAgentWorkspaceSessionIds(sessions);
+  ensureProviderAgentSessionLabels(sessions);
 
   const activeKey = typeof candidate.activeAgentSessionKey === "string" &&
     sessions.some((session) => session.agentSessionKey === candidate.activeAgentSessionKey)
@@ -8016,6 +8039,20 @@ function isAgentLoadingStatus(text: string): boolean {
   return /checking|starting|fetching|downloading|installing|launching|in progress|waiting for response|receiving output/i.test(text);
 }
 
+function formatElapsedSeconds(seconds: number): string {
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  if (minutes < 60) {
+    return rest ? `${minutes}m ${rest}s` : `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const minuteRest = minutes % 60;
+  return minuteRest ? `${hours}h ${minuteRest}m` : `${hours}h`;
+}
+
 function formatBackendStatus(state: AgentStatus, detail?: string): string {
   const labels: Record<AgentStatus, string> = {
     idle: "Idle",
@@ -8194,7 +8231,7 @@ function parseClaudeAuthCheck(result: CapturedCommandResult): AgentAuthCheck {
     return {
       checked: true,
       loggedIn: false,
-      summary: "Claude Code is not signed in. The agent console will open Claude and start /login automatically."
+      summary: "Claude Code is not signed in. Run `claude` in an external terminal, complete `/login` if prompted, then press Start again."
     };
   }
 
@@ -8202,14 +8239,14 @@ function parseClaudeAuthCheck(result: CapturedCommandResult): AgentAuthCheck {
     return {
       checked: true,
       loggedIn: false,
-      summary: "Claude Code is not signed in. The agent console will open Claude and start /login automatically."
+      summary: "Claude Code is not signed in. Run `claude` in an external terminal, complete `/login` if prompted, then press Start again."
     };
   }
 
   return {
     checked: false,
     loggedIn: null,
-    summary: `Claude Code login status could not be confirmed before launch.${failure ? ` ${failure}` : ""} The console will watch Claude output and start login if required.`,
+    summary: `Claude Code login status could not be confirmed before launch.${failure ? ` ${failure}` : ""} If login is needed, complete Claude login in an external terminal.`,
     detail: output
   };
 }
@@ -8229,14 +8266,14 @@ function parseCodexAuthCheck(result: CapturedCommandResult): AgentAuthCheck {
     return {
       checked: true,
       loggedIn: false,
-      summary: "Codex is not signed in. Use the Agent Console Login button or run codex login in an external terminal, then restart the agent console."
+      summary: "Codex is not signed in. Run `codex login` in an external terminal, then press Start again."
     };
   }
 
   return {
     checked: false,
     loggedIn: null,
-    summary: `Codex login status could not be confirmed before launch.${failure ? ` ${failure}` : ""} The console will watch Codex output for login prompts.`,
+    summary: `Codex login status could not be confirmed before launch.${failure ? ` ${failure}` : ""} If login is needed, run \`codex login\` in an external terminal.`,
     detail: output
   };
 }

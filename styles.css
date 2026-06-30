@@ -309,93 +309,12 @@
   margin-bottom: 0;
 }
 
-/* === Codex statusline: cwd/git, model, context, and rate-limit meters === */
-.vault-agent-statusline {
-  display: flex;
-  align-items: center;
-  gap: 6px 10px;
-  flex-wrap: wrap;
-  padding: 0 0 8px;
-  min-width: 0;
-  color: var(--text-muted);
-  font-family: var(--font-monospace);
-  font-size: var(--font-ui-smaller);
-}
-
-.vault-agent-statusline.is-hidden {
-  display: none;
-}
-
-.vault-agent-statusline-segment {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  white-space: nowrap;
-}
-
-.vault-agent-statusline-path {
-  flex: 1 1 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.vault-agent-statusline-model,
-.vault-agent-statusline-usage {
-  color: var(--text-normal);
-  font-weight: 600;
-}
-
-.vault-agent-statusline-meter {
-  color: var(--text-muted);
-}
-
-.vault-agent-statusline-label {
-  color: var(--text-faint);
-}
-
-.vault-agent-statusline-bar {
-  width: 44px;
-  height: 4px;
-  border-radius: 999px;
-  overflow: hidden;
-  background: var(--background-modifier-border);
-}
-
-.vault-agent-statusline-fill {
-  width: 0;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--text-muted);
-  transition: width 0.35s ease, background 0.2s ease;
-}
-
-.vault-agent-statusline-meter.is-low .vault-agent-statusline-fill {
-  background: var(--color-green, #3f9f5f);
-}
-
-.vault-agent-statusline-meter.is-mid .vault-agent-statusline-fill {
-  background: var(--color-orange, #d98c30);
-}
-
-.vault-agent-statusline-meter.is-high .vault-agent-statusline-fill {
-  background: var(--color-red, #d64545);
-}
-
-.vault-agent-statusline-value {
-  color: var(--text-normal);
-  font-variant-numeric: tabular-nums;
-}
-
-.vault-agent-statusline-reset {
-  color: var(--text-faint);
-}
-
 /* === In-chat "thinking" indicator, pinned to the active answer === */
 .vault-agent-thinking {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   padding: 6px 2px;
   color: var(--text-muted);
 }
@@ -422,6 +341,10 @@
 }
 
 .vault-agent-thinking-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--font-ui-smaller);
 }
 
@@ -509,21 +432,24 @@
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 10px;
+  min-width: 0;
+  padding: 6px 10px 0;
   border-bottom: 1px solid var(--background-modifier-border);
   background: var(--background-secondary);
-  overflow: hidden;
 }
 
 .vault-agent-session-tab-list {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: flex-end;
+  gap: 2px;
   overflow-x: auto;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+}
+
+.vault-agent-session-tab-list::-webkit-scrollbar {
+  display: none;
 }
 
 .vault-agent-session-tab-item {
@@ -531,26 +457,37 @@
   display: inline-flex;
   align-items: center;
   min-width: 0;
-  max-width: 220px;
+  max-width: 190px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 7px;
-  background: var(--background-primary);
+  border-bottom-color: transparent;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
   overflow: hidden;
+  margin-bottom: -1px;
 }
 
-.vault-agent-session-tab-item:has(.vault-agent-session-tab.is-active) {
+.vault-agent-session-tab-item.is-active {
   border-color: var(--interactive-accent);
+  border-bottom-color: var(--background-primary);
   background: var(--background-primary-alt);
+}
+
+.vault-agent-session-tab-item-claude.is-active {
+  box-shadow: inset 0 2px 0 #d97757;
+}
+
+.vault-agent-session-tab-item-codex.is-active {
+  box-shadow: inset 0 2px 0 #10a37f;
 }
 
 .vault-agent-session-tab {
   flex: 1 1 auto;
   min-width: 0;
-  height: 30px;
+  height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: flex-start;
-  padding: 0 9px;
+  padding: 0 10px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -573,7 +510,7 @@
 .vault-agent-session-add {
   flex: 0 0 auto;
   width: 28px;
-  height: 30px;
+  height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -592,87 +529,11 @@
 
 .vault-agent-session-add {
   border: 1px solid var(--background-modifier-border);
-  border-radius: 7px;
+  border-bottom-color: transparent;
+  border-radius: 8px 8px 0 0;
   background: var(--background-primary);
-}
-
-.vault-agent-header {
-  flex: 0 0 auto;
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr) auto;
-  grid-template-areas:
-    "title status"
-    "subtitle subtitle";
-  align-items: start;
-  gap: 10px;
-  padding: 10px 12px 8px;
-  border-bottom: 1px solid var(--background-modifier-border);
-}
-
-.vault-agent-title-wrap {
-  display: contents;
-}
-
-.vault-agent-title {
-  grid-area: title;
-  color: var(--text-normal);
-  font-size: var(--font-ui-medium);
-  font-weight: 700;
-}
-
-.vault-agent-title-input {
-  width: 100%;
-  min-width: 0;
-  height: 26px;
-  padding: 2px 6px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
-  box-shadow: none;
-}
-
-.vault-agent-title-input:hover,
-.vault-agent-title-input:focus {
-  border-color: var(--background-modifier-border);
-  background: var(--background-primary);
-}
-
-.vault-agent-subtitle {
-  grid-area: subtitle;
-  margin-top: 2px;
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
-  font-family: var(--font-monospace);
-  word-break: break-all;
-}
-
-.vault-agent-status {
-  grid-area: status;
-  min-width: 0;
-  flex: 0 0 auto;
-  max-width: 42%;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 8px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 999px;
-  color: var(--text-muted);
-  background: var(--background-secondary);
-  font-size: var(--font-ui-smaller);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.vault-agent-status.is-loading::before {
-  content: "";
-  flex: 0 0 auto;
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--interactive-accent);
-  animation: vault-agent-loading-pulse 1s ease-in-out infinite;
+  margin-left: 4px;
+  margin-bottom: -1px;
 }
 
 .vault-agent-toolbar {
@@ -682,7 +543,7 @@
   justify-content: space-between;
   gap: 8px;
   flex-wrap: wrap;
-  padding: 8px 12px;
+  padding: 6px 12px;
   border-bottom: 1px solid var(--background-modifier-border);
 }
 
@@ -731,51 +592,6 @@
   background: var(--background-modifier-hover);
 }
 
-.vault-agent-current-provider {
-  flex: 1 1 150px;
-  min-width: 0;
-  max-width: 100%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 4px 9px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 999px;
-  background: var(--background-secondary);
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
-  font-weight: 700;
-}
-
-.vault-agent-current-provider .svg-icon {
-  flex: 0 0 auto;
-  width: 15px;
-  height: 15px;
-}
-
-.vault-agent-current-provider.is-claude {
-  color: #d97757;
-  border-color: rgba(217, 119, 87, 0.45);
-}
-
-.vault-agent-current-provider.is-codex {
-  color: #10a37f;
-  border-color: rgba(16, 163, 127, 0.45);
-}
-
-.vault-agent-current-provider.is-gemini {
-  color: #4285f4;
-  border-color: rgba(66, 133, 244, 0.45);
-}
-
-.vault-agent-current-provider-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .vault-agent-action {
   display: inline-flex;
   align-items: center;
@@ -794,11 +610,6 @@
   height: 16px;
 }
 
-.vault-agent-action-new-session:hover {
-  color: var(--interactive-accent);
-  border-color: currentColor;
-}
-
 .vault-agent-action-start:hover {
   color: var(--text-success, #3aa675);
   border-color: currentColor;
@@ -807,14 +618,6 @@
 .vault-agent-action-stop:hover {
   color: var(--text-error, #e5534b);
   border-color: currentColor;
-}
-
-@media (max-width: 520px) {
-  .vault-agent-current-provider {
-    order: 3;
-    flex-basis: 100%;
-    justify-content: flex-start;
-  }
 }
 
 .vault-agent-transcript.is-hidden {
