@@ -20,6 +20,7 @@ import { unzipSync } from "fflate";
 import { ChildProcessWithoutNullStreams, spawn, spawnSync } from "child_process";
 import { createHash, randomUUID } from "crypto";
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from "fs";
+import { homedir } from "os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
 import { CodexAppServerBackend } from "./agent/codex/backend";
 import type { AgentAccessLevel, AgentAttachment, AgentBackend, AgentModelInfo, AgentStatus, AgentUiEvent, AgentUsageWindow, ApprovalRequest, TranscriptItem, TranscriptItemKind } from "./agent/types";
@@ -99,7 +100,8 @@ const ESCAPE_SEQUENCE = "\x1b";
 const KILL_LINE_SEQUENCE = "\x15";
 const CODEX_RESIZE_REFLOW_CONFIG = "tui.terminal_resize_reflow=false";
 const TERMINAL_FIT_STABILIZATION_DELAYS_MS = [0, 16, 50, 150, 400, 1000];
-const SETTINGS_SCHEMA_VERSION = 6;
+const SETTINGS_SCHEMA_VERSION = 7;
+const PRIVATE_STATE_FILE = "private-state.json";
 const AGENT_CONSOLE_COLS = 300;
 const AGENT_CONSOLE_ROWS = 30;
 const WSL_CHECK_TIMEOUT_MS = 3000;
@@ -168,6 +170,10 @@ interface PowerShellSettings {
   extraCaCertPath: string;
   attachmentFolder: string;
   persistAgentTranscriptSnapshots: boolean;
+  agentViewState?: AgentViewSessionState;
+}
+
+interface PrivatePluginData {
   agentViewState?: AgentViewSessionState;
 }
 
@@ -492,11 +498,11 @@ const DEFAULT_SETTINGS: PowerShellSettings = {
   claudeExecutable: "",
   claudeModel: "",
   claudeEffort: "",
-  claudePermissionMode: "bypassPermissions",
+  claudePermissionMode: "default",
   claudeStrictMcpConfig: true,
   geminiExecutable: "",
   geminiModel: "",
-  geminiApprovalMode: "yolo",
+  geminiApprovalMode: "default",
   geminiSkipTrust: true,
   geminiSandbox: false,
   geminiUseNativeSession: false,
@@ -512,6 +518,44 @@ const DEFAULT_SETTINGS: PowerShellSettings = {
   attachmentFolder: DEFAULT_ATTACHMENT_FOLDER,
   persistAgentTranscriptSnapshots: false
 };
+
+function getSharedSettingsForSave(settings: PowerShellSettings): PowerShellSettings {
+  const shared = { ...settings };
+  delete shared.agentViewState;
+  return shared;
+}
+
+function normalizePrivatePluginData(value: unknown): PrivatePluginData {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+
+  const candidate = value as Partial<PrivatePluginData>;
+  const agentViewState = normalizeAgentViewSessionState(candidate.agentViewState);
+  return agentViewState ? { agentViewState } : {};
+}
+
+function getLocalStateRootPath(): string {
+  if (process.platform === "win32") {
+    return join(process.env.LOCALAPPDATA || process.env.APPDATA || join(homedir(), "AppData", "Local"), "Obst Terminal");
+  }
+  if (process.platform === "darwin") {
+    return join(homedir(), "Library", "Application Support", "Obst Terminal");
+  }
+  return join(process.env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "obst-terminal");
+}
+
+function getVaultLocalStateDirectoryName(vaultIdentity: string, pluginId: string): string {
+  const normalizedIdentity = process.platform === "win32"
+    ? vaultIdentity.replace(/\//g, "\\").toLowerCase()
+    : vaultIdentity;
+  const hash = createHash("sha256")
+    .update(`${pluginId}\0${normalizedIdentity}`)
+    .digest("hex")
+    .slice(0, 16);
+  const label = sanitizeFileStem(vaultIdentity.replace(/\\/g, "/").split("/").pop() || "vault").slice(0, 40) || "vault";
+  return `${label}-${hash}`;
+}
 
 const DARK_TERMINAL_THEME: ITheme = {
   background: "#0c1016",
@@ -573,11 +617,13 @@ const LIGHT_TERMINAL_THEME: ITheme = {
 
 export default class VaultPowerShellPlugin extends Plugin {
   settings: PowerShellSettings;
+  private privateState: PrivatePluginData = {};
   private runtimeInstallPromise: Promise<void> | null = null;
 
   async onload() {
     await this.loadSettings();
     cleanupAgentPrintProcessRegistry(this.getAgentProcessRegistryPath());
+    this.cleanupLegacySharedPersonalState();
     addIcon(OBST_TERMINAL_ICON, OBST_TERMINAL_ICON_SVG);
 
     this.registerView(
@@ -624,8 +670,17 @@ export default class VaultPowerShellPlugin extends Plugin {
     const needsCodexScrollbackMigration = previousSchemaVersion < 2;
     const needsGeminiStableModelMigration = previousSchemaVersion < 4;
     const needsAntigravityMigration = previousSchemaVersion < 6;
-    let shouldSaveSettings = needsCodexScrollbackMigration || needsGeminiStableModelMigration || needsAntigravityMigration;
+    const needsPrivateStateMigration = previousSchemaVersion < 7;
+    const sharedAgentViewState = normalizeAgentViewSessionState(saved?.agentViewState);
+    let shouldSaveSettings = needsCodexScrollbackMigration ||
+      needsGeminiStableModelMigration ||
+      needsAntigravityMigration ||
+      needsPrivateStateMigration ||
+      saved?.agentViewState !== undefined;
+    let shouldSavePrivateState = false;
+    this.privateState = this.loadPrivateState();
     this.settings = Object.assign({}, DEFAULT_SETTINGS, saved ?? {});
+    delete this.settings.agentViewState;
     this.settings.settingsSchemaVersion = SETTINGS_SCHEMA_VERSION;
     this.settings.shellProfile = normalizeShellProfile(this.settings.shellProfile);
     this.settings.wslDistro = this.settings.wslDistro?.trim() ?? "";
@@ -645,6 +700,10 @@ export default class VaultPowerShellPlugin extends Plugin {
     this.settings.claudeModel = this.settings.claudeModel?.trim() ?? "";
     this.settings.claudeEffort = normalizeClaudeEffort(this.settings.claudeEffort);
     this.settings.claudePermissionMode = normalizeClaudePermissionMode(this.settings.claudePermissionMode);
+    if (needsPrivateStateMigration && this.settings.claudePermissionMode === "bypassPermissions") {
+      this.settings.claudePermissionMode = "default";
+      shouldSaveSettings = true;
+    }
     this.settings.claudeStrictMcpConfig = this.settings.claudeStrictMcpConfig !== false;
     this.settings.geminiExecutable = this.settings.geminiExecutable?.trim() ?? "";
     if (needsAntigravityMigration && /^gemini(?:\.cmd|\.exe)?$/i.test(this.settings.geminiExecutable)) {
@@ -662,6 +721,10 @@ export default class VaultPowerShellPlugin extends Plugin {
       shouldSaveSettings = true;
     }
     this.settings.geminiApprovalMode = normalizeGeminiApprovalMode(this.settings.geminiApprovalMode);
+    if (needsPrivateStateMigration && this.settings.geminiApprovalMode === "yolo") {
+      this.settings.geminiApprovalMode = "default";
+      shouldSaveSettings = true;
+    }
     this.settings.geminiSkipTrust = this.settings.geminiSkipTrust !== false;
     this.settings.geminiSandbox = this.settings.geminiSandbox === true;
     this.settings.geminiUseNativeSession = needsAntigravityMigration ? false : this.settings.geminiUseNativeSession === true;
@@ -676,21 +739,34 @@ export default class VaultPowerShellPlugin extends Plugin {
     this.settings.windowsPtyBackend = normalizeWindowsPtyBackend(this.settings.windowsPtyBackend);
     this.settings.autoInstallRuntime = this.settings.autoInstallRuntime === true;
     this.settings.persistAgentTranscriptSnapshots = this.settings.persistAgentTranscriptSnapshots === true;
-    if (!this.settings.persistAgentTranscriptSnapshots && this.settings.agentViewState) {
-      this.settings.agentViewState = stripAgentViewTranscriptSnapshots(this.settings.agentViewState);
-      shouldSaveSettings = true;
+    const localAgentViewState = normalizeAgentViewSessionState(this.privateState.agentViewState);
+    if (localAgentViewState) {
+      this.privateState.agentViewState = this.settings.persistAgentTranscriptSnapshots
+        ? localAgentViewState
+        : stripAgentViewTranscriptSnapshots(localAgentViewState);
+      shouldSavePrivateState = !this.settings.persistAgentTranscriptSnapshots;
+    } else if (sharedAgentViewState) {
+      this.privateState.agentViewState = this.settings.persistAgentTranscriptSnapshots
+        ? sharedAgentViewState
+        : stripAgentViewTranscriptSnapshots(sharedAgentViewState);
+      shouldSavePrivateState = true;
+    } else {
+      this.privateState.agentViewState = undefined;
     }
     if (shouldSaveSettings) {
       await this.saveSettings();
     }
+    if (shouldSavePrivateState) {
+      await this.savePrivateState();
+    }
   }
 
   async saveSettings() {
-    await this.saveData(this.settings);
+    await this.saveData(getSharedSettingsForSave(this.settings));
   }
 
   getSavedAgentViewState(): AgentViewSessionState | null {
-    const state = normalizeAgentViewSessionState(this.settings.agentViewState);
+    const state = normalizeAgentViewSessionState(this.privateState.agentViewState);
     return state ?? null;
   }
 
@@ -699,9 +775,18 @@ export default class VaultPowerShellPlugin extends Plugin {
     if (!normalized) {
       return;
     }
-    this.settings.agentViewState = this.settings.persistAgentTranscriptSnapshots
+    this.privateState.agentViewState = this.settings.persistAgentTranscriptSnapshots
       ? normalized
       : stripAgentViewTranscriptSnapshots(normalized);
+    await this.savePrivateState();
+  }
+
+  async setPersistAgentTranscriptSnapshots(value: boolean) {
+    this.settings.persistAgentTranscriptSnapshots = value === true;
+    if (!this.settings.persistAgentTranscriptSnapshots && this.privateState.agentViewState) {
+      this.privateState.agentViewState = stripAgentViewTranscriptSnapshots(this.privateState.agentViewState);
+      await this.savePrivateState();
+    }
     await this.saveSettings();
   }
 
@@ -857,7 +942,50 @@ export default class VaultPowerShellPlugin extends Plugin {
   }
 
   getAgentProcessRegistryPath(): string {
-    return join(this.getPluginBasePath(), AGENT_PROCESS_REGISTRY_FILE);
+    return join(this.getPrivateDataDirPath(), AGENT_PROCESS_REGISTRY_FILE);
+  }
+
+  private getPrivateDataDirPath(): string {
+    const vaultIdentity = this.getVaultPath() ?? this.app.vault.getName();
+    return join(getLocalStateRootPath(), this.manifest.id, getVaultLocalStateDirectoryName(vaultIdentity, this.manifest.id));
+  }
+
+  private getPrivateStatePath(): string {
+    return join(this.getPrivateDataDirPath(), PRIVATE_STATE_FILE);
+  }
+
+  private loadPrivateState(): PrivatePluginData {
+    const path = this.getPrivateStatePath();
+    if (!existsSync(path)) {
+      return {};
+    }
+
+    try {
+      return normalizePrivatePluginData(JSON.parse(readFileSync(path, "utf8")));
+    } catch {
+      return {};
+    }
+  }
+
+  private async savePrivateState() {
+    const path = this.getPrivateStatePath();
+    try {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, JSON.stringify(normalizePrivatePluginData(this.privateState), null, 2), "utf8");
+    } catch (error) {
+      new Notice(`Could not save local Obst Terminal state: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private cleanupLegacySharedPersonalState() {
+    try {
+      const legacyRegistryPath = join(this.getPluginBasePath(), AGENT_PROCESS_REGISTRY_FILE);
+      if (legacyRegistryPath !== this.getAgentProcessRegistryPath() && existsSync(legacyRegistryPath)) {
+        rmSync(legacyRegistryPath, { force: true });
+      }
+    } catch {
+      // Best-effort cleanup only. The new registry path is already local.
+    }
   }
 
   registerAgentPrintProcess(record: AgentPrintProcessRecord) {
@@ -1248,7 +1376,6 @@ class VaultPowerShellView extends ItemView {
   private agentLoadingTextEl: HTMLElement | null = null;
   private agentProgressTimer: number | null = null;
   private agentPromptActionsEl: HTMLElement | null = null;
-  private agentLoginButton: HTMLButtonElement | null = null;
   private agentInputEl: HTMLTextAreaElement | null = null;
   private agentProviderButtons: Record<AgentProvider, HTMLElement | null> = { claude: null, codex: null, gemini: null };
   private agentProviderIndicatorEl: HTMLElement | null = null;
@@ -1393,7 +1520,6 @@ class VaultPowerShellView extends ItemView {
     this.agentLoadingEl = null;
     this.agentLoadingTextEl = null;
     this.agentPromptActionsEl = null;
-    this.agentLoginButton = null;
     this.agentInputEl = null;
     this.agentAttachButton = null;
     this.codexStatusLineEl = null;
@@ -2270,12 +2396,6 @@ class VaultPowerShellView extends ItemView {
         text: "에이전트를 정지했습니다."
       });
     });
-    this.agentLoginButton = actions.createEl("button", { text: "Login" });
-    this.agentLoginButton.addEventListener("click", () => {
-      this.showExternalLoginHint();
-    });
-    this.refreshAgentLoginButton();
-
     // Separate transcript DOM per AI session/provider so internal tabs can keep
     // running while hidden and re-mount without losing output.
     this.agentTranscriptMountEl = container.createDiv("vault-agent-transcript-mount");
@@ -4637,7 +4757,6 @@ class VaultPowerShellView extends ItemView {
     container.empty();
     const prompt = this.agentPromptState;
     container.toggleClass("is-hidden", !prompt);
-    this.refreshAgentLoginButton();
     if (!prompt) {
       return;
     }
@@ -4676,22 +4795,6 @@ class VaultPowerShellView extends ItemView {
         this.sendAgentControlData(action.data, action.label, action.keepPrompt ?? false);
       });
     }
-  }
-
-  private refreshAgentLoginButton() {
-    const button = this.agentLoginButton;
-    if (!button || !this.isVisibleAgentSessionContext()) {
-      return;
-    }
-
-    button.setText("Login");
-    button.removeAttribute("disabled");
-    button.setAttr("aria-disabled", "false");
-    button.setAttr("title", this.getExternalLoginHint(this.agentProvider));
-  }
-
-  private showExternalLoginHint() {
-    new Notice(this.getExternalLoginHint(this.agentProvider));
   }
 
   private getExternalLoginHint(provider: AgentProvider): string {
@@ -5015,7 +5118,7 @@ class VaultPowerShellView extends ItemView {
         text: `${reason} Run Claude Code login in an external terminal, then press Start again.`
       });
     }
-    this.showExternalLoginHint();
+    new Notice(this.getExternalLoginHint(this.agentProvider));
     return true;
   }
 
@@ -6446,16 +6549,12 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Persist Agent transcript snapshots")
-      .setDesc("Off by default. When enabled, the visible Claude/Codex transcript HTML is saved in .obsidian/plugins/vault-terminal/data.json so the UI can restore it after Obsidian restarts.")
+      .setDesc("Off by default. When enabled, visible Claude/Codex transcript HTML is saved only in the current user's local Obst Terminal state, outside the shared vault.")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.persistAgentTranscriptSnapshots)
           .onChange((value) => {
-            this.plugin.settings.persistAgentTranscriptSnapshots = value;
-            if (!value && this.plugin.settings.agentViewState) {
-              this.plugin.settings.agentViewState = stripAgentViewTranscriptSnapshots(this.plugin.settings.agentViewState);
-            }
-            void this.plugin.saveSettings();
+            void this.plugin.setPersistAgentTranscriptSnapshots(value);
           })
       );
 
@@ -6540,12 +6639,12 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
       .setDesc("Claude Code --permission-mode for interactive and print turns.")
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("bypassPermissions", "bypassPermissions")
           .addOption("default", "default")
           .addOption("auto", "auto")
           .addOption("acceptEdits", "acceptEdits")
           .addOption("dontAsk", "dontAsk")
           .addOption("plan", "plan")
+          .addOption("bypassPermissions", "bypassPermissions")
           .setValue(this.plugin.settings.claudePermissionMode)
           .onChange((value) => {
             this.plugin.settings.claudePermissionMode = normalizeClaudePermissionMode(value);
@@ -9463,6 +9562,7 @@ function readAgentPrintProcessRegistry(path: string): AgentPrintProcessRecord[] 
 
 function writeAgentPrintProcessRegistry(path: string, records: AgentPrintProcessRecord[]) {
   try {
+    mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, JSON.stringify(records, null, 2), "utf8");
   } catch {
     // best-effort registry
@@ -10731,9 +10831,10 @@ function normalizeClaudePermissionMode(value: string | undefined): ClaudePermiss
     value === "auto" ||
     value === "default" ||
     value === "dontAsk" ||
-    value === "plan"
+    value === "plan" ||
+    value === "bypassPermissions"
     ? value
-    : "bypassPermissions";
+    : "default";
 }
 
 function normalizeClaudeEffort(value: string | undefined): ClaudeEffort {
@@ -10747,9 +10848,9 @@ function normalizeClaudeEffort(value: string | undefined): ClaudeEffort {
 }
 
 function normalizeGeminiApprovalMode(value: string | undefined): GeminiApprovalMode {
-  return value === "default" || value === "auto_edit" || value === "plan"
+  return value === "default" || value === "auto_edit" || value === "plan" || value === "yolo"
     ? value
-    : "yolo";
+    : "default";
 }
 
 function normalizeGeminiOutputFormat(value: string | undefined): GeminiOutputFormat {

@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.72`입니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.73`입니다.
 
 [English README](README.md)
 
@@ -16,7 +16,7 @@ Obst Terminal은 한 명의 AI와만 대화하는 단일 콘솔이 아니라, **
 - 각 탭은 독립적인 Claude sessionId / Codex threadId, provider, 제목, transcript, 실행 상태를 유지합니다.
 - 탭을 전환해도 실행 중인 에이전트는 멈추지 않고 자기 transcript에 계속 기록합니다.
 - Claude, Codex transcript는 세션/provider별 스크롤 위치를 보존하므로, 백그라운드 업데이트나 탭 전환 때문에 화면이 맨 위로 튀지 않습니다.
-- 기본적으로 transcript HTML은 `.obsidian/plugins/vault-terminal/data.json`에 저장하지 않습니다. 세션 제목과 provider ID 같은 메타데이터만 저장합니다. 재시작 후 UI transcript까지 그대로 복원하고 싶을 때만 `Persist Agent transcript snapshots` 설정을 켜면 됩니다.
+- 개인 Agent UI 상태는 볼트 밖의 현재 사용자 로컬 Obst Terminal 상태 폴더에 저장합니다. `.obsidian/plugins/vault-terminal/data.json`에는 공유 가능한 플러그인 설정만 남기며 Claude/Codex session ID, thread ID, 입력 중인 문장, transcript HTML은 저장하지 않습니다.
 - PM, Writer, Reviewer, Researcher처럼 역할별 AI 직원을 같은 프로젝트 문서 옆에 나눠둘 수 있습니다.
 - 한 세션에서 `@all`, `@codex`, `@claude`, `@"세션 제목"`으로 다른 실행 중인 AI 세션에 지시를 전달할 수 있습니다.
 - Attach 버튼 또는 composer 이미지 붙여넣기로 파일을 첨부할 수 있습니다. 붙여넣은 이미지는 설정된 attachment folder에 저장되고 Claude 또는 Codex에 로컬 파일 경로로 전달됩니다.
@@ -48,7 +48,7 @@ Codex Agent Console은 기본적으로 fullscreen TUI가 아니라 `codex app-se
 Claude Code Agent Console은 로그인/제어 흐름과 일반 대화 흐름을 분리합니다.
 
 - 시작 시 `claude auth status --json`으로 로그인 상태를 확인합니다.
-- 일반 메시지는 AI 세션별 `claude --session-id <uuid> --strict-mcp-config --permission-mode bypassPermissions --output-format json -p`로 실행하고 prompt를 stdin으로 전달합니다.
+- 일반 메시지는 AI 세션별 Claude Code print turn으로 실행하고, 설정된 `--permission-mode`와 `--output-format json`을 사용합니다.
 - Claude 모델은 Agent Console 안의 드롭다운에서 `Claude default`, `sonnet`, `opus`, `haiku` 중 선택합니다.
 - 설정에서는 Claude executable, effort, permission mode, strict MCP config 사용 여부를 조정합니다.
 - statusline에는 설정된 Claude 모델/모드, 플러그인이 붙이는 transcript context meter, Claude JSON 출력에서 확인 가능한 usage 요약을 표시합니다.
@@ -56,7 +56,7 @@ Claude Code Agent Console은 로그인/제어 흐름과 일반 대화 흐름을 
 - Claude 응답은 `claude` 프로세스가 종료될 때까지 기다립니다. 전사나 대용량 문서 분석처럼 10분 이상 걸릴 수 있는 장시간 스킬도 중간에 강제 종료하지 않습니다.
 - print-command 프로세스가 실행 중인 동안 현재 turn 카드 안에 `생각 중` 표시를 유지합니다.
 - Claude가 session ID 사용 중 오류를 반환하면 `--resume <sessionId> --fork-session`으로 한 번 자동 재시도합니다. 이 fallback은 빈 UUID로 새로 시작하지 않고 기존 Claude 컨텍스트를 fork합니다.
-- Claude 일반 응답 프로세스는 플러그인이 pid를 추적합니다. `Stop`, 탭 닫기, 플러그인 재시작 시 남은 프로세스를 정리하고, 시작 시 `agent-processes.json`에 남은 stale pid도 확인합니다.
+- Claude 일반 응답 프로세스는 사용자별 로컬 상태 폴더에서 pid를 추적합니다. `Stop`, 탭 닫기, 플러그인 재시작 시 남은 프로세스를 정리하고, 시작 시 로컬 `agent-processes.json`에 남은 stale pid도 확인합니다.
 - `/login`, MCP 연결, permission 또는 command prompt처럼 interactive 응답이 필요한 경우에는 뒤쪽 PTY host를 통해 입력을 전달합니다.
 - Claude Code 세션 로그는 login/control 흐름 추적과 transcript 보정에 사용합니다.
 
@@ -200,7 +200,7 @@ Settings > Obst Terminal > Attachment folder
 | 설정 | 동작 |
 | --- | --- |
 | `Attachment folder` | Agent Console에 전달하기 전 붙여넣기/드롭 첨부 파일을 저장합니다. |
-| `Persist Agent transcript snapshots` | 명시적으로 켠 경우에만 보이는 transcript HTML을 플러그인 `data.json`에 저장합니다. |
+| `Persist Agent transcript snapshots` | 명시적으로 켠 경우에도 보이는 transcript HTML은 공유 볼트가 아니라 현재 사용자 로컬 Obst Terminal 상태에만 저장합니다. |
 
 고급 설정:
 
@@ -277,8 +277,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-git tag 0.6.72
-git push origin 0.6.72
+git tag 0.6.73
+git push origin 0.6.73
 ```
 
 릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.
@@ -292,7 +292,8 @@ Obst Terminal은 로컬 interactive shell을 기본으로 실행하지 않습니
 - Claude Code, Codex CLI, git, npm 등 외부 도구는 이 플러그인에 포함되지 않습니다.
 - native runtime은 전체 ZIP에 포함되거나 같은 버전 GitHub Release에서 SHA-256 검증 후 설치됩니다.
 - TLS/CA 환경변수는 사용자가 설정한 경우에만 주입합니다.
-- `Persist Agent transcript snapshots`를 명시적으로 켠 경우가 아니면 Agent transcript는 플러그인 `data.json`에 저장하지 않습니다.
+- Agent 세션 상태와 transcript snapshot은 플러그인 `data.json`에 저장하지 않고 현재 사용자 로컬 Obst Terminal 상태에만 저장합니다.
+- 이전 버전이 공유 볼트에 남긴 상태를 정리하려면 `pwsh -NoProfile -File .\scripts\clean-shared-ai-state.ps1 -VaultPath "C:\path\to\vault"`를 실행합니다.
 - 자체 telemetry, analytics, 광고 코드는 없습니다.
 
 신뢰할 수 있는 release asset만 설치하세요.

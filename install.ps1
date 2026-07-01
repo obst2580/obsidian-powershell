@@ -122,7 +122,7 @@ foreach ($legacyPluginId in $legacyPluginIds) {
     continue
   }
 
-  foreach ($name in @("data.json", "certs")) {
+  foreach ($name in @("certs")) {
     $legacyItem = Join-Path $legacyTarget $name
     $targetItem = Join-Path $target $name
     if ((Test-Path -LiteralPath $legacyItem) -and -not (Test-Path -LiteralPath $targetItem)) {
@@ -132,6 +132,12 @@ foreach ($legacyPluginId in $legacyPluginIds) {
 
   Write-Host "Migrated settings from legacy plugin folder: $legacyTarget"
   Write-Host "You can remove the legacy plugin folder after confirming Obst Terminal works: $legacyTarget"
+}
+
+$sharedProcessRegistry = Join-Path $target "agent-processes.json"
+if (Test-Path -LiteralPath $sharedProcessRegistry) {
+  Remove-Item -LiteralPath $sharedProcessRegistry -Force
+  Write-Host "Removed shared process registry: $sharedProcessRegistry"
 }
 
 foreach ($file in @("manifest.json", "main.js", "styles.css", "pty-host.js")) {

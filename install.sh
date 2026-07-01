@@ -26,7 +26,7 @@ for legacy_plugin_id in "${LEGACY_PLUGIN_IDS[@]}"; do
     continue
   fi
 
-  for name in data.json certs; do
+  for name in certs; do
     legacy_item="$legacy_target/$name"
     target_item="$TARGET/$name"
     if [[ -e "$legacy_item" && ! -e "$target_item" ]]; then
@@ -37,6 +37,12 @@ for legacy_plugin_id in "${LEGACY_PLUGIN_IDS[@]}"; do
   echo "Migrated settings from legacy plugin folder: $legacy_target"
   echo "You can remove the legacy plugin folder after confirming Obst Terminal works: $legacy_target"
 done
+
+shared_process_registry="$TARGET/agent-processes.json"
+if [[ -e "$shared_process_registry" ]]; then
+  rm -f "$shared_process_registry"
+  echo "Removed shared process registry: $shared_process_registry"
+fi
 
 for file in manifest.json main.js styles.css pty-host.js; do
   source="$SCRIPT_DIR/$file"

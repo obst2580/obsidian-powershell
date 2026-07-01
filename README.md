@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.72`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.73`.
 
 [한국어 README](README.ko.md)
 
@@ -16,7 +16,7 @@ Obst Terminal is not just a single chat console. It is designed as a **multi-ses
 - Each tab keeps its own Claude sessionId, Codex threadId, provider, editable title, transcript, and running state.
 - Switching tabs does not stop the running agent; background sessions continue writing to their own transcripts.
 - Claude and Codex transcripts preserve their scroll positions per session/provider, so background updates and tab switches do not pull the view back to the top.
-- By default, transcript HTML is not persisted to `.obsidian/plugins/vault-terminal/data.json`; only session metadata such as titles and provider IDs are kept. Enable `Persist Agent transcript snapshots` if you want exact UI transcript restoration after restart.
+- Personal Agent UI state is stored outside the vault in the current user's local Obst Terminal state. `.obsidian/plugins/vault-terminal/data.json` is reserved for shared plugin settings and does not store Claude/Codex session IDs, thread IDs, input drafts, or transcript HTML.
 - Use role-based sessions such as PM, Writer, Reviewer, and Researcher next to the same project documents.
 - Delegate prompts to other running AI sessions with `@all`, `@codex`, `@claude`, or `@"session title"`.
 - Attach files with the Attach button or paste images into the composer. Pasted images are saved in the configured attachment folder and sent to Claude or Codex as local file paths.
@@ -48,7 +48,7 @@ The Codex Agent Console uses `codex app-server` by default instead of embedding 
 The Claude Code Agent Console separates normal chat turns from login/control prompts.
 
 - Checks login with `claude auth status --json`.
-- Sends normal prompts through a session-specific `claude --session-id <uuid> --strict-mcp-config --permission-mode bypassPermissions --output-format json -p`.
+- Sends normal prompts through a session-specific Claude Code print turn with the configured `--permission-mode` and `--output-format json`.
 - The Claude model is selected inside the Agent Console from a dropdown (`Claude default`, `sonnet`, `opus`, `haiku`).
 - Settings expose Claude executable, effort, permission mode, and strict MCP behavior.
 - The statusline shows the configured Claude model/mode, plugin transcript-context meter, and any usage summary available in Claude's JSON output.
@@ -56,7 +56,7 @@ The Claude Code Agent Console separates normal chat turns from login/control pro
 - Passes the prompt through stdin and waits for the `claude` process to finish, allowing long-running skills such as audio transcription or large document analysis.
 - Opens the visible turn card and keeps the in-chat `생각 중` indicator attached while the print-command process is running.
 - If Claude reports that the session ID is already in use, the console retries once with `--resume <sessionId> --fork-session` so the fallback keeps the previous Claude context instead of starting from an empty UUID.
-- Claude normal-response processes are tracked by pid. `Stop`, tab close, and plugin reload clean them up, and startup checks `agent-processes.json` for stale pids left by a previous crash.
+- Claude normal-response processes are tracked by pid in a per-user local state folder. `Stop`, tab close, and plugin reload clean them up, and startup checks the local `agent-processes.json` for stale pids left by a previous crash.
 - Uses the background PTY host for `/login`, MCP connection prompts, permission prompts, and command-style control input. Typed Claude slash commands are sent to this control host when it is running.
 - Uses Claude session logs to track control flow and keep transcript offsets aligned.
 
@@ -201,7 +201,7 @@ The default settings screen shows only day-to-day Agent Console options. Runtime
 | Setting | Behavior |
 | --- | --- |
 | `Attachment folder` | Stores pasted or dropped attachment files before they are sent to Agent Console. |
-| `Persist Agent transcript snapshots` | Saves visible transcript HTML to plugin `data.json` only when explicitly enabled. |
+| `Persist Agent transcript snapshots` | Saves visible transcript HTML only to the current user's local Obst Terminal state, outside the shared vault. |
 
 Advanced settings:
 
@@ -293,7 +293,8 @@ Obst Terminal no longer starts a raw local shell by default. It may use a separa
 - Claude Code, Codex CLI, git, npm, and other external tools are not bundled.
 - Native runtime files are included in full ZIPs or downloaded from the matching GitHub Release and verified with SHA-256.
 - TLS / CA environment variables are injected only when enabled in settings.
-- Agent transcript snapshots are not saved to plugin `data.json` unless `Persist Agent transcript snapshots` is explicitly enabled.
+- Agent session state and transcript snapshots are not saved to plugin `data.json`; they are stored only in the current user's local Obst Terminal state.
+- To clean old shared vault state left by earlier versions, run `pwsh -NoProfile -File .\scripts\clean-shared-ai-state.ps1 -VaultPath "C:\path\to\vault"`.
 - The plugin does not include telemetry, analytics, or advertising code.
 
 Only install release assets from sources you trust.
