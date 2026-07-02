@@ -123,6 +123,14 @@ const CLAUDE_MODEL_CHOICES = [
   { value: "opus", label: "Opus (opus)" },
   { value: "haiku", label: "Haiku (haiku)" }
 ];
+const CLAUDE_EFFORT_CHOICES = [
+  { value: "", label: "Effort: default" },
+  { value: "low", label: "Effort: low" },
+  { value: "medium", label: "Effort: medium" },
+  { value: "high", label: "Effort: high" },
+  { value: "xhigh", label: "Effort: xhigh" },
+  { value: "max", label: "Effort: max" }
+];
 const CLAUDE_PERMISSION_MODE_CHOICES = [
   { value: "default", label: "Permission: default" },
   { value: "auto", label: "Permission: auto" },
@@ -1362,6 +1370,7 @@ class VaultPowerShellView extends ItemView {
   private codexGitBranch: string | null | undefined = undefined;
   private codexOptionsRow: HTMLElement | null = null;
   private claudeModelSelect: HTMLSelectElement | null = null;
+  private claudeEffortSelect: HTMLSelectElement | null = null;
   private claudePermissionSelect: HTMLSelectElement | null = null;
   private codexModelSelect: HTMLSelectElement | null = null;
   private codexEffortSelect: HTMLSelectElement | null = null;
@@ -2456,6 +2465,10 @@ class VaultPowerShellView extends ItemView {
     for (const opt of CLAUDE_MODEL_CHOICES) {
       this.claudeModelSelect.createEl("option", { value: opt.value, text: opt.label });
     }
+    this.claudeEffortSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Claude effort" } });
+    for (const opt of CLAUDE_EFFORT_CHOICES) {
+      this.claudeEffortSelect.createEl("option", { value: opt.value, text: opt.label });
+    }
     this.claudePermissionSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Claude permission mode" } });
     for (const opt of CLAUDE_PERMISSION_MODE_CHOICES) {
       this.claudePermissionSelect.createEl("option", { value: opt.value, text: opt.label });
@@ -2470,6 +2483,7 @@ class VaultPowerShellView extends ItemView {
     }
     this.codexAccessSelect.value = "full";
     this.claudeModelSelect.addEventListener("change", () => this.onClaudeModelChange());
+    this.claudeEffortSelect.addEventListener("change", () => this.onClaudeEffortChange());
     this.claudePermissionSelect.addEventListener("change", () => this.onClaudePermissionModeChange());
     this.codexModelSelect.addEventListener("change", () => this.onCodexModelChange());
     this.codexEffortSelect.addEventListener("change", () => this.applyCodexTurnOptions());
@@ -2556,6 +2570,7 @@ class VaultPowerShellView extends ItemView {
     const isClaude = this.agentProvider === "claude";
     const isCodex = this.agentProvider === "codex";
     this.claudeModelSelect?.toggleClass("is-hidden", !isClaude);
+    this.claudeEffortSelect?.toggleClass("is-hidden", !isClaude);
     this.claudePermissionSelect?.toggleClass("is-hidden", !isClaude);
     this.codexModelSelect?.toggleClass("is-hidden", !isCodex);
     this.codexEffortSelect?.toggleClass("is-hidden", !isCodex);
@@ -2564,6 +2579,7 @@ class VaultPowerShellView extends ItemView {
 
   private refreshAgentModelControls() {
     setSelectChoices(this.claudeModelSelect, CLAUDE_MODEL_CHOICES, this.plugin.settings.claudeModel, "Saved");
+    setSelectChoices(this.claudeEffortSelect, CLAUDE_EFFORT_CHOICES, this.plugin.settings.claudeEffort, "Saved");
     setSelectChoices(this.claudePermissionSelect, CLAUDE_PERMISSION_MODE_CHOICES, this.plugin.settings.claudePermissionMode, "Saved");
     this.refreshCodexModelSelect(false);
   }
@@ -2587,6 +2603,16 @@ class VaultPowerShellView extends ItemView {
 
   private onClaudeModelChange() {
     this.plugin.settings.claudeModel = this.claudeModelSelect?.value ?? "";
+    void this.plugin.saveSettings();
+    this.refreshCodexStatusLine();
+    this.saveAgentViewState();
+  }
+
+  private onClaudeEffortChange() {
+    this.plugin.settings.claudeEffort = normalizeClaudeEffort(this.claudeEffortSelect?.value);
+    if (this.claudeEffortSelect) {
+      this.claudeEffortSelect.value = this.plugin.settings.claudeEffort;
+    }
     void this.plugin.saveSettings();
     this.refreshCodexStatusLine();
     this.saveAgentViewState();

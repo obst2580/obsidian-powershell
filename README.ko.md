@@ -49,7 +49,7 @@ Claude Code Agent Console은 로그인/제어 흐름과 일반 대화 흐름을 
 
 - 시작 시 `claude auth status --json`으로 로그인 상태를 확인합니다.
 - 일반 메시지는 AI 세션별 Claude Code print turn으로 실행하고, 설정된 `--permission-mode`와 `--output-format json`을 사용합니다.
-- Claude 모델과 permission mode는 Agent Console 안의 드롭다운에서 선택합니다(`Claude default`, `best`, `fable`, `sonnet`, `opus`, `haiku`; `default`, `auto`, `acceptEdits`, `dontAsk`, `plan`, `bypassPermissions`).
+- Claude 모델, effort, permission mode는 Agent Console 안의 드롭다운에서 선택합니다(`Claude default`, `best`, `fable`, `sonnet`, `opus`, `haiku`; `default`, `low`, `medium`, `high`, `xhigh`, `max`; `default`, `auto`, `acceptEdits`, `dontAsk`, `plan`, `bypassPermissions`).
 - 설정에서는 Claude executable, effort, permission mode, strict MCP config 사용 여부를 조정합니다.
 - statusline에는 설정된 Claude 모델/모드, 플러그인이 붙이는 transcript context meter, Claude JSON 출력에서 확인 가능한 usage 요약을 표시합니다.
 - Claude print turn 이후 JSON의 `session_id`를 읽어 플러그인 탭을 실제 Claude Code 세션에 계속 묶어둡니다.

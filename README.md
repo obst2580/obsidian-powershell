@@ -49,7 +49,7 @@ The Claude Code Agent Console separates normal chat turns from login/control pro
 
 - Checks login with `claude auth status --json`.
 - Sends normal prompts through a session-specific Claude Code print turn with the configured `--permission-mode` and `--output-format json`.
-- The Claude model and permission mode are selected inside the Agent Console from dropdowns (`Claude default`, `best`, `fable`, `sonnet`, `opus`, `haiku`; `default`, `auto`, `acceptEdits`, `dontAsk`, `plan`, `bypassPermissions`).
+- The Claude model, effort, and permission mode are selected inside the Agent Console from dropdowns (`Claude default`, `best`, `fable`, `sonnet`, `opus`, `haiku`; `default`, `low`, `medium`, `high`, `xhigh`, `max`; `default`, `auto`, `acceptEdits`, `dontAsk`, `plan`, `bypassPermissions`).
 - Settings expose Claude executable, effort, permission mode, and strict MCP behavior.
 - The statusline shows the configured Claude model/mode, plugin transcript-context meter, and any usage summary available in Claude's JSON output.
 - Reads Claude's JSON `session_id` after each print turn and keeps the plugin tab bound to the actual Claude Code session.
