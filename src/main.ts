@@ -117,9 +117,19 @@ const AGENT_TRANSCRIPT_CONTEXT_MAX_CHARS = 12000;
 const CODEX_TURN_COMPLETION_FALLBACK_MS = 15000;
 const CLAUDE_MODEL_CHOICES = [
   { value: "", label: "Claude default" },
-  { value: "sonnet", label: "sonnet" },
-  { value: "opus", label: "opus" },
-  { value: "haiku", label: "haiku" }
+  { value: "best", label: "best" },
+  { value: "fable", label: "Fable 5 (fable)" },
+  { value: "sonnet", label: "Sonnet (sonnet)" },
+  { value: "opus", label: "Opus (opus)" },
+  { value: "haiku", label: "Haiku (haiku)" }
+];
+const CLAUDE_PERMISSION_MODE_CHOICES = [
+  { value: "default", label: "Permission: default" },
+  { value: "auto", label: "Permission: auto" },
+  { value: "acceptEdits", label: "Permission: acceptEdits" },
+  { value: "dontAsk", label: "Permission: dontAsk" },
+  { value: "plan", label: "Permission: plan" },
+  { value: "bypassPermissions", label: "Permission: bypassPermissions" }
 ];
 const GEMINI_MODEL_CHOICES = [
   { value: "", label: "Antigravity default" },
@@ -1352,6 +1362,7 @@ class VaultPowerShellView extends ItemView {
   private codexGitBranch: string | null | undefined = undefined;
   private codexOptionsRow: HTMLElement | null = null;
   private claudeModelSelect: HTMLSelectElement | null = null;
+  private claudePermissionSelect: HTMLSelectElement | null = null;
   private codexModelSelect: HTMLSelectElement | null = null;
   private codexEffortSelect: HTMLSelectElement | null = null;
   private codexAccessSelect: HTMLSelectElement | null = null;
@@ -2445,6 +2456,10 @@ class VaultPowerShellView extends ItemView {
     for (const opt of CLAUDE_MODEL_CHOICES) {
       this.claudeModelSelect.createEl("option", { value: opt.value, text: opt.label });
     }
+    this.claudePermissionSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Claude permission mode" } });
+    for (const opt of CLAUDE_PERMISSION_MODE_CHOICES) {
+      this.claudePermissionSelect.createEl("option", { value: opt.value, text: opt.label });
+    }
     this.codexModelSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Model" } });
     this.codexEffortSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Reasoning effort" } });
     this.codexAccessSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Access level" } });
@@ -2455,6 +2470,7 @@ class VaultPowerShellView extends ItemView {
     }
     this.codexAccessSelect.value = "full";
     this.claudeModelSelect.addEventListener("change", () => this.onClaudeModelChange());
+    this.claudePermissionSelect.addEventListener("change", () => this.onClaudePermissionModeChange());
     this.codexModelSelect.addEventListener("change", () => this.onCodexModelChange());
     this.codexEffortSelect.addEventListener("change", () => this.applyCodexTurnOptions());
     this.codexAccessSelect.addEventListener("change", () => this.applyCodexTurnOptions());
@@ -2540,6 +2556,7 @@ class VaultPowerShellView extends ItemView {
     const isClaude = this.agentProvider === "claude";
     const isCodex = this.agentProvider === "codex";
     this.claudeModelSelect?.toggleClass("is-hidden", !isClaude);
+    this.claudePermissionSelect?.toggleClass("is-hidden", !isClaude);
     this.codexModelSelect?.toggleClass("is-hidden", !isCodex);
     this.codexEffortSelect?.toggleClass("is-hidden", !isCodex);
     this.codexAccessSelect?.toggleClass("is-hidden", !isCodex);
@@ -2547,6 +2564,7 @@ class VaultPowerShellView extends ItemView {
 
   private refreshAgentModelControls() {
     setSelectChoices(this.claudeModelSelect, CLAUDE_MODEL_CHOICES, this.plugin.settings.claudeModel, "Saved");
+    setSelectChoices(this.claudePermissionSelect, CLAUDE_PERMISSION_MODE_CHOICES, this.plugin.settings.claudePermissionMode, "Saved");
     this.refreshCodexModelSelect(false);
   }
 
@@ -2569,6 +2587,16 @@ class VaultPowerShellView extends ItemView {
 
   private onClaudeModelChange() {
     this.plugin.settings.claudeModel = this.claudeModelSelect?.value ?? "";
+    void this.plugin.saveSettings();
+    this.refreshCodexStatusLine();
+    this.saveAgentViewState();
+  }
+
+  private onClaudePermissionModeChange() {
+    this.plugin.settings.claudePermissionMode = normalizeClaudePermissionMode(this.claudePermissionSelect?.value);
+    if (this.claudePermissionSelect) {
+      this.claudePermissionSelect.value = this.plugin.settings.claudePermissionMode;
+    }
     void this.plugin.saveSettings();
     this.refreshCodexStatusLine();
     this.saveAgentViewState();
