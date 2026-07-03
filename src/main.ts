@@ -140,13 +140,20 @@ const CLAUDE_PERMISSION_MODE_CHOICES = [
   { value: "bypassPermissions", label: "Permission: bypassPermissions" }
 ];
 const GEMINI_MODEL_CHOICES = [
-  { value: "", label: "Antigravity default" },
-  { value: "gemini-3-pro", label: "gemini-3-pro" },
-  { value: "gemini-3-flash", label: "gemini-3-flash" },
-  { value: "gemini-3.5-flash", label: "gemini-3.5-flash" },
-  { value: "gemini-3.1-pro-preview", label: "gemini-3.1-pro-preview" },
+  { value: "", label: "Gemini default" },
+  { value: "auto", label: "auto" },
+  { value: "pro", label: "pro" },
+  { value: "flash", label: "flash" },
+  { value: "flash-lite", label: "flash-lite" },
   { value: "gemini-2.5-pro", label: "gemini-2.5-pro" },
-  { value: "gemini-2.5-flash", label: "gemini-2.5-flash" }
+  { value: "gemini-2.5-flash", label: "gemini-2.5-flash" },
+  { value: "gemini-2.5-flash-lite", label: "gemini-2.5-flash-lite" }
+];
+const GEMINI_APPROVAL_MODE_CHOICES = [
+  { value: "default", label: "Approval: default" },
+  { value: "auto_edit", label: "Approval: auto_edit" },
+  { value: "yolo", label: "Approval: yolo" },
+  { value: "plan", label: "Approval: plan" }
 ];
 
 interface PowerShellSettings {
@@ -745,7 +752,7 @@ export default class VaultPowerShellPlugin extends Plugin {
     }
     this.settings.geminiSkipTrust = this.settings.geminiSkipTrust !== false;
     this.settings.geminiSandbox = this.settings.geminiSandbox === true;
-    this.settings.geminiUseNativeSession = needsAntigravityMigration ? false : this.settings.geminiUseNativeSession === true;
+    this.settings.geminiUseNativeSession = false;
     this.settings.geminiOutputFormat = normalizeGeminiOutputFormat(this.settings.geminiOutputFormat);
     this.settings.geminiExtensions = normalizeDelimitedSetting(this.settings.geminiExtensions);
     this.settings.geminiAllowedMcpServers = normalizeDelimitedSetting(this.settings.geminiAllowedMcpServers);
@@ -1376,6 +1383,7 @@ class VaultPowerShellView extends ItemView {
   private codexEffortSelect: HTMLSelectElement | null = null;
   private codexAccessSelect: HTMLSelectElement | null = null;
   private geminiModelSelect: HTMLSelectElement | null = null;
+  private geminiApprovalSelect: HTMLSelectElement | null = null;
   private codexModels: AgentModelInfo[] = [];
   private codexPendingAttachments: AgentAttachment[] = [];
   private codexAttachmentsEl: HTMLElement | null = null;
@@ -1549,6 +1557,7 @@ class VaultPowerShellView extends ItemView {
     this.codexEffortSelect = null;
     this.codexAccessSelect = null;
     this.geminiModelSelect = null;
+    this.geminiApprovalSelect = null;
     this.paneTabEls = { agent: null, terminal: null };
     this.agentProviderButtons = { claude: null, codex: null, gemini: null };
     this.agentProviderIndicatorEl = null;
@@ -2391,6 +2400,7 @@ class VaultPowerShellView extends ItemView {
     const providerGroup = toolbar.createDiv("vault-agent-provider-group");
     this.agentProviderButtons.claude = this.createAgentProviderButton(providerGroup, "Claude", "claude", CLAUDE_ICON_PATH);
     this.agentProviderButtons.codex = this.createAgentProviderButton(providerGroup, "Codex", "codex", CODEX_ICON_PATH);
+    this.agentProviderButtons.gemini = this.createAgentProviderButton(providerGroup, "Gemini", "gemini", GEMINI_ICON_PATH);
     this.agentProviderIndicatorEl = null;
     this.refreshAgentProviderButtons();
 
@@ -2476,10 +2486,18 @@ class VaultPowerShellView extends ItemView {
     this.codexModelSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Model" } });
     this.codexEffortSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Reasoning effort" } });
     this.codexAccessSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Access level" } });
+    this.geminiModelSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Gemini model" } });
+    this.geminiApprovalSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Gemini approval mode" } });
     this.codexModelSelect.createEl("option", { value: "", text: "Codex default" });
     this.codexEffortSelect.createEl("option", { value: "", text: "Effort default" });
     for (const opt of [{ v: "read-only", t: "Read-only" }, { v: "auto", t: "Auto (write)" }, { v: "full", t: "Full access" }]) {
       this.codexAccessSelect.createEl("option", { value: opt.v, text: opt.t });
+    }
+    for (const opt of GEMINI_MODEL_CHOICES) {
+      this.geminiModelSelect.createEl("option", { value: opt.value, text: opt.label });
+    }
+    for (const opt of GEMINI_APPROVAL_MODE_CHOICES) {
+      this.geminiApprovalSelect.createEl("option", { value: opt.value, text: opt.label });
     }
     this.codexAccessSelect.value = "full";
     this.claudeModelSelect.addEventListener("change", () => this.onClaudeModelChange());
@@ -2488,6 +2506,8 @@ class VaultPowerShellView extends ItemView {
     this.codexModelSelect.addEventListener("change", () => this.onCodexModelChange());
     this.codexEffortSelect.addEventListener("change", () => this.applyCodexTurnOptions());
     this.codexAccessSelect.addEventListener("change", () => this.applyCodexTurnOptions());
+    this.geminiModelSelect.addEventListener("change", () => this.onGeminiModelChange());
+    this.geminiApprovalSelect.addEventListener("change", () => this.onGeminiApprovalModeChange());
     this.refreshAgentOptionsRow();
 
     const composerActions = composer.createDiv("vault-agent-composer-actions");
@@ -2555,8 +2575,9 @@ class VaultPowerShellView extends ItemView {
     }
     this.agentProviderButtons.claude?.toggleClass("is-active", this.agentProvider === "claude");
     this.agentProviderButtons.codex?.toggleClass("is-active", this.agentProvider === "codex");
+    this.agentProviderButtons.gemini?.toggleClass("is-active", this.agentProvider === "gemini");
     this.renderAgentProviderIndicator();
-    this.agentInputEl?.setAttr("placeholder", `Message to ${getAgentProviderLabel(this.agentProvider)}. @all, @codex, @claude, or @"session title" delegates to other tabs.`);
+    this.agentInputEl?.setAttr("placeholder", `Message to ${getAgentProviderLabel(this.agentProvider)}. @all, @codex, @claude, @gemini, or @"session title" delegates to other tabs.`);
     this.refreshAgentOptionsRow();
     this.refreshCodexStatusLine();
   }
@@ -2569,18 +2590,23 @@ class VaultPowerShellView extends ItemView {
     this.codexOptionsRow.toggleClass("is-hidden", false);
     const isClaude = this.agentProvider === "claude";
     const isCodex = this.agentProvider === "codex";
+    const isGemini = this.agentProvider === "gemini";
     this.claudeModelSelect?.toggleClass("is-hidden", !isClaude);
     this.claudeEffortSelect?.toggleClass("is-hidden", !isClaude);
     this.claudePermissionSelect?.toggleClass("is-hidden", !isClaude);
     this.codexModelSelect?.toggleClass("is-hidden", !isCodex);
     this.codexEffortSelect?.toggleClass("is-hidden", !isCodex);
     this.codexAccessSelect?.toggleClass("is-hidden", !isCodex);
+    this.geminiModelSelect?.toggleClass("is-hidden", !isGemini);
+    this.geminiApprovalSelect?.toggleClass("is-hidden", !isGemini);
   }
 
   private refreshAgentModelControls() {
     setSelectChoices(this.claudeModelSelect, CLAUDE_MODEL_CHOICES, this.plugin.settings.claudeModel, "Saved");
     setSelectChoices(this.claudeEffortSelect, CLAUDE_EFFORT_CHOICES, this.plugin.settings.claudeEffort, "Saved");
     setSelectChoices(this.claudePermissionSelect, CLAUDE_PERMISSION_MODE_CHOICES, this.plugin.settings.claudePermissionMode, "Saved");
+    setSelectChoices(this.geminiModelSelect, GEMINI_MODEL_CHOICES, this.plugin.settings.geminiModel, "Saved");
+    setSelectChoices(this.geminiApprovalSelect, GEMINI_APPROVAL_MODE_CHOICES, this.plugin.settings.geminiApprovalMode, "Saved");
     this.refreshCodexModelSelect(false);
   }
 
@@ -2632,6 +2658,16 @@ class VaultPowerShellView extends ItemView {
     this.plugin.settings.geminiModel = normalizeGeminiModelInput(this.geminiModelSelect?.value) || DEFAULT_SETTINGS.geminiModel;
     if (this.geminiModelSelect) {
       this.geminiModelSelect.value = this.plugin.settings.geminiModel;
+    }
+    void this.plugin.saveSettings();
+    this.refreshCodexStatusLine();
+    this.saveAgentViewState();
+  }
+
+  private onGeminiApprovalModeChange() {
+    this.plugin.settings.geminiApprovalMode = normalizeGeminiApprovalMode(this.geminiApprovalSelect?.value);
+    if (this.geminiApprovalSelect) {
+      this.geminiApprovalSelect.value = this.plugin.settings.geminiApprovalMode;
     }
     void this.plugin.saveSettings();
     this.refreshCodexStatusLine();
@@ -2999,10 +3035,10 @@ class VaultPowerShellView extends ItemView {
       const configuredModel = this.plugin.settings.geminiModel || DEFAULT_SETTINGS.geminiModel;
       const resolvedModel = getGeminiModelResolutionLabel(configuredModel);
       return [
-        "Provider: Antigravity CLI",
+        "Provider: Gemini CLI",
         `Configured --model: ${configuredModel}`,
         resolvedModel !== configuredModel ? `Model alias resolution: ${configuredModel} -> ${resolvedModel}` : "",
-        `Session mode: ${this.plugin.settings.geminiUseNativeSession ? `native ${this.agentGeminiNativeSessionStarted ? "resume" : "session-id"}` : "plugin transcript context"}`,
+        `Session mode: ${this.plugin.settings.geminiUseNativeSession ? `native ${this.agentGeminiNativeSessionStarted ? "resume" : "new"}` : "plugin transcript context"}`,
         `Output format: ${this.plugin.settings.geminiOutputFormat}`,
         `Approval mode: ${this.plugin.settings.geminiApprovalMode}`,
         "If the user asks which LLM/model is in use, answer from this runtime setting rather than from model self-introspection."
@@ -3857,7 +3893,7 @@ class VaultPowerShellView extends ItemView {
     this.lastAgentLaunchCommand = command;
     this.sendAgentHostMessage({ type: "data", data: `${command}\r` });
     this.setAgentStatus(this.agentControlCommandInProgress && provider === "gemini"
-      ? "Antigravity CLI control console"
+      ? "Gemini CLI control console"
       : `Launching ${getAgentProviderLabel(provider)}...`);
 
     const postLaunchInput = this.agentPostLaunchInput;
@@ -3987,7 +4023,7 @@ class VaultPowerShellView extends ItemView {
 
   private isAgentReadyForTextInput(provider: AgentProvider): boolean {
     if (provider === "gemini") {
-      return false;
+      return this.agentReadyForInput && !this.agentNeedsAuth;
     }
     return !!this.agentHost && this.agentHostReady && this.agentReadyForInput;
   }
@@ -4222,14 +4258,14 @@ class VaultPowerShellView extends ItemView {
     this.appendAgentTranscript({
       id: this.nextLocalAgentEntryId("system"),
       role: "system",
-      text: `Antigravity CLI control command: ${command}`
+      text: `Gemini CLI control command: ${command}`
     });
 
     if (attachments.length > 0) {
       this.appendAgentTranscript({
         id: this.nextLocalAgentEntryId("system"),
         role: "system",
-        text: `Antigravity CLI control commands do not accept Agent Console attachments. Ignored ${attachments.length} attachment(s).`
+        text: `Gemini CLI control commands do not accept Agent Console attachments. Ignored ${attachments.length} attachment(s).`
       });
     }
 
@@ -4239,7 +4275,7 @@ class VaultPowerShellView extends ItemView {
       this.sendAgentHostMessage({ type: "data", data });
       this.noteAgentControlFlow(data);
       this.clearAgentPromptState();
-      this.refreshAgentAuthStatus("Antigravity CLI control command sent");
+      this.refreshAgentAuthStatus("Gemini CLI control command sent");
       return;
     }
 
@@ -4248,11 +4284,11 @@ class VaultPowerShellView extends ItemView {
       this.agentPostLaunchInput = data;
       this.noteAgentControlFlow(data);
       this.clearAgentPromptState();
-      this.setAgentStatus("Antigravity CLI control command queued");
+      this.setAgentStatus("Gemini CLI control command queued");
       this.appendAgentTranscript({
         id: this.nextLocalAgentEntryId("system"),
         role: "system",
-        text: `Antigravity CLI control console is still starting. Queued command: ${command}`
+        text: `Gemini CLI control console is still starting. Queued command: ${command}`
       });
       this.saveAgentViewState();
       return;
@@ -4263,7 +4299,7 @@ class VaultPowerShellView extends ItemView {
       this.appendAgentTranscript({
         id: this.nextLocalAgentEntryId("system"),
         role: "system",
-        text: `Antigravity CLI control command was not sent: ${command}`
+        text: `Gemini CLI control command was not sent: ${command}`
       });
     }
   }
@@ -4292,7 +4328,7 @@ class VaultPowerShellView extends ItemView {
         this.withAgentSession(sessionKey, () => {
           this.agentAuthState = "login-required";
           this.agentNeedsAuth = true;
-          this.setAgentStatus("Antigravity CLI missing");
+          this.setAgentStatus("Gemini CLI missing");
           this.appendAgentTranscript({
             id: this.nextLocalAgentEntryId("system"),
             role: "system",
@@ -4334,11 +4370,11 @@ class VaultPowerShellView extends ItemView {
         this.agentPostLaunchInput = data;
         this.lastAgentLaunchCommand = "";
         this.agentReadyForInput = false;
-        this.setAgentStatus("Antigravity CLI control console opening");
+        this.setAgentStatus("Gemini CLI control console opening");
         this.appendAgentTranscript({
           id: this.nextLocalAgentEntryId("system"),
           role: "system",
-          text: `Starting Antigravity CLI control console for slash command: ${command}`
+          text: `Starting Gemini CLI control console for slash command: ${command}`
         });
         this.startAgentHost(sessionKey, cwd, env, "gemini");
         this.saveAgentViewState();
@@ -4351,10 +4387,10 @@ class VaultPowerShellView extends ItemView {
         this.appendAgentTranscript({
           id: this.nextLocalAgentEntryId("system"),
           role: "system",
-          text: `Failed to start Antigravity CLI control console: ${message}`
+          text: `Failed to start Gemini CLI control console: ${message}`
         });
       });
-      new Notice(`Failed to start Antigravity CLI control console: ${message}`);
+      new Notice(`Failed to start Gemini CLI control console: ${message}`);
       return false;
     }
   }
@@ -4451,7 +4487,7 @@ class VaultPowerShellView extends ItemView {
           this.appendAgentTranscript({
             id: this.nextLocalAgentEntryId("system"),
             role: "system",
-          text: "Antigravity CLI conversation을 이어갈 수 없어 플러그인 transcript context 방식으로 새 요청을 보냅니다."
+          text: "Gemini CLI native session could not be resumed. Retrying with plugin transcript context."
           });
         });
         result = await this.runTrackedPrintCommand(provider, text, cwd, env, sessionId, turnId, {
@@ -4466,7 +4502,7 @@ class VaultPowerShellView extends ItemView {
             this.appendAgentTranscript({
               id: this.nextLocalAgentEntryId("system"),
               role: "system",
-              text: `Antigravity 모델 ${initialModel}을 현재 계정/서버에서 사용할 수 없어 ${fallbackModel}로 자동 재시도합니다.`
+              text: `Gemini model ${initialModel || "default"} is not available for the current account/server. Retrying with ${fallbackModel || "default"}.`
             });
           });
           result = await this.runTrackedPrintCommand(provider, text, cwd, env, sessionId, turnId, {
@@ -4483,7 +4519,7 @@ class VaultPowerShellView extends ItemView {
                 this.appendAgentTranscript({
                   id: this.nextLocalAgentEntryId("system"),
                   role: "system",
-                  text: `Antigravity 모델을 ${fallbackModel}로 변경했습니다. 다음 메시지부터 이 모델을 사용합니다.`
+                  text: `Gemini model changed to ${fallbackModel || "default"}. Future messages will use this model.`
                 });
               });
             }
@@ -4702,7 +4738,7 @@ class VaultPowerShellView extends ItemView {
 
   private async checkAgentLoginStatus(provider: AgentProvider, cwd: string, env: { [key: string]: string | undefined }): Promise<AgentAuthCheck> {
     const sessionKey = this.activeAgentSessionKey;
-    this.setAgentStatus(provider === "gemini" ? "Checking Antigravity CLI..." : `Checking ${getAgentProviderLabel(provider)} login...`);
+    this.setAgentStatus(provider === "gemini" ? "Checking Gemini CLI..." : `Checking ${getAgentProviderLabel(provider)} login...`);
     const status = await getAgentAuthCheck(provider, cwd, env, this.plugin.settings);
     this.withAgentSession(sessionKey, () => {
       this.appendAgentTranscript({
@@ -4716,7 +4752,7 @@ class VaultPowerShellView extends ItemView {
         this.agentConversationReady = false;
         this.agentNeedsAuth = false;
         this.agentAutoLoginPending = false;
-        this.setAgentStatus(provider === "gemini" ? "Antigravity CLI ready" : `${getAgentProviderLabel(provider)} login confirmed`);
+        this.setAgentStatus(provider === "gemini" ? "Gemini CLI ready" : `${getAgentProviderLabel(provider)} login confirmed`);
         return;
       }
 
@@ -5020,7 +5056,7 @@ class VaultPowerShellView extends ItemView {
       this.appendAgentTranscript({
         id: this.nextLocalAgentEntryId("system"),
         role: "system",
-        text: `Antigravity CLI control output:\n${controlOutput}`
+        text: `Gemini CLI control output:\n${controlOutput}`
       });
       this.markAgentConversationReady();
       return;
@@ -5193,7 +5229,7 @@ class VaultPowerShellView extends ItemView {
       this.appendAgentTranscript({
         id: this.nextLocalAgentEntryId("system"),
         role: "system",
-        text: "기존 Antigravity CLI 로그인 세션을 정리하고 OAuth 인증 모드로 다시 시작합니다."
+        text: "Restarting the Gemini CLI login flow."
       });
     }
 
@@ -5227,11 +5263,11 @@ class VaultPowerShellView extends ItemView {
     this.refreshCodexStatusLine();
     void this.refreshCodexGitBranch(cwd, sessionKey);
     this.agentReadyForInput = false;
-    this.setAgentStatus("Starting Antigravity CLI login...");
+    this.setAgentStatus("Starting Gemini CLI login...");
     this.appendAgentTranscript({
       id: this.nextLocalAgentEntryId("system"),
       role: "system",
-      text: `${reason} Antigravity CLI 로그인 화면을 플러그인 안에서 시작합니다 · ${cwd}`
+      text: `${reason} Starting Gemini CLI login in the Agent Console. ${cwd}`
     });
 
     try {
@@ -5245,7 +5281,7 @@ class VaultPowerShellView extends ItemView {
         this.withAgentSession(sessionKey, () => {
           this.agentAuthState = "login-required";
           this.agentNeedsAuth = true;
-          this.setAgentStatus("Antigravity CLI missing");
+          this.setAgentStatus("Gemini CLI missing");
           this.appendAgentTranscript({
             id: this.nextLocalAgentEntryId("system"),
             role: "system",
@@ -5270,7 +5306,7 @@ class VaultPowerShellView extends ItemView {
         this.agentProvider = "gemini";
         this.agentAuthState = "login-in-progress";
         this.agentNeedsAuth = true;
-        this.setAgentStatus("Antigravity CLI login in progress");
+        this.setAgentStatus("Gemini CLI login in progress");
         this.startAgentHost(sessionKey, cwd, env, "gemini");
       });
       return true;
@@ -5281,10 +5317,10 @@ class VaultPowerShellView extends ItemView {
         this.appendAgentTranscript({
           id: this.nextLocalAgentEntryId("system"),
           role: "system",
-          text: `Failed to start Antigravity CLI login: ${message}`
+          text: `Failed to start Gemini CLI login: ${message}`
         });
       });
-      new Notice(`Failed to start Antigravity CLI login: ${message}`);
+      new Notice(`Failed to start Gemini CLI login: ${message}`);
       return false;
     }
   }
@@ -6718,6 +6754,19 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
           })
       );
 
+    new Setting(agentEl)
+      .setName("Gemini executable")
+      .setDesc("Optional command or absolute path. Leave empty to use gemini from PATH.")
+      .addText((text) =>
+        text
+          .setPlaceholder("gemini")
+          .setValue(this.plugin.settings.geminiExecutable)
+          .onChange((value) => {
+            this.plugin.settings.geminiExecutable = value.trim();
+            void this.plugin.saveSettings();
+          })
+      );
+
     const advancedDetails = containerEl.createEl("details", { cls: "vault-terminal-advanced-settings" });
     advancedDetails.createEl("summary", { text: "Advanced runtime and network settings" });
     const advancedEl = advancedDetails.createDiv("vault-terminal-advanced-settings-body");
@@ -7751,7 +7800,7 @@ function getAgentProviderLabel(provider: AgentProvider): string {
     return "Claude Code";
   }
   if (provider === "gemini") {
-    return "Antigravity CLI";
+    return "Gemini CLI";
   }
   return "Codex";
 }
@@ -7767,11 +7816,11 @@ function getAgentProviderIconPath(provider: AgentProvider): string {
 }
 
 function isAgentProvider(value: unknown): value is AgentProvider {
-  return value === "claude" || value === "codex";
+  return value === "claude" || value === "codex" || value === "gemini";
 }
 
 function isPrintCommandProvider(provider: AgentProvider): boolean {
-    return provider === "claude";
+  return provider === "claude" || provider === "gemini";
 }
 
 function isSlashCommandText(text: string): boolean {
@@ -7801,6 +7850,8 @@ function isKnownAgentDelegationTarget(text: string): boolean {
     target === "코덱스" ||
     target === "claude" ||
     target === "claudecode" ||
+    target === "gemini" ||
+    target === "geminicli" ||
     target === "클로드" ||
     target === "클로드코드" ||
     target === "제미나이" ||
@@ -7859,7 +7910,7 @@ function isGeneratedAgentSessionLabel(label: string): boolean {
 }
 
 function isProviderAgentSessionLabel(label: string): boolean {
-  return /^(Claude Code|Codex|Antigravity CLI)(?: \d+)?$/.test(label.trim());
+  return /^(Claude Code|Codex|Gemini CLI|Antigravity CLI)(?: \d+)?$/.test(label.trim());
 }
 
 function getUniqueProviderAgentSessionLabel(
@@ -8289,18 +8340,12 @@ function getGeminiExecutable(settings: PowerShellSettings): string {
     return configured;
   }
 
-  const pathAgy = findExecutableOnPath("agy");
-  if (pathAgy) {
-    return pathAgy;
+  const pathGemini = findExecutableOnPath("gemini");
+  if (pathGemini) {
+    return pathGemini;
   }
 
-  const localAppData = process.env.LOCALAPPDATA;
-  const localAgy = localAppData ? join(localAppData, "agy", "bin", process.platform === "win32" ? "agy.exe" : "agy") : "";
-  if (localAgy && existsSync(localAgy)) {
-    return localAgy;
-  }
-
-  return "agy";
+  return "gemini";
 }
 
 function getAgentLaunchCommand(provider: AgentProvider, settings: PowerShellSettings, options: AgentLaunchOptions = {}): string {
@@ -8321,11 +8366,11 @@ function getAgentLaunchCommand(provider: AgentProvider, settings: PowerShellSett
   }
   if (provider === "gemini") {
     const args = [
-      "--prompt-interactive",
       settings.geminiModel ? `--model ${quoteShellArg(settings.geminiModel)}` : "",
-      settings.geminiApprovalMode === "yolo" ? "--dangerously-skip-permissions" : "",
+      settings.geminiApprovalMode !== "default" ? `--approval-mode ${quoteShellArg(settings.geminiApprovalMode)}` : "",
+      settings.geminiSkipTrust ? "--skip-trust" : "",
       settings.geminiSandbox ? "--sandbox" : "",
-      ...getRepeatedGeminiShellArgs("--add-dir", settings.geminiIncludeDirectories)
+      ...getRepeatedGeminiShellArgs("--include-directories", settings.geminiIncludeDirectories)
     ].filter(Boolean);
     return `${quoteShellArg(getGeminiExecutable(settings))} ${args.join(" ")}`;
   }
@@ -8347,8 +8392,7 @@ async function getAgentAuthCheck(provider: AgentProvider, cwd: string, env: { [k
     if (isMissingGeminiCliResult(result)) {
       return createMissingGeminiCliAuthCheck(`${result.stdout}\n${result.stderr}\n${result.error ?? ""}`.trim());
     }
-    const modelsResult = await runCapturedCommand(getGeminiExecutable(settings), ["models"], cwd, env, 8000);
-    return parseGeminiAuthCheck(result, modelsResult);
+    return parseGeminiAuthCheck(result);
   }
 
   const result = await runCapturedCommand(getCodexExecutable(settings), ["login", "status"], cwd, env, 8000);
@@ -8458,24 +8502,14 @@ function runClaudePrintCommand(
   return spawnClaudePrintCommand(prompt, cwd, env, timeoutMs, options).promise;
 }
 
-function parseGeminiAuthCheck(versionResult: CapturedCommandResult, modelsResult: CapturedCommandResult): AgentAuthCheck {
+function parseGeminiAuthCheck(versionResult: CapturedCommandResult): AgentAuthCheck {
   const output = `${versionResult.stdout}\n${versionResult.stderr}`.trim();
-  const modelsOutput = `${modelsResult.stdout}\n${modelsResult.stderr}`.trim();
   const failure = getCapturedCommandFailure(versionResult);
   if (!failure) {
-    const modelsFailure = getCapturedCommandFailure(modelsResult);
-    if (modelsFailure) {
-      return {
-        checked: true,
-        loggedIn: false,
-        summary: "Antigravity CLI 로그인이 필요합니다. Agent Console에서 Gemini/Antigravity를 선택한 뒤 Login을 누르거나 일반 터미널에서 `agy --print \"hello\"`를 실행해 OAuth 로그인을 완료하세요.",
-        detail: modelsOutput || modelsFailure
-      };
-    }
     return {
       checked: true,
       loggedIn: true,
-      summary: `Antigravity CLI 확인: ${output || "agy command is available"}.`
+      summary: `Gemini CLI 확인: ${output || "gemini command is available"}.`
     };
   }
 
@@ -8486,7 +8520,7 @@ function parseGeminiAuthCheck(versionResult: CapturedCommandResult, modelsResult
   return {
     checked: false,
     loggedIn: null,
-    summary: `Antigravity CLI status could not be confirmed before launch.${failure ? ` ${failure}` : ""}`,
+    summary: `Gemini CLI status could not be confirmed before launch.${failure ? ` ${failure}` : ""}`,
     detail: output
   };
 }
@@ -8503,7 +8537,7 @@ function createMissingGeminiCliAuthCheck(detail = ""): AgentAuthCheck {
   return {
     checked: true,
     loggedIn: false,
-    summary: "Antigravity CLI(agy)가 설치되어 있지 않거나 Obsidian의 PATH에서 보이지 않습니다. PowerShell에서 `irm https://antigravity.google/cli/install.ps1 | iex` 실행 후 Obsidian을 완전히 재시작하세요.",
+    summary: "Gemini CLI가 설치되어 있지 않거나 Obsidian의 PATH에서 보이지 않습니다. PowerShell에서 `npm install -g @google/gemini-cli` 실행 후 Obsidian을 완전히 재시작하세요.",
     detail
   };
 }
@@ -8971,14 +9005,16 @@ function spawnGeminiPrintCommand(
   options: { sessionId?: string | null; resumeNativeSession?: boolean } = {}
 ): CapturedCommandHandle {
   const args = [
-    "--print",
+    ...getGeminiNativeSessionArgs(settings, options.sessionId, options.resumeNativeSession === true),
+    "--prompt",
     prompt,
-    "--print-timeout",
-    "12h",
+    "--output-format",
+    settings.geminiOutputFormat,
     ...(settings.geminiModel ? ["--model", settings.geminiModel] : []),
-    ...(settings.geminiApprovalMode === "yolo" ? ["--dangerously-skip-permissions"] : []),
+    ...(settings.geminiApprovalMode !== "default" ? ["--approval-mode", settings.geminiApprovalMode] : []),
+    ...(settings.geminiSkipTrust ? ["--skip-trust"] : []),
     ...(settings.geminiSandbox ? ["--sandbox"] : []),
-    ...getRepeatedGeminiArgs("--add-dir", settings.geminiIncludeDirectories)
+    ...getRepeatedGeminiArgs("--include-directories", settings.geminiIncludeDirectories)
   ];
   return spawnPtyCapturedCommand(getGeminiExecutable(settings), args, cwd, env, timeoutMs, plugin);
 }
@@ -8987,7 +9023,7 @@ function getGeminiNativeSessionArgs(settings: PowerShellSettings, sessionId: str
   if (!settings.geminiUseNativeSession || !sessionId || !isUuidString(sessionId)) {
     return [];
   }
-  return resumeNativeSession ? ["--resume", sessionId] : ["--session-id", sessionId];
+  return resumeNativeSession ? ["--resume", sessionId] : [];
 }
 
 function getRepeatedGeminiArgs(flag: string, value: string | undefined): string[] {
@@ -9115,7 +9151,7 @@ function isUuidString(value: string): boolean {
 
 function formatGeminiPrintOutput(result: CapturedCommandResult): string {
   if (result.cancelled) {
-    return `Antigravity 작업이 취소되었습니다${result.cancelReason ? `: ${result.cancelReason}` : ""}.`;
+    return `Gemini task was cancelled${result.cancelReason ? `: ${result.cancelReason}` : ""}.`;
   }
   const output = removeGeminiCliNoise(stripTerminalControlSequences(`${result.stdout}\n${result.stderr}`)).trim();
   if (output) {
@@ -9123,18 +9159,18 @@ function formatGeminiPrintOutput(result: CapturedCommandResult): string {
   }
 
   if (result.timedOut) {
-    return "Antigravity 응답 대기 시간이 초과되었습니다.";
+    return "Gemini response timed out.";
   }
 
   if (result.error) {
-    return `Antigravity 실행 실패: ${result.error}`;
+    return `Gemini failed to run: ${result.error}`;
   }
 
   if (result.exitCode !== 0 && result.exitCode !== null) {
-    return `Antigravity가 응답 없이 종료되었습니다 (코드 ${result.exitCode}).`;
+    return `Gemini exited without a response (code ${result.exitCode}).`;
   }
 
-  return "Antigravity가 빈 응답을 반환했습니다. 일반 PowerShell에서 `agy --print \"hello\"`가 실제 답변을 출력하는지 확인하고, 필요하면 Agent Console의 Login으로 OAuth 로그인을 다시 완료하세요.";
+  return "Gemini returned an empty response. Run `gemini -p \"hello\"` in PowerShell to confirm the CLI can answer, then use Agent Console Login again if needed.";
 }
 
 function getGeminiResultTextFromPrintOutput(output: string): string | null {
@@ -9193,33 +9229,33 @@ function collectGeminiJsonText(value: unknown, pieces: string[], keyHint = ""): 
 
 function formatGeminiAuthErrorOutput(output: string): string | null {
   if (/not logged into Antigravity|not authenticated|OAuth.*timed out|auth(?:entication)? timed out|Authentication required|paste the authorization code/i.test(output)) {
-    return "Antigravity CLI 로그인이 필요합니다. Agent Console의 Login을 누르거나 일반 PowerShell에서 `agy --print \"hello\"`를 실행해 OAuth 로그인을 완료하세요.";
+    return "Gemini CLI login is required. Press Login in Agent Console or run `gemini -p \"hello\"` in PowerShell and complete authentication.";
   }
 
   if (/ModelNotFoundError|Requested entity was not found/i.test(output)) {
-    return "Antigravity 모델을 찾을 수 없습니다. Agent Console의 모델 드롭다운에서 Antigravity default 또는 현재 계정에서 접근 가능한 모델로 바꾼 뒤 다시 시도하세요.";
+    return "Gemini model was not found. Choose Gemini default, auto, pro, flash, flash-lite, or another model available to this account and try again.";
   }
 
   if (/RetryableQuotaError|No capacity available for model/i.test(output)) {
-    return "Antigravity 모델 서버 capacity가 현재 없습니다. Agent Console의 모델 드롭다운에서 Antigravity default 또는 다른 모델로 바꾼 뒤 다시 시도하세요.";
+    return "Gemini model capacity is currently unavailable. Choose Gemini default or another accessible model and try again.";
   }
 
   if (/Please set an Auth method/i.test(output)) {
     const home = getUserHome();
     const settingsPath = home ? join(home, ".gemini", "settings.json") : "~/.gemini/settings.json";
-    return `Antigravity CLI 로그인이 필요합니다. Agent Console에서 Gemini/Antigravity를 선택한 뒤 Login을 누르거나 PowerShell에서 \`agy --print "hello"\`를 실행해 OAuth 로그인을 완료하세요. 이전 Gemini CLI 설정 파일 위치: ${settingsPath}`;
+    return `Gemini CLI auth is not configured. Choose Gemini in Agent Console and press Login, or run \`gemini -p "hello"\` in PowerShell and complete authentication. Gemini settings path: ${settingsPath}`;
   }
 
   if (/When using Gemini API[\s\S]*GEMINI_API_KEY/i.test(output)) {
-    return "Antigravity CLI가 인증되지 않았습니다. 일반 PowerShell에서 `agy --print \"hello\"`를 실행해 OAuth 로그인을 완료한 뒤 Obsidian을 재시작하세요.";
+    return "Gemini CLI is not authenticated. Set GEMINI_API_KEY or run `gemini -p \"hello\"` in PowerShell to complete login, then restart Obsidian.";
   }
 
   if (/When using Vertex AI/i.test(output)) {
-    return "Antigravity CLI가 인증되지 않았습니다. 일반 PowerShell에서 `agy --print \"hello\"`를 실행해 OAuth 로그인을 완료한 뒤 Obsidian을 재시작하세요.";
+    return "Gemini CLI is not authenticated for Vertex AI. Set the required Google Cloud environment variables, then restart Obsidian.";
   }
 
   if (/Invalid auth method selected/i.test(output) || /enforced authentication type|auth type .* is enforced/i.test(output)) {
-    return `Antigravity CLI 인증 설정이 현재 실행 방식과 맞지 않습니다. Agent Console에서 Gemini/Antigravity를 선택한 뒤 Login을 누르거나 PowerShell에서 \`agy --print "hello"\`를 실행하세요.\n\n${output}`;
+    return `Gemini CLI authentication settings do not match the current launch mode. Choose Gemini in Agent Console and press Login, or run \`gemini -p "hello"\` in PowerShell.\n\n${output}`;
   }
 
   return null;
@@ -9246,7 +9282,7 @@ function isSuccessfulPrintCommandResult(result: CapturedCommandResult): boolean 
 
 function getGeminiModelFallbackCandidates(configuredModel: string | undefined): string[] {
   const normalized = normalizeGeminiModelInput(configuredModel) || DEFAULT_SETTINGS.geminiModel;
-  const candidates = ["", "gemini-3-pro", "gemini-3-flash", "gemini-2.5-pro", "gemini-2.5-flash"];
+  const candidates = ["", "auto", "pro", "flash", "flash-lite", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
   return candidates.filter((candidate) => candidate !== normalized);
 }
 
@@ -10969,13 +11005,7 @@ function normalizeGeminiModelInput(value: string | undefined): string {
     "flash-lite": "flash-lite",
     "2.5-pro": "gemini-2.5-pro",
     "2.5-flash": "gemini-2.5-flash",
-    "2.5-flash-lite": "gemini-2.5-flash-lite",
-    "3-pro": "gemini-3-pro",
-    "3-flash": "gemini-3-flash",
-    "3-flash-preview": "gemini-3-flash-preview",
-    "3.1-pro": "gemini-3.1-pro-preview",
-    "3.1-flash-lite": "gemini-3.1-flash-lite",
-    "3.5-flash": "gemini-3.5-flash"
+    "2.5-flash-lite": "gemini-2.5-flash-lite"
   };
   if (aliases[compact]) {
     return aliases[compact];
@@ -10988,7 +11018,7 @@ function normalizeGeminiModelInput(value: string | undefined): string {
 
 function migrateGeminiModelAliasToStable(value: string | undefined): string {
   const normalized = normalizeGeminiModelInput(value);
-  if (normalized === "flash" || normalized === "gemini-3-flash-preview") {
+  if (normalized === "flash") {
     return "gemini-2.5-flash";
   }
   if (normalized === "pro") {
@@ -11003,7 +11033,7 @@ function migrateGeminiModelAliasToStable(value: string | undefined): string {
 function formatGeminiStatusModelLabel(value: string | undefined): string {
   const configured = normalizeGeminiModelInput(value) || DEFAULT_SETTINGS.geminiModel;
   if (!configured) {
-    return "Antigravity default";
+    return "Gemini default";
   }
   if (configured === "flash" || configured === "pro" || configured === "flash-lite") {
     return `${configured} alias`;
@@ -11019,15 +11049,15 @@ function getGeminiModelResolutionLabel(value: string | undefined): string {
   const configured = normalizeGeminiModelInput(value) || DEFAULT_SETTINGS.geminiModel;
   switch (configured) {
     case "":
-      return "Antigravity default";
+      return "Gemini default";
     case "flash":
-      return "legacy Gemini flash alias";
+      return "gemini-2.5-flash";
     case "flash-lite":
-      return "gemini-3.1-flash-lite";
+      return "gemini-2.5-flash-lite";
     case "pro":
-      return "legacy Gemini pro alias";
+      return "gemini-2.5-pro";
     case "auto":
-      return "Antigravity default";
+      return "Gemini default router";
     default:
       return configured;
   }
