@@ -1922,7 +1922,10 @@ class VaultPowerShellView extends ItemView {
     this.agentCurrentTurnStartedAt = session.agentCurrentTurnStartedAt ?? 0;
     this.agentSessionBaselineOffsets = session.agentSessionBaselineOffsets ?? new Map<string, number>();
     this.agentClaudePrintTurnActive = session.agentClaudePrintTurnActive ?? false;
-    this.agentPrintTurnRuntime = session.agentPrintTurnRuntime ?? null;
+    // A settled runtime must never resurface as a live "Waiting..." state.
+    this.agentPrintTurnRuntime = session.agentPrintTurnRuntime && !session.agentPrintTurnRuntime.settled
+      ? session.agentPrintTurnRuntime
+      : null;
     this.agentPrintQueuedInputs = session.agentPrintQueuedInputs ?? [];
     this.agentClaudeControlSessionId = session.agentClaudeControlSessionId ?? session.claudeControlSessionId ?? null;
     this.agentPostLaunchInput = session.agentPostLaunchInput ?? null;
@@ -2080,7 +2083,11 @@ class VaultPowerShellView extends ItemView {
     this.refreshAgentSessionChrome();
     this.refreshAgentProviderButtons();
     this.switchAgentTranscript(this.agentProvider);
-    this.setAgentStatus(session.statusText ?? "Idle");
+    // Only a session with genuinely running work may surface a waiting/loading
+    // status; anything else is a stale capture and renders as Idle.
+    const savedStatus = session.statusText ?? "Idle";
+    const hasLiveTurn = (!!session.agentPrintTurnRuntime && !session.agentPrintTurnRuntime.settled) || session.codexTurnActive === true;
+    this.setAgentStatus(hasLiveTurn || !isStaleRestoredAgentStatus(savedStatus) ? savedStatus : "Idle");
     this.updateSendButtonMode();
     this.renderAttachmentChips();
     this.refreshAgentPromptActions();
@@ -4501,7 +4508,7 @@ class VaultPowerShellView extends ItemView {
         extraCaCertPath: this.plugin.getExtraCaCertPath()
       });
       let sessionId = provider === "claude" ? this.ensureClaudeSessionId() : this.ensureGeminiSessionId();
-      let result = await this.runTrackedPrintCommand(provider, text, cwd, env, sessionId, turnId, {
+      let result = await this.runTrackedPrintCommand(sessionKey, provider, text, cwd, env, sessionId, turnId, {
         geminiResumeNativeSession: this.agentGeminiNativeSessionStarted
       });
       if (
@@ -4519,7 +4526,7 @@ class VaultPowerShellView extends ItemView {
           text: "Gemini CLI native session could not be resumed. Retrying with plugin transcript context."
           });
         });
-        result = await this.runTrackedPrintCommand(provider, text, cwd, env, sessionId, turnId, {
+        result = await this.runTrackedPrintCommand(sessionKey, provider, text, cwd, env, sessionId, turnId, {
           geminiResumeNativeSession: false
         });
       }
@@ -4534,7 +4541,7 @@ class VaultPowerShellView extends ItemView {
               text: `Gemini model ${initialModel || "default"} is not available for the current account/server. Retrying with ${fallbackModel || "default"}.`
             });
           });
-          result = await this.runTrackedPrintCommand(provider, text, cwd, env, sessionId, turnId, {
+          result = await this.runTrackedPrintCommand(sessionKey, provider, text, cwd, env, sessionId, turnId, {
             settings: { ...this.plugin.settings, geminiModel: fallbackModel },
             geminiResumeNativeSession: this.agentGeminiNativeSessionStarted
           });
@@ -4565,7 +4572,7 @@ class VaultPowerShellView extends ItemView {
           this.setAgentStatus("Forking locked Claude session...");
           this.saveAgentViewState();
         });
-        result = await this.runTrackedPrintCommand(provider, text, cwd, env, resumeSessionId, turnId, {
+        result = await this.runTrackedPrintCommand(sessionKey, provider, text, cwd, env, resumeSessionId, turnId, {
           resumeFork: true
         });
         if (isClaudeSessionInUseResult(result)) {
@@ -4636,6 +4643,7 @@ class VaultPowerShellView extends ItemView {
   }
 
   private async runTrackedPrintCommand(
+    sessionKey: string | null,
     provider: AgentProvider,
     text: string,
     cwd: string,
@@ -4657,17 +4665,25 @@ class VaultPowerShellView extends ItemView {
       });
 
     if (handle.child) {
-      this.agentPrintTurnRuntime = {
-        provider,
-        turnId,
-        sessionId,
-        child: handle.child,
-        pid: handle.pid,
-        kill: handle.kill,
-        startedAt: Date.now(),
-        promptPreview: text.slice(0, 160),
-        settled: false
-      };
+      const child = handle.child;
+      // Pin the runtime mutation to the owning session. Retry calls resume
+      // from an await and may otherwise run while ANOTHER tab is active,
+      // leaking this turn's "Waiting..." state into that tab.
+      this.withAgentSession(sessionKey, () => {
+        this.agentPrintTurnRuntime = {
+          provider,
+          turnId,
+          sessionId,
+          child,
+          pid: handle.pid,
+          kill: handle.kill,
+          startedAt: Date.now(),
+          promptPreview: text.slice(0, 160),
+          settled: false
+        };
+        this.updateSendButtonMode();
+        this.saveAgentViewState();
+      });
       if (handle.pid !== undefined && (provider === "claude" || provider === "gemini")) {
         this.plugin.registerAgentPrintProcess({
           pid: handle.pid,
@@ -4678,17 +4694,17 @@ class VaultPowerShellView extends ItemView {
           pluginVersion: this.plugin.manifest.version
         });
       }
-      this.updateSendButtonMode();
-      this.saveAgentViewState();
     }
 
     const result = await handle.promise;
     this.plugin.unregisterAgentPrintProcess(handle.pid);
-    if (this.agentPrintTurnRuntime?.turnId === turnId) {
-      this.agentPrintTurnRuntime.settled = true;
-      this.agentPrintTurnRuntime.cancelReason = result.cancelReason;
-    }
-    this.updateSendButtonMode();
+    this.withAgentSession(sessionKey, () => {
+      if (this.agentPrintTurnRuntime?.turnId === turnId) {
+        this.agentPrintTurnRuntime.settled = true;
+        this.agentPrintTurnRuntime.cancelReason = result.cancelReason;
+      }
+      this.updateSendButtonMode();
+    });
     return result;
   }
 
@@ -8205,7 +8221,12 @@ function normalizeAgentWorkspaceSessionState(value: unknown): AgentWorkspaceSess
     codexScrollTop: typeof candidate.codexScrollTop === "number" ? candidate.codexScrollTop : 0,
     geminiScrollTop: typeof candidate.geminiScrollTop === "number" ? candidate.geminiScrollTop : 0,
     inputText: typeof candidate.inputText === "string" ? candidate.inputText : "",
-    statusText: typeof candidate.statusText === "string" && candidate.statusText.trim() ? candidate.statusText : "Idle",
+    // Restored sessions have no live process, so a persisted loading status
+    // ("Waiting for ... response...", "... in progress") is stale by
+    // definition and must not resurrect the loading indicator.
+    statusText: typeof candidate.statusText === "string" && candidate.statusText.trim() && !isStaleRestoredAgentStatus(candidate.statusText)
+      ? candidate.statusText
+      : "Idle",
     agentLastUsageText: typeof candidate.agentLastUsageText === "string" && candidate.agentLastUsageText.trim()
       ? candidate.agentLastUsageText.trim()
       : null,
@@ -8306,6 +8327,11 @@ function getAgentPromptModeLabel(mode: AgentPromptMode): string {
 
 function isAgentLoadingStatus(text: string): boolean {
   return /checking|starting|fetching|downloading|installing|launching|in progress|waiting for response|receiving output/i.test(text);
+}
+
+/** Status texts that only make sense while a process is actually running. */
+function isStaleRestoredAgentStatus(text: string): boolean {
+  return isAgentLoadingStatus(text) || /waiting for .{1,60} response|응답 중/i.test(text);
 }
 
 function formatElapsedSeconds(seconds: number): string {
