@@ -1,4 +1,34 @@
+/* ==========================================================================
+   Obst Terminal — Agent Console
+   Modern, clean visual language built on Obsidian theme variables so light
+   and dark themes both look native. Layout-critical rules (flex, min-height,
+   overflow) are preserved from the original sheet; only the skin changed.
+   ========================================================================== */
+
 .vault-powershell-view {
+  /* Design tokens */
+  --oa-radius-sm: 6px;
+  --oa-radius: 8px;
+  --oa-radius-lg: 10px;
+  --oa-radius-pill: 999px;
+  --oa-border: color-mix(in srgb, var(--background-modifier-border) 78%, transparent);
+  --oa-border-strong: var(--background-modifier-border);
+  --oa-surface: var(--background-primary);
+  --oa-surface-soft: color-mix(in srgb, var(--background-secondary) 62%, var(--background-primary));
+  --oa-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --oa-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 6px 20px rgba(0, 0, 0, 0.05);
+  --oa-accent: var(--interactive-accent);
+  --oa-accent-soft: color-mix(in srgb, var(--interactive-accent) 11%, transparent);
+  /* Opaque bubble fill (covers the canvas grid cleanly) */
+  --oa-bubble: color-mix(in srgb, var(--interactive-accent) 9%, var(--background-primary));
+  --oa-bubble-border: color-mix(in srgb, var(--interactive-accent) 24%, transparent);
+  /* Canvas-style grid line for the transcript background */
+  --oa-grid: color-mix(in srgb, var(--background-modifier-border) 30%, transparent);
+  --oa-claude: #d97757;
+  --oa-codex: #10a37f;
+  --oa-gemini: #4285f4;
+  --oa-ease: cubic-bezier(0.2, 0, 0, 1);
+
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -7,27 +37,41 @@
   overflow: hidden;
 }
 
+/* --------------------------------------------------------------------------
+   Pane tab bar (Agent / Terminal)
+   -------------------------------------------------------------------------- */
+
 .vault-terminal-tabbar {
   flex: 0 0 auto;
   display: flex;
   gap: 4px;
-  padding: 6px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--oa-border);
+  background: var(--background-primary);
 }
 
-.vault-terminal-tab {
+.vault-terminal-tabbar button.vault-terminal-tab {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
-  border: 1px solid transparent;
-  border-radius: 6px;
+  gap: 6px;
+  padding: 4px 12px;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  box-shadow: none;
+  border-radius: var(--oa-radius-sm);
   background: transparent;
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
   font-weight: 600;
-  min-height: 26px;
+  min-height: 28px;
+  cursor: pointer;
+  transition: background 0.15s var(--oa-ease), color 0.15s var(--oa-ease);
+}
+
+.vault-terminal-tabbar button.vault-terminal-tab:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
 }
 
 .vault-terminal-tab .svg-icon {
@@ -35,16 +79,21 @@
   height: 15px;
 }
 
-.vault-terminal-tab.is-active {
-  background: var(--background-modifier-hover);
+.vault-terminal-tabbar button.vault-terminal-tab.is-active {
+  background: var(--oa-accent-soft);
   color: var(--text-normal);
 }
 
+/* --------------------------------------------------------------------------
+   Settings: advanced disclosure
+   -------------------------------------------------------------------------- */
+
 .vault-terminal-advanced-settings {
-  margin-top: 10px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
+  margin-top: 12px;
+  border: 1px solid var(--oa-border);
+  border-radius: var(--oa-radius);
   background: var(--background-secondary);
+  overflow: hidden;
 }
 
 .vault-terminal-advanced-settings > summary {
@@ -53,10 +102,15 @@
   color: var(--text-muted);
   font-size: var(--font-ui-small);
   font-weight: 600;
+  transition: color 0.15s var(--oa-ease);
+}
+
+.vault-terminal-advanced-settings > summary:hover {
+  color: var(--text-normal);
 }
 
 .vault-terminal-advanced-settings[open] > summary {
-  border-bottom: 1px solid var(--background-modifier-border);
+  border-bottom: 1px solid var(--oa-border);
   color: var(--text-normal);
 }
 
@@ -76,12 +130,18 @@
   flex-direction: column;
 }
 
+/* --------------------------------------------------------------------------
+   Approval cards
+   -------------------------------------------------------------------------- */
+
 .vault-agent-approval {
-  border: 1px solid var(--interactive-accent);
-  border-radius: 8px;
-  padding: 10px;
-  margin: 6px 0;
-  background: var(--background-secondary);
+  border: 1px solid var(--oa-border);
+  border-left: 3px solid var(--oa-accent);
+  border-radius: var(--oa-radius);
+  padding: 12px 14px;
+  margin: 8px 0;
+  background: var(--oa-accent-soft);
+  box-shadow: var(--oa-shadow-sm);
 }
 
 .vault-agent-approval-title {
@@ -92,12 +152,14 @@
 .vault-agent-approval-detail {
   white-space: pre-wrap;
   font-size: var(--font-ui-smaller);
+  font-family: var(--font-monospace);
   background: var(--background-primary);
-  padding: 6px;
-  border-radius: 4px;
+  border: 1px solid var(--oa-border);
+  padding: 8px 10px;
+  border-radius: var(--oa-radius-sm);
   max-height: 220px;
   overflow: auto;
-  margin: 0 0 8px;
+  margin: 0 0 10px;
 }
 
 .vault-agent-approval-actions {
@@ -115,6 +177,10 @@
   font-size: var(--font-ui-smaller);
 }
 
+/* --------------------------------------------------------------------------
+   Model / mode selects (composer options row)
+   -------------------------------------------------------------------------- */
+
 .vault-agent-options {
   display: flex;
   gap: 6px;
@@ -127,13 +193,37 @@
 }
 
 .vault-agent-option-select {
+  appearance: none;
+  -webkit-appearance: none;
   font-size: var(--font-ui-smaller);
-  padding: 2px 6px;
-  border-radius: 6px;
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  color: var(--text-normal);
+  height: 26px;
+  padding: 0 22px 0 10px;
+  border-radius: var(--oa-radius-sm);
+  background-color: var(--oa-surface-soft);
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-faint) 50%),
+    linear-gradient(135deg, var(--text-faint) 50%, transparent 50%);
+  background-position: calc(100% - 13px) 11px, calc(100% - 9px) 11px;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+  border: 1px solid transparent;
+  box-shadow: none;
+  color: var(--text-muted);
   max-width: 100%;
+  cursor: pointer;
+  transition: border-color 0.15s var(--oa-ease), color 0.15s var(--oa-ease), background-color 0.15s var(--oa-ease);
+}
+
+.vault-agent-option-select:hover {
+  color: var(--text-normal);
+  border-color: var(--oa-border-strong);
+}
+
+.vault-agent-option-select:focus,
+.vault-agent-option-select:focus-visible {
+  outline: none;
+  border-color: var(--oa-accent);
+  color: var(--text-normal);
+  box-shadow: 0 0 0 2px var(--oa-accent-soft);
 }
 
 .vault-agent-option-select.is-hidden {
@@ -144,11 +234,15 @@
   display: none;
 }
 
+/* --------------------------------------------------------------------------
+   Attachments
+   -------------------------------------------------------------------------- */
+
 .vault-agent-attach-button.has-attachments {
-  border-color: var(--interactive-accent);
+  border-color: var(--oa-accent);
   color: var(--text-accent);
-  background: var(--background-modifier-hover);
-  font-weight: 700;
+  background: var(--oa-accent-soft);
+  font-weight: 600;
 }
 
 .vault-agent-attachments {
@@ -156,11 +250,11 @@
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  padding: 7px 8px;
-  margin: 6px 0 2px;
-  border: 1px solid var(--interactive-accent);
-  border-radius: 6px;
-  background: var(--background-secondary);
+  padding: 8px 10px;
+  margin: 8px 0 0;
+  border: 1px dashed color-mix(in srgb, var(--interactive-accent) 45%, transparent);
+  border-radius: var(--oa-radius);
+  background: var(--oa-accent-soft);
 }
 
 .vault-agent-attachments.is-hidden {
@@ -169,7 +263,7 @@
 
 .vault-agent-attachments-label {
   font-size: var(--font-ui-smaller);
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text-accent);
   margin-right: 2px;
 }
@@ -177,18 +271,19 @@
 .vault-agent-attachment-chip {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   font-size: var(--font-ui-smaller);
   color: var(--text-normal);
   background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
-  padding: 3px 6px;
+  border: 1px solid var(--oa-border);
+  border-radius: var(--oa-radius-sm);
+  padding: 3px 8px;
   max-width: 100%;
+  box-shadow: var(--oa-shadow-sm);
 }
 
 .vault-agent-attachment-chip.is-image {
-  border-color: rgba(16, 163, 127, 0.45);
+  border-color: color-mix(in srgb, var(--oa-codex) 45%, transparent);
 }
 
 .vault-agent-attachment-kind {
@@ -198,51 +293,69 @@
   letter-spacing: 0.02em;
 }
 
-.vault-agent-attachment-chip button {
+.vault-agent-attachments .vault-agent-attachment-chip button {
   padding: 0 2px;
+  appearance: none;
+  -webkit-appearance: none;
   background: none;
   border: none;
+  box-shadow: none;
   cursor: pointer;
   color: var(--text-muted);
+  border-radius: 4px;
+  transition: color 0.15s var(--oa-ease);
 }
 
-/* === Codex turn cards: one question + its blog-style answer === */
+.vault-agent-attachments .vault-agent-attachment-chip button:hover {
+  color: var(--text-error, #e5534b);
+}
+
+/* --------------------------------------------------------------------------
+   Turn cards: one question + its answer
+   -------------------------------------------------------------------------- */
+
+/* Turns are chat-like: the user's input is a clean rounded bubble on the
+   right; the answer flows plainly on the canvas with no box around it. */
 .vault-agent-turn {
-  margin: 0 0 16px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 10px;
-  overflow: hidden;
-  background: var(--background-primary);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  margin: 0 0 22px;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+  background: transparent;
+  box-shadow: none;
 }
 
 .vault-agent-turn-question {
-  padding: 11px 14px;
-  background: var(--background-secondary-alt);
-  border-bottom: 1px solid var(--background-modifier-border);
-}
-
-.vault-agent-turn-question::before {
-  content: "You";
-  display: block;
-  font-size: var(--font-ui-smaller);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-accent);
-  margin-bottom: 4px;
+  width: fit-content;
+  max-width: 92%;
+  margin: 0 0 14px auto;
+  padding: 10px 14px;
+  background: var(--oa-bubble);
+  border: 1px solid var(--oa-bubble-border);
+  border-radius: var(--oa-radius-lg);
+  border-bottom-right-radius: 3px;
+  box-shadow: var(--oa-shadow-sm);
 }
 
 .vault-agent-turn-question-text {
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-normal);
   white-space: pre-wrap;
   word-break: break-word;
+  /* Same type size as the answer body so a turn reads as one conversation. */
+  font-size: var(--font-text-size);
+  line-height: var(--line-height-normal, 1.65);
 }
 
 .vault-agent-turn-answer {
+  /* A quiet opaque "paper sheet" over the canvas grid keeps answers readable
+     without heavy card chrome. */
   padding: 14px 16px;
-  line-height: var(--line-height-normal, 1.6);
+  background: var(--background-primary);
+  border: 1px solid var(--oa-border);
+  border-radius: var(--oa-radius-lg);
+  box-shadow: var(--oa-shadow-sm);
+  line-height: var(--line-height-normal, 1.65);
   /* Match note body text size; no inner scroll — the whole transcript scrolls. */
   font-size: var(--font-text-size);
   color: var(--text-normal);
@@ -261,7 +374,7 @@
 
 /* Items flow inside the answer with no per-item box. */
 .vault-agent-block {
-  margin: 0 0 12px;
+  margin: 0 0 14px;
 }
 
 .vault-agent-block:last-child {
@@ -269,20 +382,20 @@
 }
 
 .vault-agent-block-label {
-  font-size: var(--font-ui-smaller);
-  font-weight: 600;
+  font-size: 0.72em;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-  margin-bottom: 3px;
+  letter-spacing: 0.07em;
+  color: var(--text-faint);
+  margin-bottom: 4px;
 }
 
 /* reasoning: muted aside */
 .vault-agent-block-reasoning .vault-agent-block-body {
   color: var(--text-muted);
   font-style: italic;
-  border-left: 2px solid var(--background-modifier-border);
-  padding-left: 10px;
+  border-left: 2px solid color-mix(in srgb, var(--interactive-accent) 35%, transparent);
+  padding-left: 12px;
   white-space: pre-wrap;
 }
 
@@ -292,9 +405,10 @@
   font-size: var(--font-ui-smaller);
   white-space: pre-wrap;
   word-break: break-word;
-  background: var(--background-secondary);
-  border-radius: 6px;
-  padding: 8px 10px;
+  background: var(--oa-surface-soft);
+  border: 1px solid var(--oa-border);
+  border-radius: var(--oa-radius-sm);
+  padding: 10px 12px;
 }
 
 /* agentMessage is rendered with Obsidian's own theme via .markdown-rendered,
@@ -309,11 +423,14 @@
   margin-bottom: 0;
 }
 
-/* === In-chat "thinking" indicator, pinned to the active answer === */
+/* --------------------------------------------------------------------------
+   In-chat "thinking" indicator, pinned to the active answer
+   -------------------------------------------------------------------------- */
+
 .vault-agent-thinking {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   min-width: 0;
   padding: 6px 2px;
   color: var(--text-muted);
@@ -328,7 +445,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--interactive-accent);
+  background: var(--oa-accent);
   animation: vault-agent-think 1.2s infinite ease-in-out both;
 }
 
@@ -359,15 +476,19 @@
   }
 }
 
+/* --------------------------------------------------------------------------
+   Legacy terminal toolbar (kept for the terminal pane)
+   -------------------------------------------------------------------------- */
+
 .vault-terminal-toolbar {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--oa-border);
+  background: var(--background-primary);
   color: var(--text-normal);
 }
 
@@ -419,6 +540,10 @@
   }
 }
 
+/* --------------------------------------------------------------------------
+   Agent console shell
+   -------------------------------------------------------------------------- */
+
 .vault-agent-console {
   flex: 1;
   min-height: 0;
@@ -428,22 +553,26 @@
   color: var(--text-normal);
 }
 
+/* --------------------------------------------------------------------------
+   Session tabs — floating pills
+   -------------------------------------------------------------------------- */
+
 .vault-agent-session-tabs {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   min-width: 0;
-  padding: 6px 10px 0;
-  border-bottom: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
+  padding: 8px 10px 6px;
+  border-bottom: 1px solid var(--oa-border);
+  background: var(--background-primary);
 }
 
 .vault-agent-session-tab-list {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
-  align-items: flex-end;
-  gap: 2px;
+  align-items: center;
+  gap: 4px;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -453,48 +582,80 @@
 }
 
 .vault-agent-session-tab-item {
-  flex: 0 0 auto;
+  /* Shrink with the pane: tabs compress (title ellipsizes) instead of
+     overflowing and looking clipped in a narrow sidebar. Borderless pills:
+     the active state is a soft fill only, so no line fights the rounding. */
+  flex: 1 1 auto;
   display: inline-flex;
   align-items: center;
-  min-width: 0;
+  min-width: 44px;
   max-width: 190px;
-  border: 1px solid var(--background-modifier-border);
-  border-bottom-color: transparent;
-  border-radius: 8px 8px 0 0;
+  border: 0;
+  border-radius: var(--oa-radius-sm);
   background: transparent;
   overflow: hidden;
-  margin-bottom: -1px;
+  transition: background 0.15s var(--oa-ease);
+}
+
+.vault-agent-session-tab-item:hover {
+  background: var(--background-modifier-hover);
 }
 
 .vault-agent-session-tab-item.is-active {
-  border-color: var(--interactive-accent);
-  border-bottom-color: var(--background-primary);
-  background: var(--background-primary-alt);
+  background: var(--background-modifier-hover);
 }
 
-.vault-agent-session-tab-item-claude.is-active {
-  box-shadow: inset 0 2px 0 #d97757;
+/* Provider identity dot inside each tab */
+.vault-agent-session-tab::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 6px;
+  background: var(--text-faint);
+  opacity: 0.55;
+  transition: opacity 0.15s var(--oa-ease);
 }
 
-.vault-agent-session-tab-item-codex.is-active {
-  box-shadow: inset 0 2px 0 #10a37f;
+.vault-agent-session-tab-item-claude .vault-agent-session-tab::before {
+  background: var(--oa-claude);
 }
 
-.vault-agent-session-tab {
+.vault-agent-session-tab-item-codex .vault-agent-session-tab::before {
+  background: var(--oa-codex);
+}
+
+.vault-agent-session-tab-item-gemini .vault-agent-session-tab::before {
+  background: var(--oa-gemini);
+}
+
+.vault-agent-session-tab-item.is-active .vault-agent-session-tab::before {
+  opacity: 1;
+}
+
+/* High-specificity button resets: many community themes skin `button`
+   (background, border, box-shadow) with selectors that outrank a single
+   class, which made theme chrome bleed through the pills as stray lines. */
+.vault-agent-session-tabs button.vault-agent-session-tab {
   flex: 1 1 auto;
   min-width: 0;
-  height: 32px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: flex-start;
-  padding: 0 10px;
+  padding: 0 4px 0 10px;
+  appearance: none;
+  -webkit-appearance: none;
   border: 0;
   border-radius: 0;
   background: transparent;
+  box-shadow: none;
   color: var(--text-muted);
+  cursor: pointer;
 }
 
-.vault-agent-session-tab.is-active {
+.vault-agent-session-tabs button.vault-agent-session-tab.is-active {
   color: var(--text-normal);
   font-weight: 600;
 }
@@ -504,37 +665,61 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--font-ui-smaller);
 }
 
-.vault-agent-session-tab-close,
-.vault-agent-session-add {
+.vault-agent-session-tabs button.vault-agent-session-tab-close,
+.vault-agent-session-tabs button.vault-agent-session-add {
   flex: 0 0 auto;
-  width: 28px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0;
+  appearance: none;
+  -webkit-appearance: none;
   border: 0;
-  border-radius: 0;
+  border-radius: var(--oa-radius-sm);
   background: transparent;
-  color: var(--text-muted);
+  box-shadow: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: background 0.15s var(--oa-ease), color 0.15s var(--oa-ease);
 }
 
-.vault-agent-session-tab-close:hover,
-.vault-agent-session-add:hover {
+.vault-agent-session-tabs button.vault-agent-session-tab-close {
+  margin-right: 4px;
+  /* Save horizontal space in narrow panes: the close affordance appears only
+     on the active tab or while hovering a tab. */
+  display: none;
+}
+
+.vault-agent-session-tab-item.is-active button.vault-agent-session-tab-close,
+.vault-agent-session-tab-item:hover button.vault-agent-session-tab-close {
+  display: inline-flex;
+}
+
+.vault-agent-session-tabs button.vault-agent-session-tab-close:hover,
+.vault-agent-session-tabs button.vault-agent-session-add:hover {
   color: var(--text-normal);
   background: var(--background-modifier-hover);
 }
 
-.vault-agent-session-add {
-  border: 1px solid var(--background-modifier-border);
-  border-bottom-color: transparent;
-  border-radius: 8px 8px 0 0;
-  background: var(--background-primary);
-  margin-left: 4px;
-  margin-bottom: -1px;
+.vault-agent-session-tabs button.vault-agent-session-add {
+  width: 28px;
+  height: 28px;
+  margin-left: 6px;
 }
+
+.vault-agent-session-tabs button.vault-agent-session-add:hover {
+  color: var(--text-accent);
+  background: var(--oa-accent-soft);
+}
+
+/* --------------------------------------------------------------------------
+   Toolbar — provider segmented control + ghost actions
+   -------------------------------------------------------------------------- */
 
 .vault-agent-toolbar {
   flex: 0 0 auto;
@@ -543,8 +728,9 @@
   justify-content: space-between;
   gap: 8px;
   flex-wrap: wrap;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--background-modifier-border);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--oa-border);
+  background: var(--background-primary);
 }
 
 .vault-agent-provider-group,
@@ -556,17 +742,30 @@
   flex-wrap: wrap;
 }
 
-.vault-agent-provider {
+.vault-agent-provider-group {
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--oa-surface-soft);
+  border: 1px solid var(--oa-border);
+}
+
+.vault-agent-provider-group button.vault-agent-provider {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 34px;
-  height: 28px;
+  height: 26px;
   padding: 0;
-  border: 1px solid var(--background-modifier-border);
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
   border-radius: 6px;
-  background: var(--background-primary);
-  color: var(--text-muted);
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: background 0.15s var(--oa-ease), color 0.15s var(--oa-ease), box-shadow 0.15s var(--oa-ease);
 }
 
 .vault-agent-provider .svg-icon {
@@ -574,35 +773,48 @@
   height: 17px;
 }
 
-/* Brand identity: always tinted, active state adds background + border. */
-.vault-agent-provider-claude {
-  color: #d97757;
-}
-
-.vault-agent-provider-codex {
-  color: #10a37f;
-}
-
-.vault-agent-provider-gemini {
-  color: #4285f4;
-}
-
-.vault-agent-provider.is-active {
-  border-color: currentColor;
+.vault-agent-provider-group button.vault-agent-provider:hover {
+  color: var(--text-muted);
   background: var(--background-modifier-hover);
 }
 
-.vault-agent-action {
+/* Brand identity shows on hover and stays on the active segment. */
+.vault-agent-provider-group button.vault-agent-provider-claude:hover,
+.vault-agent-provider-group button.vault-agent-provider-claude.is-active {
+  color: var(--oa-claude);
+}
+
+.vault-agent-provider-group button.vault-agent-provider-codex:hover,
+.vault-agent-provider-group button.vault-agent-provider-codex.is-active {
+  color: var(--oa-codex);
+}
+
+.vault-agent-provider-group button.vault-agent-provider-gemini:hover,
+.vault-agent-provider-group button.vault-agent-provider-gemini.is-active {
+  color: var(--oa-gemini);
+}
+
+.vault-agent-provider-group button.vault-agent-provider.is-active {
+  background: var(--background-primary);
+  box-shadow: var(--oa-shadow-sm);
+}
+
+.vault-agent-actions button.vault-agent-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 30px;
   height: 28px;
   padding: 0;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
-  background: var(--background-primary);
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  border-radius: var(--oa-radius-sm);
+  background: transparent;
+  box-shadow: none;
   color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s var(--oa-ease), color 0.15s var(--oa-ease);
 }
 
 .vault-agent-action .svg-icon {
@@ -610,15 +822,19 @@
   height: 16px;
 }
 
-.vault-agent-action-start:hover {
+.vault-agent-actions button.vault-agent-action-start:hover {
   color: var(--text-success, #3aa675);
-  border-color: currentColor;
+  background: color-mix(in srgb, var(--text-success, #3aa675) 12%, transparent);
 }
 
-.vault-agent-action-stop:hover {
+.vault-agent-actions button.vault-agent-action-stop:hover {
   color: var(--text-error, #e5534b);
-  border-color: currentColor;
+  background: color-mix(in srgb, var(--text-error, #e5534b) 12%, transparent);
 }
+
+/* --------------------------------------------------------------------------
+   Transcript
+   -------------------------------------------------------------------------- */
 
 .vault-agent-transcript.is-hidden {
   display: none;
@@ -635,11 +851,31 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 12px;
-  background: var(--background-primary);
+  padding: 16px 14px;
+  /* Canvas feel: a faint grid under the conversation */
+  background-color: var(--background-primary);
+  background-image:
+    linear-gradient(to right, var(--oa-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--oa-grid) 1px, transparent 1px);
+  background-size: 24px 24px;
   user-select: text;
   -webkit-user-select: text;
   cursor: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--oa-border-strong) transparent;
+}
+
+.vault-agent-transcript::-webkit-scrollbar {
+  width: 8px;
+}
+
+.vault-agent-transcript::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.vault-agent-transcript::-webkit-scrollbar-thumb {
+  background: var(--oa-border-strong);
+  border-radius: var(--oa-radius-pill);
 }
 
 .vault-agent-message,
@@ -668,49 +904,94 @@
   -webkit-user-select: none;
 }
 
+/* Standalone messages: user input is an accent bubble; assistant/tool output
+   sits on a plain opaque sheet so the canvas grid never fights the text. */
 .vault-agent-message {
   max-width: 100%;
-  margin-bottom: 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  background: var(--background-secondary);
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--oa-border);
+  border-radius: var(--oa-radius-lg);
+  background: var(--background-primary);
+  box-shadow: var(--oa-shadow-sm);
 }
 
+/* User messages read as chat bubbles: accent tint, right-aligned */
 .vault-agent-message-user {
-  border-color: var(--interactive-accent);
-  background: var(--background-modifier-hover);
+  width: fit-content;
+  max-width: 92%;
+  margin-left: auto;
+  padding: 10px 14px;
+  border: 1px solid var(--oa-bubble-border);
+  background: var(--oa-bubble);
+  border-radius: var(--oa-radius-lg);
+  border-bottom-right-radius: 3px;
+  box-shadow: var(--oa-shadow-sm);
 }
 
+.vault-agent-message-user .vault-agent-message-role {
+  display: none;
+}
+
+.vault-agent-message-user .vault-agent-message-body {
+  font-size: var(--font-text-size);
+  line-height: var(--line-height-normal, 1.65);
+}
+
+/* System notices: quiet and compact — a small opaque backdrop keeps the tiny
+   text readable over the grid without card chrome. */
 .vault-agent-message-system {
+  width: fit-content;
+  max-width: 100%;
+  border: 0;
+  box-shadow: none;
+  background: var(--background-primary);
+  border-radius: var(--oa-radius-sm);
+  color: var(--text-muted);
+  padding: 3px 10px;
+  font-size: var(--font-ui-smaller);
+}
+
+.vault-agent-message-system .vault-agent-message-body {
+  font-size: var(--font-ui-smaller);
   color: var(--text-muted);
 }
 
 .vault-agent-message-role {
   margin-bottom: 4px;
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  font-size: 0.72em;
   font-weight: 700;
   text-transform: uppercase;
+  letter-spacing: 0.07em;
 }
 
 .vault-agent-message-body {
   white-space: pre-wrap;
   word-break: break-word;
   font-size: var(--font-ui-small);
-  line-height: 1.45;
+  line-height: 1.5;
 }
+
+/* --------------------------------------------------------------------------
+   Loading pill — floats between transcript and composer
+   -------------------------------------------------------------------------- */
 
 .vault-agent-loading {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
-  border-top: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
+  width: fit-content;
+  max-width: calc(100% - 24px);
+  margin: 0 auto 8px;
+  padding: 5px 14px;
+  border: 1px solid var(--oa-border);
+  border-radius: var(--oa-radius-pill);
+  background: var(--background-primary);
+  box-shadow: var(--oa-shadow);
   color: var(--text-muted);
-  font-size: var(--font-ui-small);
+  font-size: var(--font-ui-smaller);
 }
 
 .vault-agent-loading.is-hidden {
@@ -724,10 +1005,10 @@
 }
 
 .vault-agent-loading-dots span {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--interactive-accent);
+  width: 5px;
+  height: 5px;
+  border-radius: var(--oa-radius-pill);
+  background: var(--oa-accent);
   animation: vault-agent-loading-dot 1.15s ease-in-out infinite;
 }
 
@@ -748,15 +1029,29 @@
 .vault-agent-link {
   color: var(--text-accent);
   text-decoration: underline;
+  text-underline-offset: 2px;
   word-break: break-all;
   overflow-wrap: anywhere;
 }
 
+/* --------------------------------------------------------------------------
+   Composer — floating input card
+   -------------------------------------------------------------------------- */
+
 .vault-agent-composer {
   flex: 0 0 auto;
-  padding: 10px 12px 12px;
-  border-top: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
+  margin: 0 10px 10px;
+  padding: 10px 12px 10px;
+  border: 1px solid var(--oa-border-strong);
+  border-radius: var(--oa-radius-lg);
+  background: var(--background-primary);
+  box-shadow: var(--oa-shadow);
+  transition: border-color 0.15s var(--oa-ease), box-shadow 0.15s var(--oa-ease);
+}
+
+.vault-agent-composer:focus-within {
+  border-color: color-mix(in srgb, var(--interactive-accent) 55%, var(--oa-border-strong));
+  box-shadow: 0 0 0 3px var(--oa-accent-soft), var(--oa-shadow);
 }
 
 .vault-agent-prompt-actions {
@@ -774,30 +1069,51 @@
 .vault-agent-prompt-actions-label {
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
-  font-weight: 700;
+  font-weight: 600;
 }
 
-.vault-agent-prompt-action {
+.vault-agent-prompt-actions button.vault-agent-prompt-action {
   min-height: 26px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
+  padding: 2px 12px;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--oa-border-strong);
+  border-radius: var(--oa-radius-sm);
   background: var(--background-primary);
+  box-shadow: none;
   color: var(--text-normal);
   font-size: var(--font-ui-smaller);
+  cursor: pointer;
+  transition: border-color 0.15s var(--oa-ease), background 0.15s var(--oa-ease), color 0.15s var(--oa-ease);
+}
+
+.vault-agent-prompt-actions button.vault-agent-prompt-action:hover {
+  border-color: var(--oa-accent);
+  background: var(--oa-accent-soft);
+  color: var(--text-accent);
 }
 
 .vault-agent-input {
   width: 100%;
-  min-height: 48px;
+  min-height: 52px;
   max-height: 35vh;
   resize: vertical;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  background: var(--background-primary);
+  border: 0;
+  border-radius: var(--oa-radius-sm);
+  background: transparent;
+  box-shadow: none;
   color: var(--text-normal);
   font-family: var(--font-interface);
   font-size: var(--font-ui-small);
-  line-height: 1.45;
+  line-height: 1.5;
+  padding: 4px 2px;
+}
+
+.vault-agent-input:focus,
+.vault-agent-input:focus-visible {
+  outline: none;
+  border: 0;
+  box-shadow: none;
 }
 
 .vault-agent-composer-actions {
@@ -805,13 +1121,57 @@
   margin-top: 8px;
 }
 
+/* Secondary composer buttons: quiet ghost pills */
+.vault-agent-composer .vault-agent-composer-actions button {
+  height: 28px;
+  padding: 0 12px;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  border-radius: var(--oa-radius-sm);
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s var(--oa-ease), color 0.15s var(--oa-ease);
+}
+
+.vault-agent-composer .vault-agent-composer-actions button:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+/* Send: the one true call-to-action */
+.vault-agent-composer .vault-agent-composer-actions button.mod-cta {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-weight: 600;
+  padding: 0 16px;
+  border: 0;
+  box-shadow: var(--oa-shadow-sm);
+}
+
+.vault-agent-composer .vault-agent-composer-actions button.mod-cta:hover {
+  background: var(--interactive-accent-hover);
+  color: var(--text-on-accent);
+}
+
+/* --------------------------------------------------------------------------
+   Runtime prompt
+   -------------------------------------------------------------------------- */
+
 .vault-terminal-runtime-prompt {
   flex: 0 0 auto;
-  padding: 12px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
+  margin: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--oa-border);
+  border-radius: var(--oa-radius);
+  background: var(--oa-surface-soft);
   color: var(--text-normal);
   font-size: var(--font-ui-small);
+  box-shadow: var(--oa-shadow-sm);
 }
 
 .vault-terminal-runtime-prompt strong {
@@ -854,6 +1214,10 @@
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
 }
+
+/* --------------------------------------------------------------------------
+   Raw terminal (xterm) — functional styles, unchanged behavior
+   -------------------------------------------------------------------------- */
 
 .vault-powershell-terminal {
   flex: 1;
@@ -1077,5 +1441,18 @@
   50% {
     opacity: 1;
     transform: scale(1);
+  }
+}
+
+/* Respect reduced-motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .vault-agent-thinking-dots span,
+  .vault-agent-loading-dots span {
+    animation: none;
+    opacity: 0.8;
+  }
+
+  .vault-powershell-view * {
+    transition-duration: 0.01ms !important;
   }
 }
