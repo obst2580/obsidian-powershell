@@ -2230,8 +2230,29 @@ class VaultPowerShellView extends ItemView {
       if (previous) {
         this.activeAgentSessionKey = previous.agentSessionKey;
         this.applyAgentSessionRuntime(previous);
-        this.mountVisibleAgentSessionTranscript();
+        this.remountVisibleAgentSessionTranscriptIfNeeded();
       }
+    }
+  }
+
+  /**
+   * Remount only when the mounted DOM actually diverged. Background sessions
+   * bounce through withAgentSession every poll tick / stdout chunk, and an
+   * unconditional remount here destroyed the user's text selection (and
+   * nudged scroll) in the visible transcript every ~1.2s.
+   */
+  private remountVisibleAgentSessionTranscriptIfNeeded() {
+    if (!this.isVisibleAgentSessionContext()) {
+      return;
+    }
+    const mount = this.agentTranscriptMountEl;
+    if (!mount) {
+      return;
+    }
+    const els = [this.claudeTranscriptEl, this.codexTranscriptEl, this.geminiTranscriptEl];
+    const inSync = mount.childElementCount === 3 && els.every((el) => !!el && el.parentElement === mount);
+    if (!inSync) {
+      this.mountVisibleAgentSessionTranscript();
     }
   }
 
@@ -2260,7 +2281,7 @@ class VaultPowerShellView extends ItemView {
       if (previous) {
         this.activeAgentSessionKey = previous.agentSessionKey;
         this.applyAgentSessionRuntime(previous);
-        this.mountVisibleAgentSessionTranscript();
+        this.remountVisibleAgentSessionTranscriptIfNeeded();
       }
     }
   }

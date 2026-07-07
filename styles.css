@@ -130,6 +130,18 @@
   flex-direction: column;
 }
 
+/* The whole agent pane is one continuous canvas: the grid runs behind the
+   transcript AND the composer, so the input card floats on the same surface
+   instead of sitting in a visually separate bottom strip. (Tab strip and
+   toolbar have opaque backgrounds and cover the grid at the top.) */
+.vault-agent-pane {
+  background-color: var(--background-primary);
+  background-image:
+    linear-gradient(to right, var(--oa-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--oa-grid) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
 /* --------------------------------------------------------------------------
    Approval cards
    -------------------------------------------------------------------------- */
@@ -359,6 +371,17 @@
   /* Match note body text size; no inner scroll — the whole transcript scrolls. */
   font-size: var(--font-text-size);
   color: var(--text-normal);
+  max-width: 100%;
+  overflow-x: auto;
+  word-break: break-word;
+}
+
+/* Markdown tables can be wider than the pane: scroll them inside the sheet. */
+.vault-agent-turn-answer table,
+.vault-agent-message-body table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 /* Code blocks: wrap instead of scrolling sideways (the copy icon overlapped and
@@ -562,9 +585,10 @@
   display: flex;
   align-items: center;
   min-width: 0;
-  padding: 8px 10px 6px;
-  border-bottom: 1px solid var(--oa-border);
-  background: var(--background-primary);
+  padding: 8px 10px 4px;
+  /* Transparent: the tabs float on the pane canvas — no divider band. */
+  border-bottom: 0;
+  background: transparent;
 }
 
 .vault-agent-session-tab-list {
@@ -728,9 +752,10 @@
   justify-content: space-between;
   gap: 8px;
   flex-wrap: wrap;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--oa-border);
-  background: var(--background-primary);
+  padding: 6px 12px 8px;
+  /* Transparent: controls float on the pane canvas — no divider band. */
+  border-bottom: 0;
+  background: transparent;
 }
 
 .vault-agent-provider-group,
@@ -851,13 +876,11 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* Wide content scrolls inside its own answer sheet, never the whole pane. */
+  overflow-x: hidden;
   padding: 16px 14px;
-  /* Canvas feel: a faint grid under the conversation */
-  background-color: var(--background-primary);
-  background-image:
-    linear-gradient(to right, var(--oa-grid) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--oa-grid) 1px, transparent 1px);
-  background-size: 24px 24px;
+  /* Transparent: the pane-level canvas grid shows through. */
+  background: transparent;
   user-select: text;
   -webkit-user-select: text;
   cursor: auto;
