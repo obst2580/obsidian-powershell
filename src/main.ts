@@ -115,13 +115,18 @@ const CLAUDE_PRINT_TIMEOUT_MS: number | null = null;
 const AGENT_TRANSCRIPT_BOTTOM_EPSILON_PX = 96;
 const AGENT_TRANSCRIPT_CONTEXT_MAX_CHARS = 12000;
 const CODEX_TURN_COMPLETION_FALLBACK_MS = 15000;
+// Aliases track Claude Code's "latest" resolution (shown in the label as of
+// 2026-07); full model ids below pin a specific version regardless of alias drift.
 const CLAUDE_MODEL_CHOICES = [
   { value: "", label: "Claude default" },
-  { value: "best", label: "best" },
+  { value: "best", label: "best (auto)" },
   { value: "fable", label: "Fable 5 (fable)" },
-  { value: "sonnet", label: "Sonnet (sonnet)" },
-  { value: "opus", label: "Opus (opus)" },
-  { value: "haiku", label: "Haiku (haiku)" }
+  { value: "opus", label: "Opus 4.8 (opus)" },
+  { value: "sonnet", label: "Sonnet 5 (sonnet)" },
+  { value: "haiku", label: "Haiku 4.5 (haiku)" },
+  { value: "claude-opus-4-7", label: "Opus 4.7 (pinned)" },
+  { value: "claude-opus-4-6", label: "Opus 4.6 (pinned)" },
+  { value: "claude-sonnet-4-6", label: "Sonnet 4.6 (pinned)" }
 ];
 const CLAUDE_EFFORT_CHOICES = [
   { value: "", label: "Effort: default" },

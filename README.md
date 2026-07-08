@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.80`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.81`.
 
 [한국어 README](README.ko.md)
 
@@ -49,7 +49,7 @@ The Claude Code Agent Console separates normal chat turns from login/control pro
 
 - Checks login with `claude auth status --json`.
 - Sends normal prompts through a session-specific Claude Code print turn with the configured `--permission-mode` and `--output-format json`.
-- The Claude model, effort, and permission mode are selected inside the Agent Console from dropdowns (`Claude default`, `best`, `fable`, `sonnet`, `opus`, `haiku`; `default`, `low`, `medium`, `high`, `xhigh`, `max`; `default`, `auto`, `acceptEdits`, `dontAsk`, `plan`, `bypassPermissions`).
+- The Claude model, effort, and permission mode are selected inside the Agent Console from dropdowns. Model choices show the resolved version for each alias (`Claude default`, `best`, `Fable 5`, `Opus 4.8`, `Sonnet 5`, `Haiku 4.5`) plus pinned model ids (`claude-opus-4-7`, `claude-opus-4-6`, `claude-sonnet-4-6`); effort: `default`, `low`, `medium`, `high`, `xhigh`, `max`; permission mode: `default`, `auto`, `acceptEdits`, `dontAsk`, `plan`, `bypassPermissions`.
 - Settings expose Claude executable, effort, permission mode, and strict MCP behavior.
 - The statusline shows the configured Claude model/mode, plugin transcript-context meter, and any usage summary available in Claude's JSON output.
 - Reads Claude's JSON `session_id` after each print turn and keeps the plugin tab bound to the actual Claude Code session.
@@ -290,8 +290,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.80
-git push origin 0.6.80
+git tag 0.6.81
+git push origin 0.6.81
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.
