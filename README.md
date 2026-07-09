@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.81`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.82`.
 
 [한국어 README](README.ko.md)
 
@@ -36,6 +36,7 @@ The Codex Agent Console uses `codex app-server` by default instead of embedding 
 - Talks to `codex app-server` over JSON-RPC.
 - Checks ChatGPT login state and can start browser or device-code login.
 - Shows model, reasoning effort, and access-level controls as in-console dropdowns below the composer.
+- Discovers the signed-in account's model catalog from `codex app-server`, including `GPT-5.6-Sol` (frontier), `GPT-5.6-Terra` (balanced), and `GPT-5.6-Luna` (fast) when the account has access. Each model exposes its supported reasoning levels: Sol and Terra include `max` and `ultra`, while Luna includes `max`.
 - Keeps each user turn in one transcript card, including reasoning, command execution, tool calls, and the final answer.
 - Turns the `Send` button into `Stop` while a turn is active.
 - Queues additional messages while Codex is still answering.
@@ -290,8 +291,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.81
-git push origin 0.6.81
+git tag 0.6.82
+git push origin 0.6.82
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.

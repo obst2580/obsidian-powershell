@@ -33,6 +33,8 @@ export interface AgentModelInfo {
   id: string;
   displayName: string;
   description?: string;
+  /** Whether the provider currently resolves its unpinned default to this model. */
+  isDefault?: boolean;
   /** Supported reasoning-effort values for this model (e.g. low/medium/high/xhigh). */
   efforts: string[];
   defaultEffort?: string;

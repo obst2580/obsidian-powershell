@@ -115,6 +115,11 @@ const CLAUDE_PRINT_TIMEOUT_MS: number | null = null;
 const AGENT_TRANSCRIPT_BOTTOM_EPSILON_PX = 96;
 const AGENT_TRANSCRIPT_CONTEXT_MAX_CHARS = 12000;
 const CODEX_TURN_COMPLETION_FALLBACK_MS = 15000;
+const CODEX_MODEL_ROLE_LABELS: Record<string, string> = {
+  "gpt-5.6-sol": "frontier",
+  "gpt-5.6-terra": "balanced",
+  "gpt-5.6-luna": "fast"
+};
 // Aliases track Claude Code's "latest" resolution (shown in the label as of
 // 2026-07); full model ids below pin a specific version regardless of alias drift.
 const CLAUDE_MODEL_CHOICES = [
@@ -2661,24 +2666,33 @@ class VaultPowerShellView extends ItemView {
     setSelectChoices(this.claudePermissionSelect, CLAUDE_PERMISSION_MODE_CHOICES, this.plugin.settings.claudePermissionMode, "Saved");
     setSelectChoices(this.geminiModelSelect, getGeminiModelChoices(this.plugin.settings), this.plugin.settings.geminiModel, "Saved");
     setSelectChoices(this.geminiApprovalSelect, GEMINI_APPROVAL_MODE_CHOICES, this.plugin.settings.geminiApprovalMode, "Saved");
-    this.refreshCodexModelSelect(false);
+    this.refreshCodexModelSelect();
   }
 
-  private refreshCodexModelSelect(selectFirstAvailable: boolean) {
+  private getDefaultCodexModel(): AgentModelInfo | undefined {
+    return this.codexModels.find((model) => model.isDefault) ?? this.codexModels[0];
+  }
+
+  private refreshCodexModelSelect() {
     if (!this.codexModelSelect) {
       return;
     }
     const configured = this.plugin.settings.codexModel.trim();
-    const selected = configured || (selectFirstAvailable ? this.codexModels[0]?.id ?? "" : "");
+    const defaultModel = this.getDefaultCodexModel();
     this.codexModelSelect.empty();
-    this.codexModelSelect.createEl("option", { value: "", text: "Codex default" });
+    this.codexModelSelect.createEl("option", {
+      value: "",
+      text: defaultModel ? `${defaultModel.displayName} (default)` : "Codex default"
+    });
     for (const model of this.codexModels) {
-      this.codexModelSelect.createEl("option", { value: model.id, text: model.displayName });
+      const role = CODEX_MODEL_ROLE_LABELS[model.id.toLowerCase()];
+      const label = role ? `${model.displayName} (${role})` : model.displayName;
+      this.codexModelSelect.createEl("option", { value: model.id, text: label });
     }
-    if (selected && !selectHasOption(this.codexModelSelect, selected)) {
-      this.codexModelSelect.createEl("option", { value: selected, text: `Saved: ${selected}` });
+    if (configured && !selectHasOption(this.codexModelSelect, configured)) {
+      this.codexModelSelect.createEl("option", { value: configured, text: `Saved: ${configured}` });
     }
-    this.codexModelSelect.value = selected;
+    this.codexModelSelect.value = configured;
   }
 
   private onClaudeModelChange() {
@@ -3390,7 +3404,9 @@ class VaultPowerShellView extends ItemView {
 
   private getSelectedCodexModelLabel(): string {
     const selected = this.codexModelSelect?.value || this.plugin.settings.codexModel;
-    const model = this.codexModels.find((candidate) => candidate.id === selected);
+    const model = selected
+      ? this.codexModels.find((candidate) => candidate.id === selected)
+      : this.getDefaultCodexModel();
     return model?.displayName || selected || "Codex";
   }
 
@@ -3515,7 +3531,7 @@ class VaultPowerShellView extends ItemView {
         return;
       }
       if (this.isVisibleAgentSessionContext()) {
-        this.refreshCodexModelSelect(true);
+        this.refreshCodexModelSelect();
         this.refreshAgentOptionsRow();
       }
       this.onCodexModelChange();
@@ -3532,7 +3548,9 @@ class VaultPowerShellView extends ItemView {
     }
     this.plugin.settings.codexModel = this.codexModelSelect.value;
     void this.plugin.saveSettings();
-    const model = this.codexModels.find((m) => m.id === this.codexModelSelect?.value);
+    const model = this.codexModelSelect.value
+      ? this.codexModels.find((candidate) => candidate.id === this.codexModelSelect?.value)
+      : this.getDefaultCodexModel();
     this.codexEffortSelect.empty();
     for (const effort of model?.efforts ?? []) {
       this.codexEffortSelect.createEl("option", { value: effort, text: effort });

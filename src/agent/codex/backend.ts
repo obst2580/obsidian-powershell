@@ -92,6 +92,7 @@ export class CodexAppServerBackend implements AgentBackend {
           id: String(m.id ?? m.model ?? ""),
           displayName: typeof m.displayName === "string" ? m.displayName : String(m.id ?? ""),
           description: typeof m.description === "string" ? m.description : undefined,
+          isDefault: m.isDefault === true,
           efforts: Array.isArray(m.supportedReasoningEfforts)
             ? m.supportedReasoningEfforts
                 .map((e) => (e as Record<string, unknown>).reasoningEffort)
