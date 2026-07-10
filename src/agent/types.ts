@@ -82,6 +82,8 @@ export interface AgentAttachment {
   path: string;
   /** Display name (required by Codex `mention` inputs). */
   name?: string;
+  /** Hidden shared context supplied by the host UI rather than a manual attachment. */
+  contextRole?: "active-note";
 }
 
 // The four plain decisions we surface in the UI. Codex also supports

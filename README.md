@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.82`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.83`.
 
 [한국어 README](README.ko.md)
 
@@ -12,22 +12,22 @@ Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-se
 
 Obst Terminal is not just a single chat console. It is designed as a **multi-session AI workspace inside one Obsidian vault**, where several Claude Code, Codex, and Antigravity sessions can stay open side by side as plugin tabs.
 
-- Add AI session tabs with the plugin `+` button or the `Open new AI session` command.
-- Each tab keeps its own Claude sessionId, Codex threadId, Antigravity provider state, provider, editable title, transcript, and running state.
+- Add an AI session tab by choosing Claude Code, Codex, or Antigravity from the plugin `+` menu or the `Open new AI session` command.
+- Each tab is fixed to the provider selected at creation and keeps its own session ID, transcript, and running state.
 - Switching tabs does not stop the running agent; background sessions continue writing to their own transcripts.
 - Claude, Codex, and Antigravity transcripts preserve their scroll positions per session/provider, so background updates and tab switches do not pull the view back to the top.
 - Personal Agent UI state is stored outside the vault in the current user's local Obst Terminal state. `.obsidian/plugins/vault-terminal/data.json` is reserved for shared plugin settings and does not store Claude/Codex/Antigravity session IDs, thread IDs, input drafts, or transcript HTML.
 - Use role-based sessions such as PM, Writer, Reviewer, and Researcher next to the same project documents.
 - Delegate prompts to other running AI sessions with `@all`, `@codex`, `@claude`, `@gemini`(=`@antigravity`), or `@"session title"`.
-- Attach files with the Attach button or paste images into the composer. Pasted images are saved in the configured attachment folder and sent to Claude, Codex, or Antigravity as local file paths.
-- Korean/current-note references such as `이 문서`, `이문서`, `옆에 문서`, `현재 문서`, and `열린 문서` are resolved to the currently active Obsidian note and injected into the agent prompt as a vault file reference.
+- Attach files from the composer's paperclip button or paste images directly. Pasted images are saved in the configured attachment folder and sent to Claude, Codex, or Antigravity as local file paths.
+- The composer continuously shows the active Obsidian note and selected lines. Unless unlinked, each normal turn captures that note as shared context, so implicit phrases such as `this`, `here`, or `this part` resolve without requiring a special command.
 - Mouse selection and copy inside Claude, Codex, and Antigravity transcripts are handled by the plugin so copying a partial selection does not expand to the whole message card.
 
 ## Current Behavior
 
-The default pane is **Agent Console**. The toolbar lets you choose `Claude`, `Codex`, or `Antigravity`, and the active provider is shown in the Agent Console chrome. Claude, Codex, and Antigravity keep separate transcripts when you switch providers.
+The first Agent Console tab defaults to `Claude Code`. After that, choose `Claude Code`, `Codex`, or `Antigravity` from the `+` menu at the end of the tab row. A tab's provider does not change after creation.
 
-You can split work across multiple AI sessions in the same vault. `Open AI workspace` reuses the first Obst Terminal view, while `Open new AI session` or the Agent Console `+` button adds an AI session tab inside the plugin instead of opening a new Obsidian workspace tab. Each tab keeps its own Claude sessionId, Codex threadId, Antigravity provider state, selected provider, editable title, visible transcript, and running backend/process state. Switching tabs does not stop the running agent; background sessions keep writing to their own transcripts. This is intended for project-management roles such as PM, Writer, Analyst, and Reviewer working beside the same vault documents. A session can delegate a prompt to other running tabs with `@all`, `@codex`, `@claude`, `@gemini`(=`@antigravity`), or `@"session title"`.
+You can split work across multiple AI sessions in the same vault. `Open AI workspace` reuses the first Obst Terminal view, while `Open new AI session` or the Agent Console `+` menu adds a tab for the selected provider inside the plugin instead of opening a new Obsidian workspace tab. Each tab keeps a provider-based label, independent session ID, transcript, and running backend/process state. Switching tabs does not stop the running agent; background sessions keep writing to their own transcripts. This is intended for project-management roles such as PM, Writer, Analyst, and Reviewer working beside the same vault documents. A session can delegate a prompt to other running tabs with `@all`, `@codex`, `@claude`, `@gemini`(=`@antigravity`), or `@"session title"`.
 
 ### Codex
 
@@ -38,9 +38,8 @@ The Codex Agent Console uses `codex app-server` by default instead of embedding 
 - Shows model, reasoning effort, and access-level controls as in-console dropdowns below the composer.
 - Discovers the signed-in account's model catalog from `codex app-server`, including `GPT-5.6-Sol` (frontier), `GPT-5.6-Terra` (balanced), and `GPT-5.6-Luna` (fast) when the account has access. Each model exposes its supported reasoning levels: Sol and Terra include `max` and `ultra`, while Luna includes `max`.
 - Keeps each user turn in one transcript card, including reasoning, command execution, tool calls, and the final answer.
-- Turns the `Send` button into `Stop` while a turn is active.
+- Turns the composer arrow into a stop icon while a turn is active.
 - Queues additional messages while Codex is still answering.
-- Shows a statusline with cwd, git branch, selected model, context usage, and 5h/7d rate-limit meters.
 - Buffers streaming deltas before rendering so Obsidian stays responsive during long answers.
 - Settings expose Codex executable, app-server mode, approval policy, and login method. The model is selected inside the Agent Console, not typed in Settings.
 
@@ -156,14 +155,14 @@ https://github.com/obst2580/obsidian-powershell
 
 1. Open the project vault in Obsidian.
 2. Run `Open AI workspace` from the command palette or open the Obst Terminal right-sidebar tab.
-3. Choose `Claude`, `Codex`, or `Antigravity`.
-4. Press `Start`.
-5. Use `Login` if the selected provider needs authentication.
-6. Type a message and press `Send`.
+3. The active tab starts its agent automatically. The same applies to a new tab or a stopped tab when selected.
+4. For another provider, press `+` at the end of the tab row and choose `Claude Code`, `Codex`, or `Antigravity`. A fixed-provider tab is created and starts automatically.
+5. If authentication is required, complete the provider CLI login in an external terminal and press the play icon. The icon shows an active state after authentication and input readiness are confirmed.
+6. Type a message and press the arrow icon.
 
-When Codex, Claude, or Antigravity is answering, `Send` acts as `Stop`. Additional messages are queued until the active turn finishes.
+When Codex, Claude, or Antigravity is answering, the arrow changes to a stop icon. Additional messages are queued until the active turn finishes.
 
-For multiple AI collaborators, run `Open new AI session` from the command palette or press the Agent Console `+` button. Each session appears as an internal Agent Console tab, gets an editable title, and shows short Claude/Codex/Antigravity session identifiers in the subtitle.
+For multiple AI collaborators, run `Open new AI session` from the command palette or choose a provider from the `+` menu at the end of the Agent Console tabs. No tab is created until a provider is selected, and the resulting tab stays fixed to `Claude Code`, `Codex`, or `Antigravity`. New and stopped tabs start as soon as they are selected; an already running tab is not restarted.
 
 Delegation commands are typed in the same composer:
 
@@ -180,13 +179,11 @@ Delegation sends text and selected attachments to matching tabs that are already
 
 ## Attachments
 
-Use the composer `Attach` button to attach files.
+Use the paperclip icon inside the composer to attach files.
 
-- The button changes to `Attach (N)` after files are selected.
-- An attachment strip appears under the input.
-- The strip shows `첨부됨 N개`.
-- Each attachment is shown as an `IMG` or `FILE` chip.
-- Use the chip `x` button to remove one attachment.
+- A fixed-size count badge appears on the paperclip after files are selected.
+- Compact file/image chips appear inside the input control.
+- Use the chip remove icon to remove one attachment.
 - You can send attachments without text.
 
 On the Codex app-server path, images are sent as `localImage` inputs and other files as `mention` inputs. On the Claude and Antigravity paths, attachments are appended to the prompt as an `첨부 파일:` list.
@@ -205,7 +202,7 @@ Setting:
 Settings > Obst Terminal > Attachment folder
 ```
 
-The current note can be inserted with the Agent Console `Add current note` button.
+The active-note strip above the input updates immediately when the user switches notes. Selected text is shared first; otherwise the active note path and cursor line are shared. The link icon disables or restores this context without changing the open note.
 
 ## Settings
 
@@ -291,8 +288,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.82
-git push origin 0.6.82
+git tag 0.6.83
+git push origin 0.6.83
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.

@@ -3,6 +3,7 @@ import {
   App,
   FileSystemAdapter,
   ItemView,
+  MarkdownView,
   MarkdownRenderer,
   Menu,
   Notice,
@@ -12,6 +13,7 @@ import {
   requestUrl,
   setIcon,
   Setting,
+  TFile,
   TFolder,
   WorkspaceLeaf
 } from "obsidian";
@@ -53,6 +55,14 @@ const OBST_TERMINAL_ICON_SVG = `
 const CLAUDE_ICON_PATH = "M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5527h3.7442L10.5363 3.541Zm-.3712 10.2232 2.2932-5.9456 2.2932 5.9456Z";
 const CODEX_ICON_PATH = "M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.1419.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z";
 const GEMINI_ICON_PATH = "M12 2.25l1.45 5.23a4.6 4.6 0 0 0 3.18 3.18L21.75 12l-5.12 1.34a4.6 4.6 0 0 0-3.18 3.18L12 21.75l-1.45-5.23a4.6 4.6 0 0 0-3.18-3.18L2.25 12l5.12-1.34a4.6 4.6 0 0 0 3.18-3.18L12 2.25Zm6.8-1.05.58 2.08a1.85 1.85 0 0 0 1.28 1.28l2.14.56-2.14.56a1.85 1.85 0 0 0-1.28 1.28l-.58 2.08-.58-2.08a1.85 1.85 0 0 0-1.28-1.28l-2.14-.56 2.14-.56a1.85 1.85 0 0 0 1.28-1.28L18.8 1.2Z";
+const CLAUDE_PROVIDER_ICON = "obst-provider-claude";
+const CODEX_PROVIDER_ICON = "obst-provider-codex";
+const ANTIGRAVITY_PROVIDER_ICON = "obst-provider-antigravity";
+const AGENT_PROVIDER_CHOICES: ReadonlyArray<{ provider: AgentProvider; label: string; icon: string }> = [
+  { provider: "claude", label: "Claude Code", icon: CLAUDE_PROVIDER_ICON },
+  { provider: "codex", label: "Codex", icon: CODEX_PROVIDER_ICON },
+  { provider: "gemini", label: "Antigravity", icon: ANTIGRAVITY_PROVIDER_ICON }
+];
 const DEFAULT_ATTACHMENT_FOLDER = "Obst Terminal Attachments";
 const EXTRA_CA_ENV_VARS = ["OBST_TERMINAL_EXTRA_CA_CERT", "VAULT_TERMINAL_EXTRA_CA_CERT"];
 const RUNTIME_BASE_REQUIRED_RELATIVE_FILES = [
@@ -114,6 +124,7 @@ const AGENT_SESSION_TURN_CUTOFF_SLOP_MS = 2000;
 const CLAUDE_PRINT_TIMEOUT_MS: number | null = null;
 const AGENT_TRANSCRIPT_BOTTOM_EPSILON_PX = 96;
 const AGENT_TRANSCRIPT_CONTEXT_MAX_CHARS = 12000;
+const ACTIVE_NOTE_SELECTION_MAX_CHARS = 6000;
 const CODEX_TURN_COMPLETION_FALLBACK_MS = 15000;
 const CODEX_MODEL_ROLE_LABELS: Record<string, string> = {
   "gpt-5.6-sol": "frontier",
@@ -289,7 +300,7 @@ interface AgentWorkspaceSessionState extends Record<string, unknown> {
   codexTurnLoadingEl?: HTMLElement | null;
   codexTurnActive?: boolean;
   codexTurnCompletionFallbackTimer?: number | null;
-  codexQueuedInputs?: { text: string; attachments: AgentAttachment[] }[];
+  codexQueuedInputs?: AgentQueuedTurnInput[];
   codexContextPercent?: number | null;
   codexRateLimitWindows?: AgentUsageWindow[];
   codexGitBranch?: string | null | undefined;
@@ -494,6 +505,23 @@ interface AgentQueuedPrintInput {
   visibleText: string;
 }
 
+interface ActiveNoteContextSnapshot {
+  path: string;
+  name: string;
+  selection: string;
+  selectionTruncated: boolean;
+  selectionStartLine?: number;
+  selectionEndLine?: number;
+  cursorLine?: number;
+  cursorLineText?: string;
+}
+
+interface AgentQueuedTurnInput {
+  text: string;
+  attachments: AgentAttachment[];
+  activeNoteContext: ActiveNoteContextSnapshot | null;
+}
+
 interface AgentPrintProcessRecord {
   pid: number;
   provider: "claude" | "gemini";
@@ -669,6 +697,9 @@ export default class VaultPowerShellPlugin extends Plugin {
     cleanupAgentPrintProcessRegistry(this.getAgentProcessRegistryPath());
     this.cleanupLegacySharedPersonalState();
     addIcon(OBST_TERMINAL_ICON, OBST_TERMINAL_ICON_SVG);
+    addIcon(CLAUDE_PROVIDER_ICON, providerMenuIconSvg(CLAUDE_ICON_PATH));
+    addIcon(CODEX_PROVIDER_ICON, providerMenuIconSvg(CODEX_ICON_PATH));
+    addIcon(ANTIGRAVITY_PROVIDER_ICON, providerMenuIconSvg(GEMINI_ICON_PATH));
 
     this.registerView(
       VIEW_TYPE_POWERSHELL,
@@ -1293,22 +1324,6 @@ export default class VaultPowerShellPlugin extends Plugin {
     return file.path;
   }
 
-  async insertVaultReferences(paths: string[]) {
-    if (paths.length > 0) {
-      new Notice("Use Agent Console > Add current note or Attach to send vault references.");
-    }
-  }
-
-  async insertCurrentNoteReference() {
-    const file = this.app.workspace.getActiveFile();
-    if (!file) {
-      new Notice("No active note to reference.");
-      return;
-    }
-
-    await this.insertVaultReferences([file.path]);
-  }
-
   async getOrCreateTerminalView(): Promise<VaultPowerShellView> {
     await this.activateView();
     const view = this.app.workspace.getLeavesOfType(VIEW_TYPE_POWERSHELL)[0]?.view;
@@ -1337,7 +1352,7 @@ export default class VaultPowerShellPlugin extends Plugin {
 
   async activateNewSessionView() {
     const view = await this.getOrCreateTerminalView();
-    view.createInternalAgentSession();
+    view.openNewAgentSessionMenu();
   }
 }
 
@@ -1378,6 +1393,7 @@ class VaultPowerShellView extends ItemView {
   private activeAgentSessionKey: string | null = null;
   private visibleAgentSessionKey: string | null = null;
   private agentSessionTabsEl: HTMLElement | null = null;
+  private agentSessionAddButton: HTMLButtonElement | null = null;
   private agentSessionTabEls = new Map<string, HTMLElement>();
   private agentTranscriptMountEl: HTMLElement | null = null;
   private agentSessionKey = createAgentSessionKey();
@@ -1399,7 +1415,7 @@ class VaultPowerShellView extends ItemView {
   private codexTurnLoadingEl: HTMLElement | null = null;
   private codexTurnActive = false;
   private codexTurnCompletionFallbackTimer: number | null = null;
-  private codexQueuedInputs: { text: string; attachments: AgentAttachment[] }[] = [];
+  private codexQueuedInputs: AgentQueuedTurnInput[] = [];
   private agentSendButton: HTMLButtonElement | null = null;
   private codexStatusLineEl: HTMLElement | null = null;
   private codexStatusLineFrame: number | null = null;
@@ -1419,6 +1435,11 @@ class VaultPowerShellView extends ItemView {
   private codexPendingAttachments: AgentAttachment[] = [];
   private codexAttachmentsEl: HTMLElement | null = null;
   private agentAttachButton: HTMLButtonElement | null = null;
+  private activeNoteContextEl: HTMLElement | null = null;
+  private activeNoteFile: TFile | null = null;
+  private activeNoteView: MarkdownView | null = null;
+  private activeNoteSharingEnabled = true;
+  private activeNoteRefreshFrame: number | null = null;
   private agentHost: ChildProcessWithoutNullStreams | null = null;
   private agentHostReady = false;
   private agentReadyForInput = false;
@@ -1436,8 +1457,7 @@ class VaultPowerShellView extends ItemView {
   private agentProgressTimer: number | null = null;
   private agentPromptActionsEl: HTMLElement | null = null;
   private agentInputEl: HTMLTextAreaElement | null = null;
-  private agentProviderButtons: Record<AgentProvider, HTMLElement | null> = { claude: null, codex: null, gemini: null };
-  private agentProviderIndicatorEl: HTMLElement | null = null;
+  private agentStartButton: HTMLButtonElement | null = null;
   private agentSessionPollTimer: number | null = null;
   private agentReadyTimer: number | null = null;
   private agentOutputIdleTimer: number | null = null;
@@ -1469,6 +1489,8 @@ class VaultPowerShellView extends ItemView {
   private agentNeedsAuth = false;
   private agentPromptState: AgentPromptState | null = null;
   private agentOpenedExternalUrls = new Set<string>();
+  private agentStartRequestIds = new Map<string, number>();
+  private agentStartRequestCounter = 0;
 
   constructor(leaf: WorkspaceLeaf, plugin: VaultPowerShellPlugin) {
     super(leaf);
@@ -1509,6 +1531,7 @@ class VaultPowerShellView extends ItemView {
     this.renderAgentSessionTabs();
     this.restoreActiveAgentSessionDom();
     this.refreshAgentSessionChrome();
+    this.autoStartActiveAgent();
     return Promise.resolve();
   }
 
@@ -1522,8 +1545,11 @@ class VaultPowerShellView extends ItemView {
 
     this.agentPaneEl = container.createDiv("vault-agent-pane");
     this.createAgentConsole(this.agentPaneEl);
+    this.initializeActiveNoteTracking();
+    this.scrollVisibleAgentTranscriptToBottomAfterLayout();
 
     this.showPane(this.activePane, false);
+    this.autoStartActiveAgent();
     return Promise.resolve();
   }
 
@@ -1555,6 +1581,10 @@ class VaultPowerShellView extends ItemView {
       cancelAnimationFrame(this.pendingRefreshFrame);
       this.pendingRefreshFrame = null;
     }
+    if (this.activeNoteRefreshFrame !== null) {
+      cancelAnimationFrame(this.activeNoteRefreshFrame);
+      this.activeNoteRefreshFrame = null;
+    }
     this.pendingShiftEnterTimers.forEach((timer) => window.clearTimeout(timer));
     this.pendingShiftEnterTimers.clear();
     this.stopTurnProgressTimer();
@@ -1568,6 +1598,7 @@ class VaultPowerShellView extends ItemView {
     this.terminalPaneEl = null;
     this.agentStatusEl = null;
     this.agentSessionTabsEl = null;
+    this.agentSessionAddButton = null;
     this.agentSessionTabEls.clear();
     this.agentTranscriptMountEl = null;
     this.agentSessionTitleInputEl = null;
@@ -1580,7 +1611,11 @@ class VaultPowerShellView extends ItemView {
     this.agentLoadingTextEl = null;
     this.agentPromptActionsEl = null;
     this.agentInputEl = null;
+    this.agentStartButton = null;
     this.agentAttachButton = null;
+    this.activeNoteContextEl = null;
+    this.activeNoteFile = null;
+    this.activeNoteView = null;
     this.codexStatusLineEl = null;
     this.codexOptionsRow = null;
     this.claudeModelSelect = null;
@@ -1590,8 +1625,6 @@ class VaultPowerShellView extends ItemView {
     this.geminiModelSelect = null;
     this.geminiApprovalSelect = null;
     this.paneTabEls = { agent: null, terminal: null };
-    this.agentProviderButtons = { claude: null, codex: null, gemini: null };
-    this.agentProviderIndicatorEl = null;
   }
 
   private applyAgentViewState(state: unknown) {
@@ -1704,11 +1737,11 @@ class VaultPowerShellView extends ItemView {
     return this.agentGeminiSessionId;
   }
 
-  createInternalAgentSession() {
+  createInternalAgentSession(provider: AgentProvider) {
     this.ensureInternalAgentSessions();
     this.captureActiveAgentSessionState();
 
-    const session = createAgentWorkspaceSessionState("isolated");
+    const session = createAgentWorkspaceSessionState("isolated", provider);
     this.ensureAgentSessionRuntime(session);
     this.agentSessions.push(session);
     session.agentSessionLabel = getUniqueProviderAgentSessionLabel(this.agentSessions, session.agentProvider, session.agentSessionKey);
@@ -1716,9 +1749,11 @@ class VaultPowerShellView extends ItemView {
     this.visibleAgentSessionKey = session.agentSessionKey;
     this.applyAgentSessionRuntime(session);
     this.restoreActiveAgentSessionDom();
+    this.scrollVisibleAgentTranscriptToBottomAfterLayout();
     this.renderAgentSessionTabs();
     this.showPane("agent");
     this.saveAgentViewState();
+    this.autoStartActiveAgent();
   }
 
   private ensureInternalAgentSessions() {
@@ -2091,7 +2126,7 @@ class VaultPowerShellView extends ItemView {
     this.agentInputEl && (this.agentInputEl.value = session.inputText ?? "");
 
     this.refreshAgentSessionChrome();
-    this.refreshAgentProviderButtons();
+    this.refreshAgentProviderUi();
     this.switchAgentTranscript(this.agentProvider);
     // Only a session with genuinely running work may surface a waiting/loading
     // status; anything else is a stale capture and renders as Idle.
@@ -2299,6 +2334,7 @@ class VaultPowerShellView extends ItemView {
   private switchInternalAgentSession(sessionKey: string) {
     this.ensureInternalAgentSessions();
     if (sessionKey === this.activeAgentSessionKey) {
+      this.autoStartActiveAgent();
       this.agentInputEl?.focus();
       return;
     }
@@ -2315,6 +2351,7 @@ class VaultPowerShellView extends ItemView {
     this.renderAgentSessionTabs();
     this.showPane("agent");
     this.saveAgentViewState();
+    this.autoStartActiveAgent();
   }
 
   private closeInternalAgentSession(sessionKey: string) {
@@ -2348,6 +2385,70 @@ class VaultPowerShellView extends ItemView {
 
     this.renderAgentSessionTabs();
     this.saveAgentViewState();
+    if (closingActive) {
+      this.autoStartActiveAgent();
+    }
+  }
+
+  private isActiveAgentRunningOrReady(): boolean {
+    return !!this.agentBackend ||
+      !!this.agentHost ||
+      (!!this.agentPrintTurnRuntime && !this.agentPrintTurnRuntime.settled) ||
+      this.agentReadyForInput;
+  }
+
+  private autoStartActiveAgent() {
+    const sessionKey = this.activeAgentSessionKey;
+    if (!this.agentPaneEl || !sessionKey || this.agentStartRequestIds.has(sessionKey) || this.isActiveAgentRunningOrReady()) {
+      return;
+    }
+    void this.startAgent(this.agentProvider);
+  }
+
+  private beginAgentStartRequest(sessionKey: string | null): number {
+    const requestId = ++this.agentStartRequestCounter;
+    if (sessionKey) {
+      this.agentStartRequestIds.set(sessionKey, requestId);
+    }
+    return requestId;
+  }
+
+  private isAgentStartRequestCurrent(sessionKey: string | null, requestId: number): boolean {
+    return !sessionKey || this.agentStartRequestIds.get(sessionKey) === requestId;
+  }
+
+  private completeAgentStartRequest(sessionKey: string | null, requestId: number) {
+    if (sessionKey && this.agentStartRequestIds.get(sessionKey) === requestId) {
+      this.agentStartRequestIds.delete(sessionKey);
+    }
+  }
+
+  private cancelActiveAgentStartRequest() {
+    if (this.activeAgentSessionKey) {
+      this.agentStartRequestIds.delete(this.activeAgentSessionKey);
+    }
+  }
+
+  openNewAgentSessionMenu(event?: MouseEvent) {
+    const menu = new Menu();
+    for (const choice of AGENT_PROVIDER_CHOICES) {
+      menu.addItem((item) => {
+        item
+          .setTitle(choice.label)
+          .setIcon(choice.icon)
+          .onClick(() => this.createInternalAgentSession(choice.provider));
+      });
+    }
+
+    if (event) {
+      menu.showAtMouseEvent(event);
+      return;
+    }
+
+    const rect = this.agentSessionAddButton?.getBoundingClientRect();
+    menu.showAtPosition(rect
+      ? { x: Math.round(rect.left), y: Math.round(rect.bottom + 4) }
+      : { x: Math.round(window.innerWidth / 2), y: Math.round(window.innerHeight / 2) });
   }
 
   private renderAgentSessionTabs() {
@@ -2357,9 +2458,13 @@ class VaultPowerShellView extends ItemView {
 
     this.ensureInternalAgentSessions();
     this.agentSessionTabsEl.empty();
+    this.agentSessionAddButton = null;
     this.agentSessionTabEls.clear();
 
-    const list = this.agentSessionTabsEl.createDiv("vault-agent-session-tab-list");
+    const list = this.agentSessionTabsEl.createDiv({
+      cls: "vault-agent-session-tab-list",
+      attr: { role: "tablist", "aria-label": "AI sessions" }
+    });
     for (const session of this.agentSessions) {
       const item = list.createDiv("vault-agent-session-tab-item");
       item.addClass(`vault-agent-session-tab-item-${session.agentProvider}`);
@@ -2368,6 +2473,8 @@ class VaultPowerShellView extends ItemView {
         cls: "vault-agent-session-tab",
         attr: {
           "aria-label": `AI session: ${session.agentSessionLabel}`,
+          "aria-selected": String(session.agentSessionKey === this.activeAgentSessionKey),
+          role: "tab",
           title: session.agentSessionLabel
         }
       });
@@ -2404,9 +2511,10 @@ class VaultPowerShellView extends ItemView {
         title: "New AI session"
       }
     });
+    this.agentSessionAddButton = add;
     setIcon(add, "plus");
-    add.addEventListener("click", () => {
-      this.createInternalAgentSession();
+    add.addEventListener("click", (event) => {
+      this.openNewAgentSessionMenu(event);
     });
   }
 
@@ -2456,19 +2564,13 @@ class VaultPowerShellView extends ItemView {
     this.agentStatusEl = null;
 
     const toolbar = container.createDiv("vault-agent-toolbar");
-    const providerGroup = toolbar.createDiv("vault-agent-provider-group");
-    this.agentProviderButtons.claude = this.createAgentProviderButton(providerGroup, "Claude", "claude", CLAUDE_ICON_PATH);
-    this.agentProviderButtons.codex = this.createAgentProviderButton(providerGroup, "Codex", "codex", CODEX_ICON_PATH);
-    this.agentProviderButtons.gemini = this.createAgentProviderButton(providerGroup, "Antigravity", "gemini", GEMINI_ICON_PATH);
-    this.agentProviderIndicatorEl = null;
-    this.refreshAgentProviderButtons();
-
     const actions = toolbar.createDiv("vault-agent-actions");
     const startButton = actions.createEl("button", {
       cls: "vault-agent-action vault-agent-action-start",
       attr: { "aria-label": "Start", title: "Start" }
     });
     setIcon(startButton, "play");
+    this.agentStartButton = startButton;
     startButton.addEventListener("click", () => {
       void this.startAgent(this.agentProvider);
     });
@@ -2505,11 +2607,15 @@ class VaultPowerShellView extends ItemView {
     this.codexStatusLineEl = null;
     this.agentPromptActionsEl = composer.createDiv("vault-agent-prompt-actions");
     this.refreshAgentPromptActions();
-    this.agentInputEl = composer.createEl("textarea", {
+    this.activeNoteContextEl = composer.createDiv("vault-agent-active-note");
+    this.renderActiveNoteContext();
+
+    const inputShell = composer.createDiv("vault-agent-input-shell");
+    this.agentInputEl = inputShell.createEl("textarea", {
       cls: "vault-agent-input",
       attr: {
-        rows: "2",
-        placeholder: "Message to the selected agent. Shift+Enter inserts a new line."
+        rows: "1",
+        placeholder: "Message..."
       }
     });
     this.agentInputEl.addEventListener("keydown", (event) => {
@@ -2521,9 +2627,10 @@ class VaultPowerShellView extends ItemView {
       }
     });
     this.agentInputEl.addEventListener("paste", (event) => this.handleAgentPaste(event));
-    this.refreshAgentProviderButtons();
+    this.agentInputEl.addEventListener("focus", () => this.scheduleActiveNoteContextRefresh());
+    this.refreshAgentProviderUi();
 
-    this.codexAttachmentsEl = composer.createDiv("vault-agent-attachments is-hidden");
+    this.codexAttachmentsEl = inputShell.createDiv("vault-agent-attachments is-hidden");
 
     // Provider options live inside the console, directly under the input box.
     // Model selection is intentionally list-based so users do not need to type
@@ -2569,9 +2676,13 @@ class VaultPowerShellView extends ItemView {
     this.geminiApprovalSelect.addEventListener("change", () => this.onGeminiApprovalModeChange());
     this.refreshAgentOptionsRow();
 
-    const composerActions = composer.createDiv("vault-agent-composer-actions");
-    const fileInput = composerActions.createEl("input", { cls: "vault-agent-file-input", attr: { type: "file", multiple: "true" } });
-    const attachButton = composerActions.createEl("button", { cls: "vault-agent-attach-button", text: "Attach" });
+    const inputActions = inputShell.createDiv("vault-agent-input-actions");
+    const fileInput = inputActions.createEl("input", { cls: "vault-agent-file-input", attr: { type: "file", multiple: "true" } });
+    const attachButton = inputActions.createEl("button", {
+      cls: "vault-agent-input-icon vault-agent-attach-button",
+      attr: { "aria-label": "Attach files", title: "Attach files", type: "button" }
+    });
+    setIcon(attachButton, "paperclip");
     this.agentAttachButton = attachButton;
     attachButton.addEventListener("click", () => fileInput.click());
     fileInput.addEventListener("change", () => {
@@ -2579,14 +2690,12 @@ class VaultPowerShellView extends ItemView {
       fileInput.value = "";
       void this.addAgentAttachments(files);
     });
-    const noteButton = composerActions.createEl("button", { text: "Add current note" });
-    noteButton.addEventListener("click", () => {
-      void this.insertCurrentNoteReferenceIntoAgent();
+    inputActions.createDiv("vault-agent-input-actions-spacer");
+    const sendButton = inputActions.createEl("button", {
+      cls: "vault-agent-input-icon vault-agent-send-button mod-cta",
+      attr: { "aria-label": "Send message", title: "Send message", type: "button" }
     });
-    const sendButton = composerActions.createEl("button", {
-      cls: "mod-cta",
-      text: "Send"
-    });
+    setIcon(sendButton, "arrow-up");
     this.agentSendButton = sendButton;
     sendButton.addEventListener("click", () => {
       // While an agent is answering, Send acts as Stop.
@@ -2603,42 +2712,44 @@ class VaultPowerShellView extends ItemView {
     this.renderAgentSessionTabs();
   }
 
-  private createAgentProviderButton(container: HTMLElement, label: string, provider: AgentProvider, iconPath: string): HTMLElement {
-    const button = container.createEl("button", {
-      cls: `vault-agent-provider vault-agent-provider-${provider}`,
-      attr: { "aria-label": label, title: label }
-    });
-    const svg = button.createSvg("svg", { cls: "svg-icon", attr: { viewBox: "0 0 24 24" } });
-    svg.createSvg("path", { attr: { d: iconPath, fill: "currentColor" } });
-    button.addEventListener("click", () => {
-      if (this.agentHost || this.agentBackend || this.agentPrintTurnRuntime) {
-        new Notice("Stop the current agent before switching providers.");
-        return;
-      }
-
-      this.agentProvider = provider;
-      this.agentSessionLabel = getUniqueProviderAgentSessionLabel(this.agentSessions, provider, this.agentSessionKey);
-      this.captureActiveAgentSessionState();
-      this.renderAgentSessionTabs();
-      this.saveAgentViewState();
-      this.refreshAgentProviderButtons();
-      this.switchAgentTranscript(provider);
-      this.agentInputEl?.focus();
-    });
-    return button;
-  }
-
-  private refreshAgentProviderButtons() {
+  private refreshAgentProviderUi() {
     if (!this.isVisibleAgentSessionContext()) {
       return;
     }
-    this.agentProviderButtons.claude?.toggleClass("is-active", this.agentProvider === "claude");
-    this.agentProviderButtons.codex?.toggleClass("is-active", this.agentProvider === "codex");
-    this.agentProviderButtons.gemini?.toggleClass("is-active", this.agentProvider === "gemini");
-    this.renderAgentProviderIndicator();
-    this.agentInputEl?.setAttr("placeholder", `Message to ${getAgentProviderLabel(this.agentProvider)}. @all, @codex, @claude, @gemini, or @"session title" delegates to other tabs.`);
+    this.agentInputEl?.setAttr("placeholder", `Message ${getAgentProviderLabel(this.agentProvider)}...`);
+    this.refreshAgentStartButton();
     this.refreshAgentOptionsRow();
     this.refreshCodexStatusLine();
+  }
+
+  private refreshAgentStartButton() {
+    const button = this.agentStartButton;
+    if (!button || !this.isVisibleAgentSessionContext()) {
+      return;
+    }
+    const status = this.agentStatusText.trim();
+    const unavailable = this.agentNeedsAuth || /^(?:Idle|Failed|Exited\b)/i.test(status);
+    const active = !unavailable && (
+      this.agentReadyForInput ||
+      this.agentConversationReady ||
+      this.agentAuthState === "authenticated" ||
+      this.agentAuthState === "ready"
+    );
+    const sessionKey = this.activeAgentSessionKey;
+    const starting = !active && !this.agentNeedsAuth && (
+      (!!sessionKey && this.agentStartRequestIds.has(sessionKey)) ||
+      this.agentAuthState === "checking" ||
+      this.agentAuthState === "login-in-progress" ||
+      (!!this.agentHost && !this.agentReadyForInput) ||
+      (!!this.agentBackend && !this.agentReadyForInput)
+    );
+    const label = getAgentProviderLabel(this.agentProvider);
+    const stateLabel = active ? `${label} ready` : starting ? `Starting ${label}` : `Start ${label}`;
+    button.toggleClass("is-active", active);
+    button.toggleClass("is-starting", starting);
+    button.setAttr("aria-pressed", String(active));
+    button.setAttr("aria-label", stateLabel);
+    button.setAttr("title", stateLabel);
   }
 
   private refreshAgentOptionsRow() {
@@ -2740,33 +2851,6 @@ class VaultPowerShellView extends ItemView {
     void this.plugin.saveSettings();
     this.refreshCodexStatusLine();
     this.saveAgentViewState();
-  }
-
-  private renderAgentProviderIndicator() {
-    return;
-    /*
-    if (!this.agentProviderIndicatorEl || !this.isVisibleAgentSessionContext()) {
-      return;
-    }
-    const label = getAgentProviderLabel(this.agentProvider);
-    const iconPath = getAgentProviderIconPath(this.agentProvider);
-    this.agentProviderIndicatorEl.empty();
-    this.agentProviderIndicatorEl.toggleClass("is-claude", this.agentProvider === "claude");
-    this.agentProviderIndicatorEl.toggleClass("is-codex", this.agentProvider === "codex");
-    this.agentProviderIndicatorEl.toggleClass("is-gemini", this.agentProvider === "gemini");
-    this.agentProviderIndicatorEl.setAttr("title", `현재 사용 중: ${label}`);
-    const svg = this.agentProviderIndicatorEl.createSvg("svg", {
-      cls: "svg-icon",
-      attr: { viewBox: "0 0 24 24", "aria-hidden": "true" }
-    });
-    svg.createSvg("path", { attr: { d: iconPath, fill: "currentColor" } });
-    this.agentProviderIndicatorEl.createSpan({
-      cls: "",
-      text: `현재 ${label}`
-    });
-  }
-
-    */
   }
 
   private getProviderTranscriptEl(provider: AgentProvider): HTMLElement | null {
@@ -2871,20 +2955,34 @@ class VaultPowerShellView extends ItemView {
 
   private handleBackendEvent(event: AgentUiEvent) {
     switch (event.type) {
-      case "status":
-        this.setAgentStatus(formatBackendStatus(event.state, event.detail));
+      case "status": {
+        const statusText = formatBackendStatus(event.state, event.detail);
         if (event.state === "ready") {
           this.agentReadyForInput = true;
+          this.agentNeedsAuth = false;
+          this.agentAuthState = "ready";
+          this.agentConversationReady = true;
           if (this.codexTurnActive) {
             this.finishCodexTurn("Codex ready", true);
           }
         } else if (event.state === "stopped" || event.state === "error" || event.state === "idle") {
+          this.agentReadyForInput = false;
+          this.agentConversationReady = false;
+          this.agentNeedsAuth = false;
+          this.agentAuthState = "idle";
           if (this.codexTurnActive || this.codexTurnLoadingEl) {
-            this.finishCodexTurn(formatBackendStatus(event.state, event.detail), false);
+            this.finishCodexTurn(statusText, false);
           }
         }
+        this.setAgentStatus(statusText);
         break;
+      }
       case "auth-required":
+        this.agentReadyForInput = false;
+        this.agentConversationReady = false;
+        this.agentNeedsAuth = true;
+        this.agentAuthState = "login-required";
+        this.setAgentStatus("Codex login required");
         this.appendAgentTranscript({
           id: this.nextLocalAgentEntryId("system"),
           role: "system",
@@ -2892,6 +2990,11 @@ class VaultPowerShellView extends ItemView {
         });
         break;
       case "auth-url":
+        this.agentReadyForInput = false;
+        this.agentConversationReady = false;
+        this.agentNeedsAuth = true;
+        this.agentAuthState = "login-in-progress";
+        this.setAgentStatus("Codex login in progress");
         openExternalUrlWithSystemBrowser(event.url);
         this.appendAgentTranscript({
           id: this.nextLocalAgentEntryId("system"),
@@ -2959,11 +3062,11 @@ class VaultPowerShellView extends ItemView {
   // Codex-app style: each user turn is one card (question on top, answer below).
   // Items (reasoning / command / message) flow inside the current answer rather
   // than each becoming its own top-level box.
-  private startCodexTurn(question: string): HTMLElement | null {
+  private startCodexTurn(question: string, forceScrollToBottom = false): HTMLElement | null {
     if (!this.agentTranscriptEl) {
       return null;
     }
-    const shouldStickToBottom = this.shouldAutoScrollAgentTranscript();
+    const shouldStickToBottom = forceScrollToBottom || this.shouldAutoScrollAgentTranscript();
     // Claude has no explicit turn-complete signal, so opening a new turn closes
     // the previous one: clear any leftover thinking indicator first.
     this.cancelCodexTurnCompletionFallback();
@@ -2977,7 +3080,9 @@ class VaultPowerShellView extends ItemView {
     this.codexCurrentTurnEl = turn;
     this.codexCurrentAnswerEl = answer;
     this.showTurnThinking(answer);
-    if (shouldStickToBottom) {
+    if (forceScrollToBottom) {
+      this.scrollVisibleAgentTranscriptToBottomAfterLayout();
+    } else if (shouldStickToBottom) {
       this.scrollAgentTranscriptToBottom(this.agentTranscriptEl);
     }
     return answer;
@@ -3047,18 +3152,219 @@ class VaultPowerShellView extends ItemView {
     this.rememberAgentTranscriptScrollPosition(el);
   }
 
-  private buildContextualAgentPrompt(text: string): string {
+  private scrollVisibleAgentTranscriptToBottomAfterLayout() {
+    const transcript = this.agentTranscriptEl;
+    if (!transcript) {
+      return;
+    }
+    const scroll = () => {
+      if (this.agentTranscriptEl !== transcript || !transcript.isConnected || transcript.hasClass("is-hidden")) {
+        return;
+      }
+      this.scrollAgentTranscriptToBottom(transcript);
+    };
+    scroll();
+    window.requestAnimationFrame(scroll);
+  }
+
+  private initializeActiveNoteTracking() {
+    const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (activeView?.file) {
+      this.activeNoteView = activeView;
+      this.activeNoteFile = activeView.file;
+    } else {
+      this.activeNoteFile = this.app.workspace.getActiveFile();
+    }
+
+    this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
+      if (leaf?.view instanceof MarkdownView && leaf.view.file) {
+        this.activeNoteView = leaf.view;
+        this.activeNoteFile = leaf.view.file;
+      }
+      this.scheduleActiveNoteContextRefresh();
+    }));
+    this.registerEvent(this.app.workspace.on("file-open", (file) => {
+      if (file) {
+        this.activeNoteFile = file;
+        const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
+        this.activeNoteView = markdownView?.file?.path === file.path ? markdownView : null;
+      }
+      this.scheduleActiveNoteContextRefresh();
+    }));
+    this.registerEvent(this.app.workspace.on("editor-change", (editor, info) => {
+      if (info instanceof MarkdownView && info.file && info.editor === editor) {
+        this.activeNoteView = info;
+        this.activeNoteFile = info.file;
+      }
+      this.scheduleActiveNoteContextRefresh();
+    }));
+    this.registerEvent(this.app.vault.on("rename", (file) => {
+      if (file === this.activeNoteFile) {
+        this.scheduleActiveNoteContextRefresh();
+      }
+    }));
+    this.registerEvent(this.app.vault.on("delete", (file) => {
+      if (file === this.activeNoteFile) {
+        this.activeNoteFile = null;
+        this.activeNoteView = null;
+        this.scheduleActiveNoteContextRefresh();
+      }
+    }));
+    this.registerDomEvent(document, "selectionchange", () => this.scheduleActiveNoteContextRefresh());
+    this.scheduleActiveNoteContextRefresh();
+  }
+
+  private scheduleActiveNoteContextRefresh() {
+    if (this.activeNoteRefreshFrame !== null) {
+      return;
+    }
+    this.activeNoteRefreshFrame = window.requestAnimationFrame(() => {
+      this.activeNoteRefreshFrame = null;
+      this.renderActiveNoteContext();
+    });
+  }
+
+  private readActiveNoteContextSnapshot(): ActiveNoteContextSnapshot | null {
+    const file = this.activeNoteFile ?? this.app.workspace.getActiveFile();
+    if (!file || !(this.app.vault.getAbstractFileByPath(file.path) instanceof TFile)) {
+      return null;
+    }
+
+    let selection = "";
+    let selectionTruncated = false;
+    let selectionStartLine: number | undefined;
+    let selectionEndLine: number | undefined;
+    let cursorLine: number | undefined;
+    let cursorLineText: string | undefined;
+    const view = this.activeNoteView;
+    if (view?.file?.path === file.path) {
+      try {
+        const rawSelection = view.editor.getSelection().trim();
+        selectionTruncated = rawSelection.length > ACTIVE_NOTE_SELECTION_MAX_CHARS;
+        selection = selectionTruncated
+          ? `${rawSelection.slice(0, ACTIVE_NOTE_SELECTION_MAX_CHARS).trimEnd()}\n[selection truncated]`
+          : rawSelection;
+        const from = view.editor.getCursor("from");
+        const to = view.editor.getCursor("to");
+        const cursor = view.editor.getCursor("head");
+        selectionStartLine = rawSelection ? from.line + 1 : undefined;
+        selectionEndLine = rawSelection ? to.line + 1 : undefined;
+        cursorLine = cursor.line + 1;
+        cursorLineText = view.editor.getLine(cursor.line).trim();
+      } catch {
+        // Preview and non-editor views still share the active file path.
+      }
+    }
+
+    return {
+      path: normalizePath(file.path),
+      name: file.name,
+      selection,
+      selectionTruncated,
+      selectionStartLine,
+      selectionEndLine,
+      cursorLine,
+      cursorLineText
+    };
+  }
+
+  private getSharedActiveNoteContextSnapshot(): ActiveNoteContextSnapshot | null {
+    return this.activeNoteSharingEnabled ? this.readActiveNoteContextSnapshot() : null;
+  }
+
+  private renderActiveNoteContext() {
+    const container = this.activeNoteContextEl;
+    if (!container) {
+      return;
+    }
+
+    const snapshot = this.readActiveNoteContextSnapshot();
+    container.empty();
+    container.removeAttribute("title");
+    container.toggleClass("is-empty", !snapshot);
+    container.toggleClass("is-unlinked", !!snapshot && !this.activeNoteSharingEnabled);
+
+    const fileIcon = container.createDiv("vault-agent-active-note-icon");
+    setIcon(fileIcon, snapshot ? "file-text" : "file-question");
+    const text = container.createDiv("vault-agent-active-note-text");
+    if (!snapshot) {
+      text.createDiv({ cls: "vault-agent-active-note-name", text: "No note open" });
+      return;
+    }
+
+    text.createDiv({ cls: "vault-agent-active-note-name", text: snapshot.name });
+    text.createDiv({ cls: "vault-agent-active-note-path", text: snapshot.path });
+    container.setAttr("title", snapshot.path);
+
+    if (snapshot.selection) {
+      const selectedLines = Math.max(1, (snapshot.selectionEndLine ?? 1) - (snapshot.selectionStartLine ?? 1) + 1);
+      const selection = container.createDiv("vault-agent-active-note-selection");
+      setIcon(selection.createSpan(), "text-select");
+      selection.createSpan({ text: `${selectedLines} line${selectedLines === 1 ? "" : "s"}` });
+    } else if (snapshot.cursorLine) {
+      const cursor = container.createDiv("vault-agent-active-note-selection");
+      setIcon(cursor.createSpan(), "hash");
+      cursor.createSpan({ text: String(snapshot.cursorLine) });
+    }
+
+    const toggle = container.createEl("button", {
+      cls: "vault-agent-active-note-toggle",
+      attr: {
+        type: "button",
+        "aria-label": this.activeNoteSharingEnabled ? "Stop sharing current note" : "Share current note with messages",
+        title: this.activeNoteSharingEnabled ? "Current note is shared with messages" : "Current note is not shared"
+      }
+    });
+    setIcon(toggle, this.activeNoteSharingEnabled ? "link-2" : "unlink");
+    toggle.addEventListener("click", () => {
+      this.activeNoteSharingEnabled = !this.activeNoteSharingEnabled;
+      this.renderActiveNoteContext();
+      this.agentInputEl?.focus();
+    });
+  }
+
+  private withActiveNoteAttachment(
+    attachments: AgentAttachment[],
+    activeNoteContext: ActiveNoteContextSnapshot | null
+  ): AgentAttachment[] {
+    if (!activeNoteContext) {
+      return attachments;
+    }
+    const vaultRoot = this.plugin.getVaultPath();
+    const notePath = vaultRoot
+      ? join(vaultRoot, ...activeNoteContext.path.split("/"))
+      : activeNoteContext.path;
+    const normalizeForComparison = (value: string) => {
+      const normalized = value.replace(/\\/g, "/");
+      return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+    };
+    const comparableNotePath = normalizeForComparison(notePath);
+    if (attachments.some((attachment) => normalizeForComparison(attachment.path) === comparableNotePath)) {
+      return attachments;
+    }
+    return [...attachments, {
+      kind: /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(activeNoteContext.path) ? "localImage" : "mention",
+      path: notePath,
+      name: activeNoteContext.name,
+      contextRole: "active-note"
+    }];
+  }
+
+  private buildContextualAgentPrompt(
+    text: string,
+    activeNoteContext: ActiveNoteContextSnapshot | null = this.getSharedActiveNoteContextSnapshot()
+  ): string {
     const trimmed = text.trim();
     if (!trimmed || trimmed.startsWith("/")) {
       return text;
     }
 
     const runtimeContext = this.getAgentRuntimeContextText();
-    const activeNoteContext = this.getActiveNoteReferenceContextText(trimmed);
+    const activeNoteContextText = this.getActiveNoteReferenceContextText(activeNoteContext);
     const context = this.shouldAttachTranscriptContextToPrompt()
       ? this.getAgentTranscriptContextText()
       : "";
-    if (!runtimeContext && !activeNoteContext && !context) {
+    if (!runtimeContext && !activeNoteContextText && !context) {
       return text;
     }
 
@@ -3066,8 +3372,8 @@ class VaultPowerShellView extends ItemView {
     if (runtimeContext) {
       sections.push("[현재 실행 설정]", runtimeContext, "");
     }
-    if (activeNoteContext) {
-      sections.push("[현재 열린 문서]", activeNoteContext, "");
+    if (activeNoteContextText) {
+      sections.push("[함께 보고 있는 Obsidian 문서]", activeNoteContextText, "");
     }
     if (context) {
       sections.push(
@@ -3081,21 +3387,34 @@ class VaultPowerShellView extends ItemView {
     return sections.join("\n");
   }
 
-  private getActiveNoteReferenceContextText(text: string): string {
-    if (!referencesActiveVaultDocument(text)) {
+  private getActiveNoteReferenceContextText(activeNoteContext: ActiveNoteContextSnapshot | null): string {
+    if (!activeNoteContext) {
       return "";
     }
-
-    const file = this.app.workspace.getActiveFile();
-    if (!file) {
-      return "사용자가 \"이 문서\", \"옆에 문서\", \"현재 문서\"라고 지칭했지만 현재 열린 Obsidian 문서를 찾지 못했습니다.";
+    const lines = [
+      "이 문서는 사용자가 현재 Obsidian에서 열어 두고 에이전트와 함께 보고 있는 문서입니다.",
+      "사용자는 문서명을 명시하지 않고도 ‘이거’, ‘이게’, ‘여기’, ‘이 부분’, ‘보니까’처럼 암시적으로 이 문서나 선택 영역을 지칭할 수 있습니다.",
+      "요청이 이 문서와 관련되어 있으면 선택 영역을 우선하고, 선택 영역이 없으면 현재 문서를 읽은 뒤 답하세요. 관련 없는 요청에서는 문서를 억지로 끌어오지 마세요.",
+      `현재 문서 경로: ${activeNoteContext.path}`,
+      `문서 참조: ${formatVaultFileReference(activeNoteContext.path)}`
+    ];
+    if (activeNoteContext.selection) {
+      const range = activeNoteContext.selectionStartLine
+        ? ` (${activeNoteContext.selectionStartLine}-${activeNoteContext.selectionEndLine ?? activeNoteContext.selectionStartLine}행)`
+        : "";
+      lines.push(
+        `사용자가 선택한 문서 영역${range}:`,
+        "---",
+        activeNoteContext.selection,
+        "---"
+      );
+    } else if (activeNoteContext.cursorLine && activeNoteContext.cursorLineText) {
+      lines.push(
+        `현재 커서 위치: ${activeNoteContext.cursorLine}행`,
+        `현재 커서 줄: ${activeNoteContext.cursorLineText}`
+      );
     }
-
-    return [
-      "사용자가 \"이 문서\", \"이문서\", \"옆에 문서\", \"옆의 문서\", \"현재 문서\", \"열린 문서\"라고 말하면 현재 Obsidian 볼트에서 활성화된 열린 문서를 뜻합니다.",
-      `현재 열린 Obsidian 문서 경로: ${file.path}`,
-      `문서 참조: ${formatVaultFileReference(file.path)}`
-    ].join("\n");
+    return lines.join("\n");
   }
 
   private getAgentRuntimeContextText(): string {
@@ -3189,16 +3508,21 @@ class VaultPowerShellView extends ItemView {
 
   // Start one Codex turn and mark it active so further input queues instead of
   // opening a second concurrent turn.
-  private beginCodexTurn(text: string, attachments: AgentAttachment[]) {
+  private beginCodexTurn(
+    text: string,
+    attachments: AgentAttachment[],
+    activeNoteContext: ActiveNoteContextSnapshot | null
+  ) {
     if (!this.agentBackend) {
       return;
     }
     this.codexTurnActive = true;
     this.agentCurrentTurnStartedAt = Date.now();
     this.updateSendButtonMode();
-    const noteSuffix = attachments.length ? `\n\n[${attachments.length} file(s) attached]` : "";
-    const sendText = this.buildContextualAgentPrompt(text);
-    this.startCodexTurn((text || "(attachments)") + noteSuffix);
+    const userAttachmentCount = attachments.filter((attachment) => attachment.contextRole !== "active-note").length;
+    const noteSuffix = userAttachmentCount ? `\n\n[${userAttachmentCount} file(s) attached]` : "";
+    const sendText = this.buildContextualAgentPrompt(text, activeNoteContext);
+    this.startCodexTurn((text || "(attachments)") + noteSuffix, true);
     void this.agentBackend.sendUserMessage({ text: sendText, attachments });
   }
 
@@ -3208,7 +3532,7 @@ class VaultPowerShellView extends ItemView {
     }
     const next = this.codexQueuedInputs.shift();
     if (next) {
-      this.beginCodexTurn(next.text, next.attachments);
+      this.beginCodexTurn(next.text, next.attachments, next.activeNoteContext);
     }
   }
 
@@ -3217,9 +3541,13 @@ class VaultPowerShellView extends ItemView {
       return;
     }
     const active = this.codexTurnActive || !!this.agentPrintTurnRuntime;
-    this.agentSendButton.setText(active ? "Stop" : "Send");
+    this.agentSendButton.empty();
+    setIcon(this.agentSendButton, active ? "square" : "arrow-up");
+    this.agentSendButton.setAttr("aria-label", active ? "Stop response" : "Send message");
+    this.agentSendButton.setAttr("title", active ? "Stop response" : "Send message");
     this.agentSendButton.toggleClass("mod-warning", active);
     this.agentSendButton.toggleClass("mod-cta", !active);
+    this.agentSendButton.toggleClass("is-stop", active);
   }
 
   private cancelCodexTurnCompletionFallback() {
@@ -3631,27 +3959,25 @@ class VaultPowerShellView extends ItemView {
     const count = this.codexPendingAttachments.length;
     this.codexAttachmentsEl.toggleClass("is-hidden", count === 0);
     if (this.agentAttachButton) {
-      this.agentAttachButton.setText(count > 0 ? `Attach (${count})` : "Attach");
       this.agentAttachButton.toggleClass("has-attachments", count > 0);
       this.agentAttachButton.setAttr("title", count > 0 ? `${count} file(s) attached` : "Attach files");
+      this.agentAttachButton.setAttr("aria-label", count > 0 ? `Attach files, ${count} currently attached` : "Attach files");
+      this.agentAttachButton.setAttr("data-count", count > 0 ? String(count) : "");
     }
     if (count === 0) {
       return;
     }
-    this.codexAttachmentsEl.createDiv({
-      cls: "vault-agent-attachments-label",
-      text: `첨부됨 ${count}개`
-    });
     this.codexPendingAttachments.forEach((attachment, index) => {
       const chip = this.codexAttachmentsEl!.createDiv("vault-agent-attachment-chip");
       chip.toggleClass("is-image", attachment.kind === "localImage");
-      chip.createSpan({
-        cls: "vault-agent-attachment-kind",
-        text: attachment.kind === "localImage" ? "IMG" : "FILE"
-      });
-      chip.createSpan({ text: attachment.name ?? attachment.path });
+      const kind = chip.createSpan("vault-agent-attachment-kind");
+      setIcon(kind, attachment.kind === "localImage" ? "image" : "file");
+      chip.createSpan({ cls: "vault-agent-attachment-name", text: attachment.name ?? attachment.path });
       chip.setAttr("title", attachment.path);
-      const remove = chip.createEl("button", { text: "×" });
+      const remove = chip.createEl("button", {
+        attr: { "aria-label": `Remove ${attachment.name ?? "attachment"}`, title: "Remove attachment", type: "button" }
+      });
+      setIcon(remove, "x");
       remove.addEventListener("click", () => {
         this.codexPendingAttachments.splice(index, 1);
         this.renderAttachmentChips();
@@ -3749,15 +4075,21 @@ class VaultPowerShellView extends ItemView {
     }
 
     this.disposeAgent();
+    const startRequestId = this.beginAgentStartRequest(sessionKey);
     this.agentProvider = provider;
     this.saveAgentViewState();
-    this.refreshAgentProviderButtons();
+    this.refreshAgentProviderUi();
+    this.scrollVisibleAgentTranscriptToBottomAfterLayout();
     this.codexGitBranch = null;
     this.refreshCodexStatusLine();
     void this.refreshCodexGitBranch(cwd, sessionKey);
 
     if (provider === "codex" && this.plugin.settings.codexUseAppServer) {
-      await this.startCodexBackend(cwd);
+      try {
+        await this.startCodexBackend(cwd);
+      } finally {
+        this.completeAgentStartRequest(sessionKey, startRequestId);
+      }
       return;
     }
 
@@ -3798,7 +4130,10 @@ class VaultPowerShellView extends ItemView {
         extraCaCertPath: this.plugin.getExtraCaCertPath()
       });
       if (provider === "gemini") {
-        const status = await this.checkAgentLoginStatus(provider, cwd, env);
+        const status = await this.checkAgentLoginStatus(provider, cwd, env, startRequestId);
+        if (!this.isAgentStartRequestCurrent(sessionKey, startRequestId)) {
+          return;
+        }
         this.withAgentSession(sessionKey, () => {
           if (status.loggedIn !== true) {
             this.agentReadyForInput = false;
@@ -3809,6 +4144,7 @@ class VaultPowerShellView extends ItemView {
           this.markAgentConversationReady(`${getAgentProviderLabel(provider)} CLI가 확인되었습니다. 이제 대화를 시작할 수 있습니다.`);
           this.refreshAgentPromptActions();
         });
+        this.completeAgentStartRequest(sessionKey, startRequestId);
         return;
       }
 
@@ -3819,13 +4155,22 @@ class VaultPowerShellView extends ItemView {
         }
 
         await this.plugin.installRuntimeIfNeeded((message) => {
-          this.withAgentSession(sessionKey, () => this.setAgentStatus(message));
+          if (this.isAgentStartRequestCurrent(sessionKey, startRequestId)) {
+            this.withAgentSession(sessionKey, () => this.setAgentStatus(message));
+          }
         });
       }
 
-      await this.checkAgentLoginStatus(provider, cwd, env);
+      await this.checkAgentLoginStatus(provider, cwd, env, startRequestId);
+      if (!this.isAgentStartRequestCurrent(sessionKey, startRequestId)) {
+        return;
+      }
       this.startAgentHost(sessionKey, cwd, env, provider);
+      this.completeAgentStartRequest(sessionKey, startRequestId);
     } catch (error) {
+      if (!this.isAgentStartRequestCurrent(sessionKey, startRequestId)) {
+        return;
+      }
       const message = error instanceof Error ? error.message : String(error);
       this.withAgentSession(sessionKey, () => {
         this.setAgentStatus("Failed");
@@ -3836,6 +4181,7 @@ class VaultPowerShellView extends ItemView {
         });
       });
       new Notice(`Failed to start ${getAgentProviderLabel(provider)}: ${message}`);
+      this.completeAgentStartRequest(sessionKey, startRequestId);
     }
   }
 
@@ -3864,11 +4210,19 @@ class VaultPowerShellView extends ItemView {
     });
 
     host.stdout.on("data", (chunk: Buffer) => {
-      this.withAgentSession(sessionKey, () => this.handleAgentHostStdout(chunk.toString(), provider));
+      this.withAgentSession(sessionKey, () => {
+        if (this.agentHost !== host) {
+          return;
+        }
+        this.handleAgentHostStdout(chunk.toString(), provider);
+      });
     });
 
     host.stderr.on("data", (chunk: Buffer) => {
       this.withAgentSession(sessionKey, () => {
+        if (this.agentHost !== host) {
+          return;
+        }
         this.appendAgentTranscript({
           id: this.nextLocalAgentEntryId("system"),
           role: "system",
@@ -3879,6 +4233,9 @@ class VaultPowerShellView extends ItemView {
 
     host.on("error", (error: Error) => {
       this.withAgentSession(sessionKey, () => {
+        if (this.agentHost !== host) {
+          return;
+        }
         const message = formatTerminalHostError(error, this.plugin);
         this.setAgentStatus("Failed");
         this.appendAgentTranscript({
@@ -3891,6 +4248,9 @@ class VaultPowerShellView extends ItemView {
 
     host.on("close", (code: number | null) => {
       this.withAgentSession(sessionKey, () => {
+        if (this.agentHost !== host) {
+          return;
+        }
         // Flush any answer already written to the session log before teardown,
         // so a response that landed right before the PTY died still appears.
         this.pollAgentSessionLog();
@@ -4112,11 +4472,14 @@ class VaultPowerShellView extends ItemView {
     const sessionLabel = this.agentSessionLabel || createAgentSessionLabel(this.agentSessionKey);
     const provider = this.agentProvider;
     const routedText = formatDelegatedAgentPrompt(sourceLabel, message);
-    const visibleText = routedText + (attachments.length ? `\n\n[${attachments.length} file(s) attached]` : "");
+    const activeNoteContext = this.getSharedActiveNoteContextSnapshot();
+    const turnAttachments = this.withActiveNoteAttachment(attachments, activeNoteContext);
+    const userAttachmentCount = attachments.filter((attachment) => attachment.contextRole !== "active-note").length;
+    const visibleText = routedText + (userAttachmentCount ? `\n\n[${userAttachmentCount} file(s) attached]` : "");
 
     if (this.agentBackend) {
       if (this.codexTurnActive) {
-        this.codexQueuedInputs.push({ text: routedText, attachments });
+        this.codexQueuedInputs.push({ text: routedText, attachments: turnAttachments, activeNoteContext });
         this.appendAgentTranscript({
           id: this.nextLocalAgentEntryId("system"),
           role: "system",
@@ -4125,7 +4488,7 @@ class VaultPowerShellView extends ItemView {
         return { sessionLabel, provider, status: "queued", reason: "Codex is answering" };
       }
 
-      this.beginCodexTurn(routedText, attachments);
+      this.beginCodexTurn(routedText, turnAttachments, activeNoteContext);
       return { sessionLabel, provider, status: "sent" };
     }
 
@@ -4149,10 +4512,10 @@ class VaultPowerShellView extends ItemView {
     }
 
     const usePrintMode = isPrintCommandProvider(this.agentProvider) && (!this.agentPromptState || promptMode === "text");
-    const contextualRoutedText = this.buildContextualAgentPrompt(routedText);
-    const textWithAttachments = appendAgentAttachmentPrompt(contextualRoutedText, attachments);
+    const contextualRoutedText = this.buildContextualAgentPrompt(routedText, activeNoteContext);
+    const textWithAttachments = appendAgentAttachmentPrompt(contextualRoutedText, turnAttachments);
     if (usePrintMode && textWithAttachments) {
-      const status = this.queueOrStartPrintTurn(this.agentProvider, textWithAttachments, attachments, visibleText);
+      const status = this.queueOrStartPrintTurn(this.agentProvider, textWithAttachments, turnAttachments, visibleText);
       return { sessionLabel, provider, status };
     }
 
@@ -4193,6 +4556,12 @@ class VaultPowerShellView extends ItemView {
       return;
     }
 
+    const activeNoteContext = !text.startsWith("/") &&
+      (!this.agentPromptState || this.agentPromptState.mode === "text")
+      ? this.getSharedActiveNoteContextSnapshot()
+      : null;
+    const turnAttachments = this.withActiveNoteAttachment(attachments, activeNoteContext);
+
     const delegation = this.parseAgentDelegationCommand(text);
     if (delegation) {
       if (delegation.targets.length === 0) {
@@ -4208,7 +4577,7 @@ class VaultPowerShellView extends ItemView {
       inputEl.value = "";
       this.codexPendingAttachments = [];
       this.renderAttachmentChips();
-      this.dispatchAgentDelegation(delegation, attachments);
+      this.dispatchAgentDelegation(delegation, turnAttachments);
       return;
     }
 
@@ -4235,11 +4604,11 @@ class VaultPowerShellView extends ItemView {
       if (this.codexTurnActive) {
         // Still answering — queue this message (Codex-app behavior), don't open
         // a second concurrent turn. It sends when the current turn ends/stops.
-        this.codexQueuedInputs.push({ text, attachments });
+        this.codexQueuedInputs.push({ text, attachments: turnAttachments, activeNoteContext });
         new Notice(`응답 중 — 메시지를 큐에 추가했습니다 (${this.codexQueuedInputs.length}개 대기). Stop을 누르면 즉시 넘어갑니다.`);
         return;
       }
-      this.beginCodexTurn(text, attachments);
+      this.beginCodexTurn(text, turnAttachments, activeNoteContext);
       return;
     }
 
@@ -4278,8 +4647,8 @@ class VaultPowerShellView extends ItemView {
       text = text.replace(/\s+/g, "");
     }
 
-    const contextualText = this.buildContextualAgentPrompt(text);
-    const textWithAttachments = appendAgentAttachmentPrompt(contextualText, attachments);
+    const contextualText = this.buildContextualAgentPrompt(text, activeNoteContext);
+    const textWithAttachments = appendAgentAttachmentPrompt(contextualText, turnAttachments);
     const usePrintMode = isPrintCommandProvider(this.agentProvider) &&
       !!textWithAttachments &&
       !text.startsWith("/") &&
@@ -4293,7 +4662,7 @@ class VaultPowerShellView extends ItemView {
       this.queueOrStartPrintTurn(
         this.agentProvider,
         textWithAttachments,
-        attachments,
+        turnAttachments,
         visibleText + (attachments.length ? `\n\n[${attachments.length} file(s) attached]` : "")
       );
       return;
@@ -4541,7 +4910,7 @@ class VaultPowerShellView extends ItemView {
       this.agentClaudePrintTurnActive = true;
     }
     this.agentCurrentTurnStartedAt = Date.now();
-    this.startCodexTurn(visibleText || text.slice(0, 160));
+    this.startCodexTurn(visibleText || text.slice(0, 160), true);
     this.agentLastUsageText = null;
     this.clearAgentPromptState();
     this.setAgentStatus(`Waiting for ${getAgentProviderLabel(provider)} response...`);
@@ -4825,10 +5194,18 @@ class VaultPowerShellView extends ItemView {
     return true;
   }
 
-  private async checkAgentLoginStatus(provider: AgentProvider, cwd: string, env: { [key: string]: string | undefined }): Promise<AgentAuthCheck> {
+  private async checkAgentLoginStatus(
+    provider: AgentProvider,
+    cwd: string,
+    env: { [key: string]: string | undefined },
+    startRequestId: number
+  ): Promise<AgentAuthCheck> {
     const sessionKey = this.activeAgentSessionKey;
     this.setAgentStatus(provider === "gemini" ? "Checking Antigravity CLI..." : `Checking ${getAgentProviderLabel(provider)} login...`);
     const status = await getAgentAuthCheck(provider, cwd, env, this.plugin.settings, this.plugin);
+    if (!this.isAgentStartRequestCurrent(sessionKey, startRequestId)) {
+      return status;
+    }
     this.withAgentSession(sessionKey, () => {
       this.appendAgentTranscript({
         id: this.nextLocalAgentEntryId("system"),
@@ -5331,7 +5708,7 @@ class VaultPowerShellView extends ItemView {
     this.agentProvider = "gemini";
     this.captureActiveAgentSessionState();
     this.saveAgentViewState();
-    this.refreshAgentProviderButtons();
+    this.refreshAgentProviderUi();
 
     this.agentStartedAt = Date.now();
     this.agentSessionPath = null;
@@ -5535,7 +5912,7 @@ class VaultPowerShellView extends ItemView {
     // Conversation entries (Claude session-log polling) flow into the same
     // turn-card UI as Codex. system/other entries stay as flat notices.
     if (entry.role === "user") {
-      this.startCodexTurn(text);
+      this.startCodexTurn(text, true);
       return;
     }
     if (entry.role === "assistant") {
@@ -5590,6 +5967,7 @@ class VaultPowerShellView extends ItemView {
 
   private setAgentStatus(text: string) {
     this.agentStatusText = text;
+    this.refreshAgentStartButton();
     if (!this.isVisibleAgentSessionContext()) {
       return;
     }
@@ -5615,29 +5993,6 @@ class VaultPowerShellView extends ItemView {
   private nextLocalAgentEntryId(role: AgentTranscriptRole): string {
     this.agentLocalMessageCounter += 1;
     return `local-${role}-${Date.now()}-${this.agentLocalMessageCounter}`;
-  }
-
-  private async insertCurrentNoteReferenceIntoAgent() {
-    const file = this.app.workspace.getActiveFile();
-    if (!file) {
-      new Notice("No active note to reference.");
-      return;
-    }
-
-    this.insertAgentInputText(`${formatVaultFileReference(file.path)} `);
-  }
-
-  private insertAgentInputText(text: string) {
-    if (!this.agentInputEl) {
-      return;
-    }
-
-    const start = this.agentInputEl.selectionStart ?? this.agentInputEl.value.length;
-    const end = this.agentInputEl.selectionEnd ?? this.agentInputEl.value.length;
-    this.agentInputEl.value = `${this.agentInputEl.value.slice(0, start)}${text}${this.agentInputEl.value.slice(end)}`;
-    const cursor = start + text.length;
-    this.agentInputEl.setSelectionRange(cursor, cursor);
-    this.agentInputEl.focus();
   }
 
   private createTerminal(container: HTMLElement) {
@@ -6544,6 +6899,7 @@ class VaultPowerShellView extends ItemView {
   }
 
   private disposeAgent(kill = true) {
+    this.cancelActiveAgentStartRequest();
     if (this.agentReadyTimer !== null) {
       window.clearTimeout(this.agentReadyTimer);
       this.agentReadyTimer = null;
@@ -7402,10 +7758,6 @@ function formatVaultFileReference(path: string): string {
   return `@${normalizePath(path).replace(/\\/g, "/")}`;
 }
 
-function referencesActiveVaultDocument(text: string): boolean {
-  return /(?:이\s*문서|이\s*노트|현재\s*(?:문서|노트)|열린\s*(?:문서|노트)|활성\s*(?:문서|노트)|보고\s*있는\s*(?:문서|노트)|옆(?:에|의)?\s*(?:문서|노트)|current\s+(?:document|note|file)|active\s+(?:document|note|file)|open\s+(?:document|note|file)|this\s+(?:document|note|file))/i.test(text);
-}
-
 function formatTerminalPasteData(text: string): string {
   const normalized = text.replace(/\r\n|\r|\n/g, "\r");
   return hasLineBreak(text)
@@ -7927,14 +8279,8 @@ function getAgentProviderLabel(provider: AgentProvider): string {
   return "Codex";
 }
 
-function getAgentProviderIconPath(provider: AgentProvider): string {
-  if (provider === "claude") {
-    return CLAUDE_ICON_PATH;
-  }
-  if (provider === "gemini") {
-    return GEMINI_ICON_PATH;
-  }
-  return CODEX_ICON_PATH;
+function providerMenuIconSvg(path: string): string {
+  return `<path d="${path}" fill="currentColor" transform="scale(4.1666667)"/>`;
 }
 
 function isAgentProvider(value: unknown): value is AgentProvider {
@@ -8193,14 +8539,14 @@ function stripAgentViewTranscriptSnapshots(value: unknown): AgentViewSessionStat
   };
 }
 
-function createAgentWorkspaceSessionState(mode: AgentSessionMode): AgentWorkspaceSessionState {
+function createAgentWorkspaceSessionState(mode: AgentSessionMode, provider: AgentProvider = "claude"): AgentWorkspaceSessionState {
   const sessionKey = createAgentSessionKey();
   const now = Date.now();
   return {
     agentSessionKey: sessionKey,
     agentSessionLabel: createAgentSessionLabel(sessionKey),
     agentSessionMode: mode,
-    agentProvider: "claude",
+    agentProvider: provider,
     claudeSessionId: randomUUID(),
     claudeControlSessionId: null,
     codexThreadId: null,

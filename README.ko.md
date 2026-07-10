@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.82`입니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.83`입니다.
 
 [English README](README.md)
 
@@ -12,22 +12,22 @@ Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 �
 
 Obst Terminal은 한 명의 AI와만 대화하는 단일 콘솔이 아니라, **하나의 Obsidian 볼트 안에 여러 Claude Code / Codex / Antigravity 세션을 탭으로 열어두고 동시에 운용하는 작업 공간**입니다.
 
-- 플러그인 내부 `+` 버튼 또는 `Open new AI session` 명령으로 AI 세션 탭을 추가합니다.
-- 각 탭은 독립적인 Claude sessionId / Codex threadId / Antigravity provider 상태, provider, 제목, transcript, 실행 상태를 유지합니다.
+- 플러그인 내부 `+` 버튼 또는 `Open new AI session` 명령에서 Claude Code, Codex, Antigravity 중 하나를 선택해 AI 세션 탭을 추가합니다.
+- 각 탭은 생성할 때 선택한 provider로 고정되며 독립적인 session ID, transcript, 실행 상태를 유지합니다.
 - 탭을 전환해도 실행 중인 에이전트는 멈추지 않고 자기 transcript에 계속 기록합니다.
 - Claude, Codex, Antigravity transcript는 세션/provider별 스크롤 위치를 보존하므로, 백그라운드 업데이트나 탭 전환 때문에 화면이 맨 위로 튀지 않습니다.
 - 개인 Agent UI 상태는 볼트 밖의 현재 사용자 로컬 Obst Terminal 상태 폴더에 저장합니다. `.obsidian/plugins/vault-terminal/data.json`에는 공유 가능한 플러그인 설정만 남기며 Claude/Codex/Antigravity session ID, thread ID, 입력 중인 문장, transcript HTML은 저장하지 않습니다.
 - PM, Writer, Reviewer, Researcher처럼 역할별 AI 직원을 같은 프로젝트 문서 옆에 나눠둘 수 있습니다.
 - 한 세션에서 `@all`, `@codex`, `@claude`, `@gemini`(=`@antigravity`), `@"세션 제목"`으로 다른 실행 중인 AI 세션에 지시를 전달할 수 있습니다.
-- Attach 버튼 또는 composer 이미지 붙여넣기로 파일을 첨부할 수 있습니다. 붙여넣은 이미지는 설정된 attachment folder에 저장되고 Claude, Codex, Antigravity에 로컬 파일 경로로 전달됩니다.
-- `이 문서`, `이문서`, `옆에 문서`, `현재 문서`, `열린 문서` 같은 표현은 현재 Obsidian 볼트에서 활성화된 열린 노트로 해석하고, agent prompt에 vault file reference로 자동 주입합니다.
+- composer 안의 paperclip 아이콘 또는 이미지 붙여넣기로 파일을 첨부할 수 있습니다. 붙여넣은 이미지는 설정된 attachment folder에 저장되고 Claude, Codex, Antigravity에 로컬 파일 경로로 전달됩니다.
+- 입력창 위에는 현재 활성 Obsidian 노트와 선택 영역이 계속 표시됩니다. 연결을 끄지 않은 일반 turn은 이 상태를 전송 시점에 공유하므로 `이게`, `여기`, `이 부분`, `보니까`처럼 문서명을 생략해도 현재 문맥으로 해석합니다.
 - Claude, Codex, Antigravity transcript 안에서 마우스로 일부 영역만 선택해 복사할 때 전체 메시지 카드가 복사되지 않도록 플러그인이 선택 범위 기준으로 복사합니다.
 
 ## 현재 동작 기준
 
-Obst Terminal을 열면 기본 화면은 **Agent Console**입니다. 상단에서 `Claude`, `Codex`, `Antigravity`를 선택할 수 있고, Claude, Codex, Antigravity transcript는 서로 섞이지 않고 따로 유지됩니다.
+Obst Terminal을 처음 열면 기본 `Claude Code` 탭이 생성됩니다. 이후에는 탭 끝의 `+` 메뉴에서 `Claude Code`, `Codex`, `Antigravity`를 선택하며, 생성된 탭의 provider는 변경되지 않습니다.
 
-한 볼트 안에서 여러 AI 세션을 나눠 사용할 수 있습니다. `Open AI workspace` 명령은 첫 Obst Terminal 뷰를 재사용하고, `Open new AI session` 명령이나 Agent Console의 `+` 버튼은 Obsidian 탭을 새로 만들지 않고 플러그인 내부 상단에 AI 세션 탭을 추가합니다. 각 탭은 독립 Claude sessionId / Codex threadId / Antigravity provider 상태, 선택 provider, 수정 가능한 제목, 표시 중인 transcript, 실행 중인 backend/프로세스 상태를 유지합니다. 탭을 바꿔도 실행 중인 에이전트는 정지되지 않고 자기 세션 transcript에 계속 기록됩니다. 이 구조는 PM, Writer, Reviewer처럼 역할이 다른 여러 AI를 같은 프로젝트 문서 옆에 나눠두는 용도입니다. 한 세션에서 `@all`, `@codex`, `@claude`, `@gemini`(=`@antigravity`), `@"세션 제목"`으로 다른 실행 중인 탭에 지시를 전달할 수 있습니다.
+한 볼트 안에서 여러 AI 세션을 나눠 사용할 수 있습니다. `Open AI workspace` 명령은 첫 Obst Terminal 뷰를 재사용하고, `Open new AI session` 명령이나 Agent Console의 `+` 메뉴는 Obsidian 탭을 새로 만들지 않고 선택한 provider의 세션 탭을 플러그인 내부에 추가합니다. 각 탭은 provider 기반 이름, 독립 session ID, transcript, backend/프로세스 상태를 유지합니다. 탭을 바꿔도 실행 중인 에이전트는 정지되지 않고 자기 세션 transcript에 계속 기록됩니다. 이 구조는 PM, Writer, Reviewer처럼 역할이 다른 여러 AI를 같은 프로젝트 문서 옆에 나눠두는 용도입니다. 한 세션에서 `@all`, `@codex`, `@claude`, `@gemini`(=`@antigravity`), `@"세션 제목"`으로 다른 실행 중인 탭에 지시를 전달할 수 있습니다.
 
 ### Codex
 
@@ -38,9 +38,8 @@ Codex Agent Console은 기본적으로 fullscreen TUI가 아니라 `codex app-se
 - 모델, reasoning effort, access level을 composer 아래 Agent Console 드롭다운에서 선택합니다.
 - 로그인한 계정의 모델 목록을 `codex app-server`에서 가져오며, 계정에 제공되는 `GPT-5.6-Sol`(frontier), `GPT-5.6-Terra`(balanced), `GPT-5.6-Luna`(fast)를 표시합니다. Sol과 Terra는 `max`·`ultra`, Luna는 `max`까지 모델별 reasoning level을 자동 표시합니다.
 - 한 user turn의 reasoning, command 실행, tool 호출, 최종 답변을 하나의 transcript 카드 안에 표시합니다.
-- 응답 중에는 `Send` 버튼이 `Stop` 역할을 하며 현재 turn을 interrupt합니다.
+- 응답 중에는 composer의 화살표가 정지 아이콘으로 바뀌며 현재 turn을 interrupt합니다.
 - 응답 중 새 메시지를 보내면 Codex app처럼 queue에 넣습니다.
-- statusline에는 현재 볼트 경로, git branch, 선택 모델, context 사용률, 5시간/7일 rate-limit meter를 표시합니다.
 - streaming delta는 일정 간격으로 모아 렌더링해서 Obsidian UI가 멈추는 현상을 줄입니다.
 - 설정에서는 Codex executable, app-server 사용 여부, approval policy, login method를 조정합니다. 모델은 설정 화면에 텍스트로 입력하지 않고 Agent Console 안에서 선택합니다.
 
@@ -156,14 +155,14 @@ https://github.com/obst2580/obsidian-powershell
 
 1. Obsidian에서 프로젝트 볼트를 엽니다.
 2. 명령 팔레트에서 `Open AI workspace`를 실행하거나 우측 사이드바의 Obst Terminal 탭을 엽니다.
-3. 상단 provider 버튼에서 `Claude`, `Codex`, `Antigravity` 중 하나를 선택합니다.
-4. `Start`로 agent를 시작합니다.
-5. 필요하면 `Login`으로 로그인 흐름을 시작합니다.
-6. 입력창에 메시지를 쓰고 `Send`를 누릅니다.
+3. 활성 탭의 agent가 자동으로 시작됩니다. 새 탭을 만들거나 정지된 탭으로 전환해도 동일합니다.
+4. 다른 provider가 필요하면 탭 끝의 `+`를 누르고 `Claude Code`, `Codex`, `Antigravity` 중 하나를 선택합니다. 선택한 provider의 새 탭이 생성되고 자동으로 시작됩니다.
+5. 로그인이 필요하면 외부 터미널에서 해당 CLI 로그인을 완료한 뒤 재생 아이콘을 누릅니다. 로그인과 입력 준비가 확인되면 재생 아이콘이 활성 상태로 표시됩니다.
+6. 입력창에 메시지를 쓰고 화살표 아이콘을 누릅니다.
 
-Codex, Claude, Antigravity가 응답 중일 때 `Send`는 `Stop`으로 동작합니다. 응답 중 새 메시지를 보내면 현재 turn이 끝난 뒤 이어서 실행되도록 queue에 들어갑니다.
+Codex, Claude, Antigravity가 응답 중일 때 화살표는 정지 아이콘으로 바뀝니다. 응답 중 새 메시지를 보내면 현재 turn이 끝난 뒤 이어서 실행되도록 queue에 들어갑니다.
 
-여러 AI를 함께 쓸 때는 명령 팔레트의 `Open new AI session` 또는 Agent Console 상단의 `+` 버튼으로 플러그인 내부 AI 세션 탭을 추가합니다. 각 세션은 수정 가능한 제목을 갖고, subtitle에 Claude sessionId, Codex threadId, Antigravity provider 상태의 짧은 값이 표시됩니다.
+여러 AI를 함께 쓸 때는 명령 팔레트의 `Open new AI session` 또는 Agent Console 탭 끝의 `+` 메뉴에서 provider를 선택합니다. 선택 전에는 탭이 생성되지 않으며, 생성된 탭은 `Claude Code`, `Codex`, `Antigravity` 중 해당 provider 이름으로 고정됩니다. 새 탭과 정지된 탭은 선택되는 즉시 자동으로 시작되고, 이미 실행 중인 탭은 다시 시작하지 않습니다.
 
 세션 위임 명령은 같은 입력창에 그대로 입력합니다.
 
@@ -180,12 +179,11 @@ Codex, Claude, Antigravity가 응답 중일 때 `Send`는 `Stop`으로 동작합
 
 ## 첨부 파일과 이미지
 
-Agent Console composer의 `Attach` 버튼으로 파일을 첨부할 수 있습니다.
+Agent Console composer 안의 paperclip 아이콘으로 파일을 첨부할 수 있습니다.
 
-- 첨부 후 버튼은 `Attach (N)`으로 바뀝니다.
-- 입력창 아래에 `첨부됨 N개` 영역이 나타납니다.
-- 각 파일은 `IMG` 또는 `FILE` chip으로 표시됩니다.
-- chip의 `x` 버튼으로 개별 첨부를 제거할 수 있습니다.
+- 첨부 후 paperclip에는 고정 크기 숫자 badge가 표시됩니다.
+- 입력 컨트롤 안에 파일/이미지 아이콘을 사용한 compact chip이 나타납니다.
+- chip의 제거 아이콘으로 개별 첨부를 제거할 수 있습니다.
 - 텍스트 없이 첨부 파일만 보내는 것도 가능합니다.
 
 Codex app-server 경로에서는 이미지가 `localImage`, 일반 파일이 `mention` 입력으로 전달됩니다. Claude Code와 Antigravity CLI 경로에서는 prompt 하단에 `첨부 파일:` 목록을 붙여 전달합니다.
@@ -204,7 +202,7 @@ Obst Terminal Attachments/
 Settings > Obst Terminal > Attachment folder
 ```
 
-현재 노트 참조는 Agent Console의 `Add current note` 버튼으로 넣을 수 있습니다.
+입력창 위의 활성 노트 행은 노트를 전환하는 즉시 갱신됩니다. 선택 영역이 있으면 그 영역을 우선 공유하고, 없으면 현재 노트 경로와 커서 줄을 공유합니다. link 아이콘으로 열린 노트는 유지한 채 AI 공유만 끄거나 다시 켤 수 있습니다.
 
 ## 주요 설정
 
@@ -290,8 +288,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-git tag 0.6.82
-git push origin 0.6.82
+git tag 0.6.83
+git push origin 0.6.83
 ```
 
 릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.

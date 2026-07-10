@@ -211,7 +211,7 @@ transcript에 표시(기존 auth-code UI 패턴 재사용). 설정으로 선택 
   - 이미지 붙여넣기(기존 saveAttachmentBytes 흐름): 볼트에 저장 후
     `{ type: "localImage", path: 절대경로 }`로 입력에 직접 첨부. 기존 `@path`
     문자열 삽입보다 정확하다.
-  - 노트 참조(Add current note): `{ type: "mention", path }`.
+  - 현재 노트 자동 공유(active note context): `{ type: "mention", path }`.
 - 진행 중 추가 입력: `turn/steer { expectedTurnId }` — Phase 4.
 - 중단: `turn/interrupt { threadId, turnId }`. Stop 버튼에 연결.
   turn/completed가 `status: "interrupted"`로 온다.
