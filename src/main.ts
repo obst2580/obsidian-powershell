@@ -1549,7 +1549,10 @@ class VaultPowerShellView extends ItemView {
     this.scrollVisibleAgentTranscriptToBottomAfterLayout();
 
     this.showPane(this.activePane, false);
-    this.autoStartActiveAgent();
+    // Do NOT auto-start here. Obsidian always calls setState() right after
+    // onOpen() with the persisted view state; auto-starting now would launch
+    // the placeholder session's default provider (claude) and race the real
+    // restored provider (e.g. codex), tangling both starts.
     return Promise.resolve();
   }
 
