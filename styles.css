@@ -1300,6 +1300,50 @@
   color: var(--text-accent);
 }
 
+.vault-agent-input-actions button.vault-agent-voice-button:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.vault-agent-input-actions button.vault-agent-voice-button.is-recording {
+  color: var(--text-error, #e5534b);
+  background: color-mix(in srgb, var(--text-error, #e5534b) 14%, var(--background-primary));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-error, #e5534b) 32%, transparent);
+}
+
+.vault-agent-input-actions button.vault-agent-voice-button.is-recording:hover {
+  background: color-mix(in srgb, var(--text-error, #e5534b) 22%, var(--background-primary));
+}
+
+.vault-agent-input-actions button.vault-agent-voice-button.is-transcribing {
+  color: var(--text-accent);
+  background: var(--oa-accent-soft);
+}
+
+.vault-agent-input-actions button.vault-agent-voice-button.is-transcribing .svg-icon {
+  animation: vault-agent-voice-spin 0.9s linear infinite;
+}
+
+.vault-agent-voice-status {
+  flex: 0 0 auto;
+  min-width: 38px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.vault-agent-voice-status.is-hidden {
+  display: none;
+}
+
+@keyframes vault-agent-voice-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .vault-agent-input-actions button.vault-agent-attach-button[data-count]:not([data-count=""])::after {
   content: attr(data-count);
   position: absolute;

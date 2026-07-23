@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.84`입니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.87`입니다.
 
 [English README](README.md)
 
@@ -20,6 +20,7 @@ Obst Terminal은 한 명의 AI와만 대화하는 단일 콘솔이 아니라, **
 - PM, Writer, Reviewer, Researcher처럼 역할별 AI 직원을 같은 프로젝트 문서 옆에 나눠둘 수 있습니다.
 - 한 세션에서 `@all`, `@codex`, `@claude`, `@gemini`(=`@antigravity`), `@"세션 제목"`으로 다른 실행 중인 AI 세션에 지시를 전달할 수 있습니다.
 - composer 안의 paperclip 아이콘 또는 이미지 붙여넣기로 파일을 첨부할 수 있습니다. 붙여넣은 이미지는 설정된 attachment folder에 저장되고 Claude, Codex, Antigravity에 로컬 파일 경로로 전달됩니다.
+- 마이크 버튼을 누르면 녹음을 시작하고, 정지할 때 전체 녹음을 설정된 서버로 한 번만 보내 전사합니다. 녹음 중에는 경과 시간만 표시하며, 결과는 AI에 자동 전송하지 않고 녹음을 시작한 탭의 입력창에 넣습니다.
 - 입력창 위에는 현재 활성 Obsidian 노트와 선택 영역이 계속 표시됩니다. 연결을 끄지 않은 일반 turn은 이 상태를 전송 시점에 공유하므로 `이게`, `여기`, `이 부분`, `보니까`처럼 문서명을 생략해도 현재 문맥으로 해석합니다.
 - Claude, Codex, Antigravity transcript 안에서 마우스로 일부 영역만 선택해 복사할 때 전체 메시지 카드가 복사되지 않도록 플러그인이 선택 범위 기준으로 복사합니다.
 
@@ -186,7 +187,7 @@ Agent Console composer 안의 paperclip 아이콘으로 파일을 첨부할 수 
 - chip의 제거 아이콘으로 개별 첨부를 제거할 수 있습니다.
 - 텍스트 없이 첨부 파일만 보내는 것도 가능합니다.
 
-Codex app-server 경로에서는 이미지가 `localImage`, 일반 파일이 `mention` 입력으로 전달됩니다. Claude Code와 Antigravity CLI 경로에서는 prompt 하단에 `첨부 파일:` 목록을 붙여 전달합니다.
+Codex app-server 경로에서는 이미지가 `localImage`, 일반 파일이 `mention` 입력으로 전달됩니다. Claude Code에는 명시적인 `Read` 대상, Antigravity/Gemini에는 `@` 파일 참조로 전달합니다. 볼트 밖에서 선택한 파일은 모든 provider가 접근할 수 있도록 먼저 attachment folder 안으로 복사합니다.
 
 Agent Console에서 이미지를 붙여넣으면 첨부 chip으로 추가합니다.
 
@@ -204,6 +205,18 @@ Settings > Obst Terminal > Attachment folder
 
 입력창 위의 활성 노트 행은 노트를 전환하는 즉시 갱신됩니다. 선택 영역이 있으면 그 영역을 우선 공유하고, 없으면 현재 노트 경로와 커서 줄을 공유합니다. link 아이콘으로 열린 노트는 유지한 채 AI 공유만 끄거나 다시 켤 수 있습니다.
 
+## 음성 전사
+
+paperclip 옆의 마이크 아이콘을 누르면 녹음을 시작합니다. 녹음 중에는 입력 영역에 시간과 정지 버튼만 표시됩니다. 정지를 누르면 메모리에 보관한 전체 녹음을 설정된 전사 서버로 한 번 보내고, 결과를 커서 위치에 넣습니다.
+
+- 녹음 중 중간 전사문이나 실시간 자막은 표시하지 않습니다.
+- 음성은 메모리에서만 보관하며 볼트에 녹음 파일을 저장하지 않습니다.
+- 전사문은 녹음을 시작한 탭에 삽입하며 AI에 자동 전송하지 않습니다.
+- 활성 문서 문맥과 회사 기준 자료에서 필요한 이름·용어만 뽑아 짧은 전사 힌트로 사용합니다.
+- 전사 후 `용어사전.md`, `조직구조.md`, `조직구조-전직원.md`, `제품구조.md`, `과제목록.md`를 기준으로 명시적인 별칭과 띄어쓰기 표기를 정리합니다.
+- 기준 자료는 현재 볼트 또는 로컬 `obst-indexer` 기본 볼트에서 읽습니다. 전 직원 명단이나 기준 문서 전체를 서버에 전송하지 않습니다.
+- 최초 녹음 시 운영체제의 마이크 권한 요청이 나타날 수 있습니다.
+
 ## 주요 설정
 
 기본 설정 화면에는 평소 사용하는 Agent Console 설정만 보입니다. Runtime, PTY, Node.js, 사내 인증서 관련 항목은 `Advanced runtime and network settings` 안에 접어둡니다.
@@ -211,6 +224,8 @@ Settings > Obst Terminal > Attachment folder
 | 설정 | 동작 |
 | --- | --- |
 | `Attachment folder` | Agent Console에 전달하기 전 붙여넣기/드롭 첨부 파일을 저장합니다. |
+| `Voice transcription server` | 정지 후 전체 녹음을 한 번 받는 Whisper 호환 `/v1/audio/transcriptions` 서비스입니다. |
+| `Voice transcription language` | 전사 서버에 한국어, 영어 또는 자동 감지 힌트를 적용합니다. |
 | `Persist Agent transcript snapshots` | 명시적으로 켠 경우에도 보이는 transcript HTML은 공유 볼트가 아니라 현재 사용자 로컬 Obst Terminal 상태에만 저장합니다. |
 
 고급 설정:
@@ -288,8 +303,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-git tag 0.6.84
-git push origin 0.6.84
+git tag 0.6.87
+git push origin 0.6.87
 ```
 
 릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.

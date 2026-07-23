@@ -26,6 +26,7 @@ import { homedir } from "os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
 import { CodexAppServerBackend } from "./agent/codex/backend";
 import type { AgentAccessLevel, AgentAttachment, AgentBackend, AgentModelInfo, AgentStatus, AgentUiEvent, AgentUsageWindow, ApprovalRequest, TranscriptItem, TranscriptItemKind } from "./agent/types";
+import { CompanyVoiceLexicon } from "./voice/company-lexicon";
 
 type Terminal = any;
 type ITheme = Record<string, string>;
@@ -64,6 +65,10 @@ const AGENT_PROVIDER_CHOICES: ReadonlyArray<{ provider: AgentProvider; label: st
   { provider: "gemini", label: "Antigravity", icon: ANTIGRAVITY_PROVIDER_ICON }
 ];
 const DEFAULT_ATTACHMENT_FOLDER = "Obst Terminal Attachments";
+const DEFAULT_VOICE_TRANSCRIPTION_API_BASE_URL = (process.env.TRANSCRIBE_API_BASE_URL?.trim() || "http://10.10.101.61:3000").replace(/\/+$/, "");
+const VOICE_RECORDING_MAX_MS = 2 * 60 * 60 * 1000;
+const VOICE_TRANSCRIPTION_TIMEOUT_MS = 30 * 60 * 1000;
+const VOICE_WAV_SAMPLE_RATE = 16_000;
 const EXTRA_CA_ENV_VARS = ["OBST_TERMINAL_EXTRA_CA_CERT", "VAULT_TERMINAL_EXTRA_CA_CERT"];
 const RUNTIME_BASE_REQUIRED_RELATIVE_FILES = [
   "pty-host.js",
@@ -110,7 +115,7 @@ const ESCAPE_SEQUENCE = "\x1b";
 const KILL_LINE_SEQUENCE = "\x15";
 const CODEX_RESIZE_REFLOW_CONFIG = "tui.terminal_resize_reflow=false";
 const TERMINAL_FIT_STABILIZATION_DELAYS_MS = [0, 16, 50, 150, 400, 1000];
-const SETTINGS_SCHEMA_VERSION = 8;
+const SETTINGS_SCHEMA_VERSION = 12;
 const PRIVATE_STATE_FILE = "private-state.json";
 const AGENT_CONSOLE_COLS = 300;
 const AGENT_CONSOLE_ROWS = 30;
@@ -224,9 +229,16 @@ interface PowerShellSettings {
   useSystemCa: boolean;
   extraCaCertPath: string;
   attachmentFolder: string;
+  voiceTranscriptionApiBaseUrl: string;
+  voiceTranscriptionLanguage: VoiceTranscriptionLanguage;
   persistAgentTranscriptSnapshots: boolean;
   agentViewState?: AgentViewSessionState;
 }
+
+type StoredPowerShellSettings = Partial<PowerShellSettings> & {
+  voiceLiveTranscription?: boolean;
+  voiceTranscriptionMode?: string;
+};
 
 interface PrivatePluginData {
   agentViewState?: AgentViewSessionState;
@@ -241,6 +253,8 @@ type ClaudePermissionMode = "acceptEdits" | "auto" | "bypassPermissions" | "defa
 type ClaudeEffort = "" | "low" | "medium" | "high" | "xhigh" | "max";
 type GeminiApprovalMode = "default" | "auto_edit" | "yolo" | "plan";
 type GeminiOutputFormat = "text" | "json" | "stream-json";
+type VoiceTranscriptionLanguage = "" | "ko" | "en";
+type VoiceCaptureState = "idle" | "requesting" | "recording" | "transcribing";
 type ShellProfile = "auto" | "pwsh" | "windows-powershell" | "cmd" | "wsl" | "git-bash" | "zsh" | "bash" | "custom";
 type ViewPane = "agent" | "terminal";
 type AgentProvider = "claude" | "codex" | "gemini";
@@ -536,6 +550,12 @@ interface ClipboardNativeImage {
   toPNG(): Buffer;
 }
 
+interface VoiceAudioPayload {
+  bytes: Uint8Array;
+  filename: string;
+  contentType: string;
+}
+
 interface TerminalBufferLineLike {
   readonly isWrapped: boolean;
   translateToString(trimRight?: boolean, startColumn?: number, endColumn?: number): string;
@@ -588,12 +608,19 @@ const DEFAULT_SETTINGS: PowerShellSettings = {
   useSystemCa: false,
   extraCaCertPath: "",
   attachmentFolder: DEFAULT_ATTACHMENT_FOLDER,
+  voiceTranscriptionApiBaseUrl: DEFAULT_VOICE_TRANSCRIPTION_API_BASE_URL,
+  voiceTranscriptionLanguage: "ko",
   persistAgentTranscriptSnapshots: false
 };
 
 function getSharedSettingsForSave(settings: PowerShellSettings): PowerShellSettings {
-  const shared = { ...settings };
+  const shared = { ...settings } as PowerShellSettings & {
+    voiceLiveTranscription?: boolean;
+    voiceTranscriptionMode?: string;
+  };
   delete shared.agentViewState;
+  delete shared.voiceLiveTranscription;
+  delete shared.voiceTranscriptionMode;
   return shared;
 }
 
@@ -691,6 +718,7 @@ export default class VaultPowerShellPlugin extends Plugin {
   settings: PowerShellSettings;
   private privateState: PrivatePluginData = {};
   private runtimeInstallPromise: Promise<void> | null = null;
+  private companyVoiceLexicon: CompanyVoiceLexicon | null = null;
 
   async onload() {
     await this.loadSettings();
@@ -739,8 +767,12 @@ export default class VaultPowerShellPlugin extends Plugin {
     });
   }
 
+  onunload() {
+    this.companyVoiceLexicon = null;
+  }
+
   async loadSettings() {
-    const saved = (await this.loadData()) as Partial<PowerShellSettings> | null;
+    const saved = (await this.loadData()) as StoredPowerShellSettings | null;
     const previousSchemaVersion = saved?.settingsSchemaVersion ?? 0;
     const needsCodexScrollbackMigration = previousSchemaVersion < 2;
     const needsGeminiStableModelMigration = previousSchemaVersion < 4;
@@ -756,6 +788,8 @@ export default class VaultPowerShellPlugin extends Plugin {
       needsAntigravityMigration ||
       needsPrivateStateMigration ||
       needsAntigravityRestoreMigration ||
+      saved?.voiceTranscriptionMode !== undefined ||
+      saved?.voiceLiveTranscription !== undefined ||
       saved?.agentViewState !== undefined;
     let shouldSavePrivateState = false;
     this.privateState = this.loadPrivateState();
@@ -825,6 +859,16 @@ export default class VaultPowerShellPlugin extends Plugin {
     }
     this.settings.windowsPtyBackend = normalizeWindowsPtyBackend(this.settings.windowsPtyBackend);
     this.settings.autoInstallRuntime = this.settings.autoInstallRuntime === true;
+    this.settings.voiceTranscriptionApiBaseUrl = normalizeVoiceTranscriptionApiBaseUrl(this.settings.voiceTranscriptionApiBaseUrl);
+    this.settings.voiceTranscriptionLanguage = normalizeVoiceTranscriptionLanguage(this.settings.voiceTranscriptionLanguage);
+    delete (this.settings as PowerShellSettings & {
+      voiceLiveTranscription?: boolean;
+      voiceTranscriptionMode?: string;
+    }).voiceLiveTranscription;
+    delete (this.settings as PowerShellSettings & {
+      voiceLiveTranscription?: boolean;
+      voiceTranscriptionMode?: string;
+    }).voiceTranscriptionMode;
     this.settings.persistAgentTranscriptSnapshots = this.settings.persistAgentTranscriptSnapshots === true;
     const localAgentViewState = normalizeAgentViewSessionState(this.privateState.agentViewState);
     if (localAgentViewState) {
@@ -1030,6 +1074,21 @@ export default class VaultPowerShellPlugin extends Plugin {
 
   getAgentProcessRegistryPath(): string {
     return join(this.getPrivateDataDirPath(), AGENT_PROCESS_REGISTRY_FILE);
+  }
+
+  buildVoiceTranscriptionPrompt(noteContext: string): string {
+    return this.getCompanyVoiceLexicon().buildTranscriptionPrompt(noteContext);
+  }
+
+  normalizeVoiceTranscript(transcript: string) {
+    return this.getCompanyVoiceLexicon().normalizeTranscript(transcript);
+  }
+
+  private getCompanyVoiceLexicon(): CompanyVoiceLexicon {
+    if (!this.companyVoiceLexicon) {
+      this.companyVoiceLexicon = new CompanyVoiceLexicon(this.getVaultPath());
+    }
+    return this.companyVoiceLexicon;
   }
 
   private getPrivateDataDirPath(): string {
@@ -1435,6 +1494,16 @@ class VaultPowerShellView extends ItemView {
   private codexPendingAttachments: AgentAttachment[] = [];
   private codexAttachmentsEl: HTMLElement | null = null;
   private agentAttachButton: HTMLButtonElement | null = null;
+  private voiceButton: HTMLButtonElement | null = null;
+  private voiceStatusEl: HTMLElement | null = null;
+  private voiceCaptureState: VoiceCaptureState = "idle";
+  private voiceMediaRecorder: MediaRecorder | null = null;
+  private voiceMediaStream: MediaStream | null = null;
+  private voicePreparationStatus = "";
+  private voiceStartedAt = 0;
+  private voiceTimer: number | null = null;
+  private voiceTargetSessionKey: string | null = null;
+  private voiceOperationId = 0;
   private activeNoteContextEl: HTMLElement | null = null;
   private activeNoteFile: TFile | null = null;
   private activeNoteView: MarkdownView | null = null;
@@ -1557,6 +1626,7 @@ class VaultPowerShellView extends ItemView {
   }
 
   async onClose(): Promise<void> {
+    this.cancelVoiceCapture();
     this.captureActiveAgentSessionState();
     await this.plugin.saveAgentViewStateSnapshot(this.getState() as AgentViewSessionState);
     for (const session of [...this.agentSessions]) {
@@ -1616,6 +1686,8 @@ class VaultPowerShellView extends ItemView {
     this.agentInputEl = null;
     this.agentStartButton = null;
     this.agentAttachButton = null;
+    this.voiceButton = null;
+    this.voiceStatusEl = null;
     this.activeNoteContextEl = null;
     this.activeNoteFile = null;
     this.activeNoteView = null;
@@ -2693,6 +2765,21 @@ class VaultPowerShellView extends ItemView {
       fileInput.value = "";
       void this.addAgentAttachments(files);
     });
+    const voiceButton = inputActions.createEl("button", {
+      cls: "vault-agent-input-icon vault-agent-voice-button",
+      attr: { "aria-label": "Start voice recording", title: "Start voice recording", type: "button" }
+    });
+    setIcon(voiceButton, "mic");
+    this.voiceButton = voiceButton;
+    voiceButton.addEventListener("click", () => {
+      if (this.voiceCaptureState === "recording") {
+        this.stopVoiceRecording();
+      } else if (this.voiceCaptureState === "idle") {
+        void this.startVoiceRecording();
+      }
+    });
+    this.voiceStatusEl = inputActions.createSpan("vault-agent-voice-status is-hidden");
+    this.refreshVoiceCaptureUi();
     inputActions.createDiv("vault-agent-input-actions-spacer");
     const sendButton = inputActions.createEl("button", {
       cls: "vault-agent-input-icon vault-agent-send-button mod-cta",
@@ -3907,6 +3994,286 @@ class VaultPowerShellView extends ItemView {
     });
   }
 
+  private async startVoiceRecording() {
+    if (this.voiceCaptureState !== "idle") {
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      new Notice("이 Obsidian 환경에서는 마이크 녹음을 지원하지 않습니다.");
+      return;
+    }
+
+    const operationId = ++this.voiceOperationId;
+    this.voiceTargetSessionKey = this.activeAgentSessionKey;
+    this.voicePreparationStatus = "";
+
+    this.voiceCaptureState = "requesting";
+    this.refreshVoiceCaptureUi();
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: false,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+      if (operationId !== this.voiceOperationId) {
+        stopMediaStream(stream);
+        return;
+      }
+
+      this.voiceMediaStream = stream;
+      this.startBatchVoiceRecorder(stream, operationId);
+      if (operationId !== this.voiceOperationId) {
+        stopMediaStream(stream);
+        return;
+      }
+
+      this.voiceStartedAt = Date.now();
+      this.voiceCaptureState = "recording";
+      this.startVoiceTimer();
+      this.refreshVoiceCaptureUi();
+    } catch (error) {
+      this.failVoiceCapture(operationId, error);
+    }
+  }
+
+  private startVoiceMediaRecorder(stream: MediaStream, operationId: number): Promise<Blob> {
+    if (typeof MediaRecorder === "undefined") {
+      throw new Error("이 Obsidian 환경에서는 녹음 파일 생성을 지원하지 않습니다.");
+    }
+    const mimeType = getPreferredVoiceRecordingMimeType();
+    const recorder = mimeType
+      ? new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 64_000 })
+      : new MediaRecorder(stream, { audioBitsPerSecond: 64_000 });
+    this.voiceMediaRecorder = recorder;
+    const chunks: Blob[] = [];
+    return new Promise<Blob>((resolve, reject) => {
+      recorder.addEventListener("dataavailable", (event) => {
+        if (operationId === this.voiceOperationId && event.data.size > 0) {
+          chunks.push(event.data);
+        }
+      });
+      recorder.addEventListener("error", (event) => {
+        reject(new Error(getMediaRecorderErrorMessage(event)));
+      }, { once: true });
+      recorder.addEventListener("stop", () => {
+        resolve(new Blob(chunks, { type: recorder.mimeType || mimeType || "audio/webm" }));
+      }, { once: true });
+      try {
+        recorder.start(1_000);
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  private startBatchVoiceRecorder(stream: MediaStream, operationId: number) {
+    const targetSessionKey = this.voiceTargetSessionKey;
+    const recordingPromise = this.startVoiceMediaRecorder(stream, operationId);
+    void recordingPromise
+      .then((recording) => this.finishBatchVoiceRecording(operationId, recording, targetSessionKey))
+      .catch((error) => this.failVoiceCapture(operationId, error));
+  }
+
+  private stopVoiceRecording() {
+    if (this.voiceCaptureState !== "recording") {
+      return;
+    }
+
+    this.voiceCaptureState = "transcribing";
+    this.voicePreparationStatus = "전사 서버 처리 중";
+    this.stopVoiceTimer();
+    this.refreshVoiceCaptureUi();
+
+    const recorder = this.voiceMediaRecorder;
+    if (!recorder || recorder.state === "inactive") {
+      this.failVoiceCapture(this.voiceOperationId, new Error("녹음 데이터를 완료하지 못했습니다."));
+      return;
+    }
+
+    try {
+      recorder.requestData();
+      recorder.stop();
+      stopMediaStream(this.voiceMediaStream);
+      this.voiceMediaStream = null;
+    } catch (error) {
+      this.failVoiceCapture(this.voiceOperationId, error);
+    }
+  }
+
+  private async finishBatchVoiceRecording(operationId: number, recording: Blob, targetSessionKey: string | null) {
+    this.voiceMediaRecorder = null;
+    if (operationId !== this.voiceOperationId) {
+      return;
+    }
+    if (recording.size === 0) {
+      this.failVoiceCapture(operationId, new Error("녹음된 음성이 없습니다."));
+      return;
+    }
+
+    try {
+      const payload = await prepareVoiceAudioPayload(recording);
+      if (operationId !== this.voiceOperationId) {
+        return;
+      }
+      const snapshot = this.readActiveNoteContextSnapshot();
+      const noteContext = [
+        snapshot?.name.replace(/\.md$/i, "") ?? "",
+        snapshot?.selection || snapshot?.cursorLineText || ""
+      ].filter(Boolean).join("\n");
+      const terminologyPrompt = this.plugin.buildVoiceTranscriptionPrompt(noteContext);
+      const transcript = await transcribeVoiceAudio(payload, this.plugin.settings, terminologyPrompt);
+      if (operationId !== this.voiceOperationId) {
+        return;
+      }
+      const normalization = this.plugin.normalizeVoiceTranscript(transcript);
+      if (!normalization.text) {
+        throw new Error("전사 서버가 빈 텍스트를 반환했습니다.");
+      }
+      this.insertVoiceTranscript(normalization.text, targetSessionKey);
+      const terminologyMessage = normalization.replacementCount > 0
+        ? ` 회사 표준 표기 ${normalization.replacementCount}건을 반영했습니다.`
+        : normalization.referenceDirectory
+          ? ""
+          : " 회사 용어 기준 자료를 찾지 못해 전사 원문을 사용했습니다.";
+      new Notice(`음성을 텍스트로 변환했습니다.${terminologyMessage}`);
+      this.completeVoiceCapture(operationId);
+    } catch (error) {
+      this.failVoiceCapture(operationId, error);
+    }
+  }
+
+  private insertVoiceTranscript(transcript: string, targetSessionKey: string | null) {
+    const target = targetSessionKey
+      ? this.agentSessions.find((session) => session.agentSessionKey === targetSessionKey) ?? null
+      : null;
+    if (!target || target.agentSessionKey === this.activeAgentSessionKey) {
+      const input = this.agentInputEl;
+      if (!input) {
+        return;
+      }
+      insertTextIntoTextarea(input, transcript);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.focus();
+      this.captureActiveAgentSessionState();
+      this.saveAgentViewState();
+      return;
+    }
+
+    target.inputText = appendComposerText(target.inputText ?? "", transcript);
+    target.updatedAt = Date.now();
+    this.saveAgentViewState();
+    new Notice(`${target.agentSessionLabel} 탭의 입력창에 전사문을 넣었습니다.`);
+  }
+
+  private startVoiceTimer() {
+    this.stopVoiceTimer();
+    this.voiceTimer = window.setInterval(() => {
+      if (this.voiceCaptureState !== "recording") {
+        return;
+      }
+      if (Date.now() - this.voiceStartedAt >= VOICE_RECORDING_MAX_MS) {
+        new Notice("최대 녹음 시간에 도달해 전사를 시작합니다.");
+        this.stopVoiceRecording();
+        return;
+      }
+      this.refreshVoiceCaptureUi();
+    }, 250);
+  }
+
+  private stopVoiceTimer() {
+    if (this.voiceTimer !== null) {
+      window.clearInterval(this.voiceTimer);
+      this.voiceTimer = null;
+    }
+  }
+
+  private refreshVoiceCaptureUi() {
+    const button = this.voiceButton;
+    const status = this.voiceStatusEl;
+    if (!button || !status) {
+      return;
+    }
+
+    const state = this.voiceCaptureState;
+    const icon = state === "recording"
+      ? "square"
+      : state === "requesting" || state === "transcribing"
+        ? "loader-circle"
+        : "mic";
+    if (button.dataset.voiceIcon !== icon) {
+      setIcon(button, icon);
+      button.dataset.voiceIcon = icon;
+    }
+    const label = state === "recording"
+      ? "Stop voice recording"
+      : state === "requesting"
+        ? "Requesting microphone access"
+        : state === "transcribing"
+          ? "Transcribing voice"
+          : "Start voice recording";
+    button.disabled = state === "requesting" || state === "transcribing";
+    button.toggleClass("is-recording", state === "recording");
+    button.toggleClass("is-transcribing", state === "transcribing" || state === "requesting");
+    button.setAttr("aria-label", label);
+    button.setAttr("title", label);
+
+    status.toggleClass("is-hidden", state === "idle");
+    status.setText(state === "recording"
+      ? formatVoiceDuration(Date.now() - this.voiceStartedAt)
+      : state === "requesting"
+          ? "마이크 연결 중"
+          : state === "transcribing"
+            ? this.voicePreparationStatus || "전사 중"
+            : "");
+  }
+
+  private failVoiceCapture(operationId: number, error: unknown) {
+    if (operationId !== this.voiceOperationId) {
+      return;
+    }
+    const message = formatVoiceCaptureError(error);
+    this.cancelVoiceCapture();
+    new Notice(message);
+  }
+
+  private completeVoiceCapture(operationId: number) {
+    if (operationId !== this.voiceOperationId) {
+      return;
+    }
+    this.stopVoiceTimer();
+    stopMediaStream(this.voiceMediaStream);
+    this.voiceMediaStream = null;
+    this.voiceMediaRecorder = null;
+    this.voicePreparationStatus = "";
+    this.voiceTargetSessionKey = null;
+    this.voiceCaptureState = "idle";
+    this.voiceOperationId += 1;
+    this.refreshVoiceCaptureUi();
+  }
+
+  private cancelVoiceCapture() {
+    this.voiceOperationId += 1;
+    this.stopVoiceTimer();
+    const recorder = this.voiceMediaRecorder;
+    this.voiceMediaRecorder = null;
+    if (recorder && recorder.state !== "inactive") {
+      try {
+        recorder.stop();
+      } catch {
+        // Best-effort cleanup during view close or a recorder failure.
+      }
+    }
+    stopMediaStream(this.voiceMediaStream);
+    this.voiceMediaStream = null;
+    this.voicePreparationStatus = "";
+    this.voiceTargetSessionKey = null;
+    this.voiceCaptureState = "idle";
+    this.refreshVoiceCaptureUi();
+  }
+
   private async addAgentAttachments(files: File[]) {
     if (files.length === 0) {
       return;
@@ -3934,7 +4301,8 @@ class VaultPowerShellView extends ItemView {
   private async createAgentAttachment(file: File): Promise<AgentAttachment | null> {
     const name = file.name || "attachment";
     const localPath = getDataTransferFilePath(file);
-    if (localPath) {
+    const vaultPath = this.plugin.getVaultPath();
+    if (localPath && (!vaultPath || isPathInsideDirectory(localPath, vaultPath))) {
       return {
         kind: isImageAttachmentFile(file) ? "localImage" : "mention",
         path: localPath,
@@ -3943,10 +4311,10 @@ class VaultPowerShellView extends ItemView {
     }
 
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const vaultPath = await this.plugin.saveAttachmentBytes(bytes, getGeneralFileExtension(file), sanitizeFileStem(name));
-    const absolutePath = this.plugin.getVaultPath()
-      ? join(this.plugin.getVaultPath()!, ...vaultPath.split("/"))
-      : vaultPath;
+    const savedVaultPath = await this.plugin.saveAttachmentBytes(bytes, getGeneralFileExtension(file), sanitizeFileStem(name));
+    const absolutePath = vaultPath
+      ? join(vaultPath, ...savedVaultPath.split("/"))
+      : savedVaultPath;
     return {
       kind: isImageAttachmentFile(file) ? "localImage" : "mention",
       path: absolutePath,
@@ -4516,7 +4884,12 @@ class VaultPowerShellView extends ItemView {
 
     const usePrintMode = isPrintCommandProvider(this.agentProvider) && (!this.agentPromptState || promptMode === "text");
     const contextualRoutedText = this.buildContextualAgentPrompt(routedText, activeNoteContext);
-    const textWithAttachments = appendAgentAttachmentPrompt(contextualRoutedText, turnAttachments);
+    const textWithAttachments = appendAgentAttachmentPrompt(
+      contextualRoutedText,
+      turnAttachments,
+      provider,
+      this.plugin.getVaultPath()
+    );
     if (usePrintMode && textWithAttachments) {
       const status = this.queueOrStartPrintTurn(this.agentProvider, textWithAttachments, turnAttachments, visibleText);
       return { sessionLabel, provider, status };
@@ -4651,7 +5024,12 @@ class VaultPowerShellView extends ItemView {
     }
 
     const contextualText = this.buildContextualAgentPrompt(text, activeNoteContext);
-    const textWithAttachments = appendAgentAttachmentPrompt(contextualText, turnAttachments);
+    const textWithAttachments = appendAgentAttachmentPrompt(
+      contextualText,
+      turnAttachments,
+      this.agentProvider,
+      this.plugin.getVaultPath()
+    );
     const usePrintMode = isPrintCommandProvider(this.agentProvider) &&
       !!textWithAttachments &&
       !text.startsWith("/") &&
@@ -7094,6 +7472,34 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Voice transcription server")
+      .setDesc("Whisper-compatible server that receives the complete in-memory recording once after Stop.")
+      .addText((text) =>
+        text
+          .setPlaceholder(DEFAULT_VOICE_TRANSCRIPTION_API_BASE_URL)
+          .setValue(this.plugin.settings.voiceTranscriptionApiBaseUrl)
+          .onChange((value) => {
+            this.plugin.settings.voiceTranscriptionApiBaseUrl = normalizeVoiceTranscriptionApiBaseUrl(value);
+            void this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Voice transcription language")
+      .setDesc("Language hint used by the transcription server.")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("ko", "Korean")
+          .addOption("en", "English")
+          .addOption("", "Auto detect")
+          .setValue(this.plugin.settings.voiceTranscriptionLanguage)
+          .onChange((value) => {
+            this.plugin.settings.voiceTranscriptionLanguage = normalizeVoiceTranscriptionLanguage(value);
+            void this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
       .setName("Persist Agent transcript snapshots")
       .setDesc("Off by default. When enabled, visible Claude/Codex transcript HTML is saved only in the current user's local Obst Terminal state, outside the shared vault.")
       .addToggle((toggle) =>
@@ -7678,6 +8084,290 @@ function normalizeAttachmentFolder(value: string | undefined): string {
   return normalized;
 }
 
+function normalizeVoiceTranscriptionApiBaseUrl(value: string | undefined): string {
+  return ((value ?? "").trim() || DEFAULT_VOICE_TRANSCRIPTION_API_BASE_URL).replace(/\/+$/, "");
+}
+
+function normalizeVoiceTranscriptionLanguage(value: string | undefined): VoiceTranscriptionLanguage {
+  return value === "" || value === "en" ? value : "ko";
+}
+
+function getPreferredVoiceRecordingMimeType(): string {
+  if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") {
+    return "";
+  }
+  return [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4;codecs=mp4a.40.2",
+    "audio/mp4"
+  ].find((mimeType) => MediaRecorder.isTypeSupported(mimeType)) ?? "";
+}
+
+function stopMediaStream(stream: MediaStream | null) {
+  stream?.getTracks().forEach((track) => track.stop());
+}
+
+function getMediaRecorderErrorMessage(event: Event): string {
+  const error = (event as Event & { error?: DOMException }).error;
+  return error?.message || "마이크 녹음 중 오류가 발생했습니다.";
+}
+
+async function prepareVoiceAudioPayload(recording: Blob): Promise<VoiceAudioPayload> {
+  const timestamp = formatAttachmentTimestamp(new Date());
+  try {
+    return {
+      bytes: await convertVoiceRecordingToWav(recording),
+      filename: `${timestamp}-voice.wav`,
+      contentType: "audio/wav"
+    };
+  } catch {
+    const contentType = recording.type || "application/octet-stream";
+    return {
+      bytes: new Uint8Array(await recording.arrayBuffer()),
+      filename: `${timestamp}-voice.${getVoiceRecordingExtension(contentType)}`,
+      contentType
+    };
+  }
+}
+
+async function convertVoiceRecordingToWav(recording: Blob): Promise<Uint8Array> {
+  type AudioContextClass = new (options?: AudioContextOptions) => AudioContext;
+  const AudioContextConstructor = window.AudioContext ||
+    (window as typeof window & { webkitAudioContext?: AudioContextClass }).webkitAudioContext;
+  if (!AudioContextConstructor) {
+    throw new Error("AudioContext is unavailable.");
+  }
+
+  const context = new AudioContextConstructor();
+  try {
+    const decoded = await context.decodeAudioData(await recording.arrayBuffer());
+    return encodeAudioBufferAsMonoWav(decoded, VOICE_WAV_SAMPLE_RATE);
+  } finally {
+    await context.close().catch(() => undefined);
+  }
+}
+
+function encodeAudioBufferAsMonoWav(audio: AudioBuffer, targetSampleRate: number): Uint8Array {
+  if (audio.length === 0 || audio.numberOfChannels === 0 || audio.sampleRate <= 0) {
+    throw new Error("Decoded recording is empty.");
+  }
+
+  const channels = Array.from({ length: audio.numberOfChannels }, (_, index) => audio.getChannelData(index));
+  const outputLength = Math.max(1, Math.round(audio.length * targetSampleRate / audio.sampleRate));
+  const dataLength = outputLength * 2;
+  const bytes = new Uint8Array(44 + dataLength);
+  const view = new DataView(bytes.buffer);
+  writeAscii(view, 0, "RIFF");
+  view.setUint32(4, 36 + dataLength, true);
+  writeAscii(view, 8, "WAVE");
+  writeAscii(view, 12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, targetSampleRate, true);
+  view.setUint32(28, targetSampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeAscii(view, 36, "data");
+  view.setUint32(40, dataLength, true);
+
+  const sourceStep = audio.sampleRate / targetSampleRate;
+  for (let outputIndex = 0; outputIndex < outputLength; outputIndex += 1) {
+    const sourcePosition = Math.min(audio.length - 1, outputIndex * sourceStep);
+    const leftIndex = Math.floor(sourcePosition);
+    const rightIndex = Math.min(audio.length - 1, leftIndex + 1);
+    const fraction = sourcePosition - leftIndex;
+    let sample = 0;
+    for (const channel of channels) {
+      sample += channel[leftIndex] + (channel[rightIndex] - channel[leftIndex]) * fraction;
+    }
+    sample = Math.max(-1, Math.min(1, sample / channels.length));
+    view.setInt16(44 + outputIndex * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+  }
+  return bytes;
+}
+
+function writeAscii(view: DataView, offset: number, value: string) {
+  for (let index = 0; index < value.length; index += 1) {
+    view.setUint8(offset + index, value.charCodeAt(index));
+  }
+}
+
+function getVoiceRecordingExtension(contentType: string): string {
+  if (/mp4|m4a/i.test(contentType)) {
+    return "m4a";
+  }
+  if (/ogg/i.test(contentType)) {
+    return "ogg";
+  }
+  if (/wav/i.test(contentType)) {
+    return "wav";
+  }
+  return "webm";
+}
+
+async function transcribeVoiceAudio(
+  payload: VoiceAudioPayload,
+  settings: PowerShellSettings,
+  prompt = ""
+): Promise<string> {
+  const endpoint = getVoiceTranscriptionEndpoint(settings.voiceTranscriptionApiBaseUrl);
+  const multipart = buildVoiceTranscriptionMultipart(payload, settings.voiceTranscriptionLanguage, prompt);
+  const response = await withTimeout(requestUrl({
+    url: endpoint,
+    method: "POST",
+    headers: {
+      "Content-Type": `multipart/form-data; boundary=${multipart.boundary}`
+    },
+    body: toArrayBuffer(multipart.body),
+    throw: false
+  }), VOICE_TRANSCRIPTION_TIMEOUT_MS, "음성 전사 요청 시간이 초과되었습니다.");
+
+  if (response.status < 200 || response.status >= 300) {
+    const detail = getVoiceTranscriptionResponseText(response.text).slice(0, 1_000);
+    throw new Error(`전사 서버 오류 (${response.status})${detail ? `: ${detail}` : ""}`);
+  }
+  return getVoiceTranscriptionResponseText(response.text);
+}
+
+function getVoiceTranscriptionEndpoint(baseUrl: string): string {
+  const normalized = normalizeVoiceTranscriptionApiBaseUrl(baseUrl);
+  let url: URL;
+  try {
+    url = new URL(normalized);
+  } catch {
+    throw new Error(`전사 서버 주소가 올바르지 않습니다: ${normalized}`);
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("전사 서버 주소는 http 또는 https여야 합니다.");
+  }
+  if (!/\/v1\/audio\/transcriptions\/?$/i.test(url.pathname)) {
+    url.pathname = `${url.pathname.replace(/\/+$/, "")}/v1/audio/transcriptions`;
+  }
+  return url.toString().replace(/\/$/, "");
+}
+
+function buildVoiceTranscriptionMultipart(
+  payload: VoiceAudioPayload,
+  language: VoiceTranscriptionLanguage,
+  prompt: string
+): { boundary: string; body: Uint8Array } {
+  const boundary = `----ObstTerminal${randomUUID().replace(/-/g, "")}`;
+  const encoder = new TextEncoder();
+  const chunks: Uint8Array[] = [];
+  const pushTextField = (name: string, value: string) => {
+    chunks.push(encoder.encode(
+      `--${boundary}\r\n` +
+      `Content-Disposition: form-data; name="${name}"\r\n\r\n` +
+      `${value}\r\n`
+    ));
+  };
+  if (language) {
+    pushTextField("language", language);
+  }
+  if (prompt.trim()) {
+    pushTextField("prompt", prompt.trim().slice(0, 1_800));
+  }
+  pushTextField("response_format", "text");
+  pushTextField("diarize", "false");
+  chunks.push(encoder.encode(
+    `--${boundary}\r\n` +
+    `Content-Disposition: form-data; name="file"; filename="${payload.filename.replace(/"/g, "")}"\r\n` +
+    `Content-Type: ${payload.contentType}\r\n\r\n`
+  ));
+  chunks.push(payload.bytes);
+  chunks.push(encoder.encode(`\r\n--${boundary}--\r\n`));
+  return { boundary, body: concatenateBytes(chunks) };
+}
+
+function concatenateBytes(chunks: Uint8Array[]): Uint8Array {
+  const result = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.byteLength, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return result;
+}
+
+function getVoiceTranscriptionResponseText(responseText: string): string {
+  const text = responseText.trim();
+  if (!text.startsWith("{") && !text.startsWith("[")) {
+    return text.slice(0, 500_000);
+  }
+  try {
+    const value = JSON.parse(text) as Record<string, unknown>;
+    const candidate = value.text ?? value.transcript ?? value.detail ?? value.error;
+    if (typeof candidate === "string") {
+      return candidate.trim().slice(0, 500_000);
+    }
+    if (candidate && typeof candidate === "object" && "message" in candidate && typeof candidate.message === "string") {
+      return candidate.message.trim().slice(0, 500_000);
+    }
+  } catch {
+    // Return the raw response below when it is not valid JSON.
+  }
+  return text.slice(0, 500_000);
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: number | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer !== null) {
+      window.clearTimeout(timer);
+    }
+  }
+}
+
+function formatVoiceDuration(durationMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(durationMs / 1_000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+}
+
+function formatVoiceCaptureError(error: unknown): string {
+  if (error instanceof DOMException) {
+    if (error.name === "NotAllowedError" || error.name === "SecurityError") {
+      return "마이크 권한이 거부되었습니다. 운영체제 설정에서 Obsidian의 마이크 접근을 허용하세요.";
+    }
+    if (error.name === "NotFoundError") {
+      return "사용 가능한 마이크를 찾지 못했습니다.";
+    }
+    if (error.name === "NotReadableError") {
+      return "마이크를 열 수 없습니다. 다른 앱이 마이크를 사용 중인지 확인하세요.";
+    }
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  if (/ECONNREFUSED|ERR_CONNECTION|Failed to fetch|Network Error/i.test(message)) {
+    return "음성 전사 서버에 연결하지 못했습니다. 사내망 또는 VPN 연결과 서버 주소를 확인하세요.";
+  }
+  return `음성 전사 실패: ${message}`;
+}
+
+function insertTextIntoTextarea(input: HTMLTextAreaElement, text: string) {
+  const start = input.selectionStart ?? input.value.length;
+  const end = input.selectionEnd ?? start;
+  const before = input.value.slice(0, start);
+  const after = input.value.slice(end);
+  const leading = before && !/\s$/.test(before) ? (start === input.value.length ? "\n" : " ") : "";
+  const trailing = after && !/^\s/.test(after) ? " " : "";
+  input.setRangeText(`${leading}${text}${trailing}`, start, end, "end");
+}
+
+function appendComposerText(existing: string, text: string): string {
+  const current = existing.trimEnd();
+  return current ? `${current}\n${text}` : text;
+}
+
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   const copy = new Uint8Array(bytes.byteLength);
   copy.set(bytes);
@@ -7746,15 +8436,55 @@ function isImageAttachmentFile(file: File): boolean {
   return file.type.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(file.name);
 }
 
-function appendAgentAttachmentPrompt(text: string, attachments: AgentAttachment[]): string {
+function appendAgentAttachmentPrompt(
+  text: string,
+  attachments: AgentAttachment[],
+  provider: AgentProvider,
+  cwd: string | null
+): string {
   if (attachments.length === 0) {
     return text;
   }
-  const attachmentText = attachments
-    .map((attachment) => `- ${attachment.name ?? "attachment"}: ${attachment.path}`)
-    .join("\n");
+
+  const hasImage = attachments.some((attachment) => attachment.kind === "localImage");
+  const instruction = provider === "gemini"
+    ? hasImage
+      ? "다음 @ 파일 참조를 실제 멀티모달 이미지로 불러와 픽셀 내용을 확인한 뒤 답변하세요."
+      : "다음 @ 파일 참조의 실제 내용을 불러온 뒤 답변하세요."
+    : provider === "claude"
+      ? hasImage
+        ? "아래 이미지 경로를 Read 도구로 열어 실제 픽셀 내용을 확인한 뒤 답변하세요. 경로 문자열만 보고 추측하지 마세요."
+        : "아래 파일 경로를 Read 도구로 열어 실제 내용을 확인한 뒤 답변하세요."
+      : hasImage
+        ? "아래 첨부 이미지를 실제 이미지 입력으로 확인한 뒤 답변하세요."
+        : "아래 첨부 파일의 실제 내용을 확인한 뒤 답변하세요.";
+  const attachmentText = attachments.map((attachment) => {
+    const name = attachment.name ?? "attachment";
+    const path = provider === "gemini"
+      ? formatGeminiAttachmentReference(attachment.path, cwd)
+      : `"${attachment.path.replace(/"/g, '\\"')}"`;
+    const kind = attachment.kind === "localImage" ? "image" : "file";
+    return `- ${kind} ${name}: ${path}`;
+  }).join("\n");
   const prefix = text.trim() ? `${text.trim()}\n\n` : "";
-  return `${prefix}첨부 파일:\n${attachmentText}`;
+  return `${prefix}${instruction}\n첨부 파일:\n${attachmentText}`;
+}
+
+function formatGeminiAttachmentReference(path: string, cwd: string | null): string {
+  const referencePath = cwd && isPathInsideDirectory(path, cwd)
+    ? relative(cwd, path)
+    : path;
+  const normalized = referencePath.replace(/\\/g, "/").replace(/ /g, "\\ ");
+  return `@${normalized}`;
+}
+
+function isPathInsideDirectory(path: string, directory: string): boolean {
+  const relativePath = relative(resolve(directory), resolve(path));
+  return relativePath === "" || (
+    relativePath !== ".." &&
+    !relativePath.startsWith(`..${sep}`) &&
+    !isAbsolute(relativePath)
+  );
 }
 
 function formatVaultFileReference(path: string): string {

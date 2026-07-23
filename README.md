@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.84`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.87`.
 
 [한국어 README](README.ko.md)
 
@@ -20,6 +20,7 @@ Obst Terminal is not just a single chat console. It is designed as a **multi-ses
 - Use role-based sessions such as PM, Writer, Reviewer, and Researcher next to the same project documents.
 - Delegate prompts to other running AI sessions with `@all`, `@codex`, `@claude`, `@gemini`(=`@antigravity`), or `@"session title"`.
 - Attach files from the composer's paperclip button or paste images directly. Pasted images are saved in the configured attachment folder and sent to Claude, Codex, or Antigravity as local file paths.
+- Use the microphone button to record audio. Pressing Stop sends the complete recording to the configured server exactly once for transcription. Only elapsed time is shown while recording, and the completed text is inserted into the originating tab without being sent automatically.
 - The composer continuously shows the active Obsidian note and selected lines. Unless unlinked, each normal turn captures that note as shared context, so implicit phrases such as `this`, `here`, or `this part` resolve without requiring a special command.
 - Mouse selection and copy inside Claude, Codex, and Antigravity transcripts are handled by the plugin so copying a partial selection does not expand to the whole message card.
 
@@ -186,7 +187,7 @@ Use the paperclip icon inside the composer to attach files.
 - Use the chip remove icon to remove one attachment.
 - You can send attachments without text.
 
-On the Codex app-server path, images are sent as `localImage` inputs and other files as `mention` inputs. On the Claude and Antigravity paths, attachments are appended to the prompt as an `첨부 파일:` list.
+On the Codex app-server path, images are sent as `localImage` inputs and other files as `mention` inputs. Claude is given explicit `Read` targets, while Antigravity/Gemini receives `@` file references. Files selected outside the vault are copied into the attachment folder first so every provider can access them from the vault workspace.
 
 Pasting an image in Agent Console adds it as an attachment chip.
 
@@ -204,6 +205,18 @@ Settings > Obst Terminal > Attachment folder
 
 The active-note strip above the input updates immediately when the user switches notes. Selected text is shared first; otherwise the active note path and cursor line are shared. The link icon disables or restores this context without changing the open note.
 
+## Voice Transcription
+
+Press the microphone icon beside the paperclip to start recording. The composer shows only the recording timer and Stop control while audio is captured. Stop sends the complete in-memory recording to the configured transcription server once, then inserts the returned text at the cursor.
+
+- No partial or live transcript is displayed while recording.
+- Audio stays in memory and is not saved in the vault.
+- The transcript is inserted into the tab where recording started and is never sent to an agent automatically.
+- The active note context and company reference documents provide short terminology hints to the transcription request.
+- After transcription, explicit aliases and spacing variants are normalized against `용어사전.md`, `조직구조.md`, `조직구조-전직원.md`, `제품구조.md`, and `과제목록.md`.
+- Reference files are read locally from the current vault or the default local `obst-indexer` vault. Full employee and reference documents are not uploaded.
+- The first recording may trigger the operating system's microphone permission prompt.
+
 ## Settings
 
 The default settings screen shows only day-to-day Agent Console options. Runtime, PTY, Node.js, and custom CA controls are kept under `Advanced runtime and network settings`.
@@ -211,6 +224,8 @@ The default settings screen shows only day-to-day Agent Console options. Runtime
 | Setting | Behavior |
 | --- | --- |
 | `Attachment folder` | Stores pasted or dropped attachment files before they are sent to Agent Console. |
+| `Voice transcription server` | Whisper-compatible `/v1/audio/transcriptions` service that receives the recording once after Stop. |
+| `Voice transcription language` | Uses Korean, English, or auto-detect as the server language hint. |
 | `Persist Agent transcript snapshots` | Saves visible transcript HTML only to the current user's local Obst Terminal state, outside the shared vault. |
 
 Advanced settings:
@@ -288,8 +303,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.84
-git push origin 0.6.84
+git tag 0.6.87
+git push origin 0.6.87
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.
