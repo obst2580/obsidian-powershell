@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.87`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.89`.
 
 [한국어 README](README.ko.md)
 
@@ -30,6 +30,8 @@ The first Agent Console tab defaults to `Claude Code`. After that, choose `Claud
 
 You can split work across multiple AI sessions in the same vault. `Open AI workspace` reuses the first Obst Terminal view, while `Open new AI session` or the Agent Console `+` menu adds a tab for the selected provider inside the plugin instead of opening a new Obsidian workspace tab. Each tab keeps a provider-based label, independent session ID, transcript, and running backend/process state. Switching tabs does not stop the running agent; background sessions keep writing to their own transcripts. This is intended for project-management roles such as PM, Writer, Analyst, and Reviewer working beside the same vault documents. A session can delegate a prompt to other running tabs with `@all`, `@codex`, `@claude`, `@gemini`(=`@antigravity`), or `@"session title"`.
 
+Claude Code and Codex tabs include a tab-local `Deep Vault` toggle. It is off by default. When enabled, the prompt directs the agent to check the vault index, run several focused searches, open the strongest source documents, refine retrieval until no material evidence is added, and cite vault paths. This is a plugin workflow profile, not a native model or reasoning tier, and it can consume substantially more input and output tokens. The same options row shows provider-reported `IN` and `OUT` usage for the current turn; values are never estimated.
+
 ### Codex
 
 The Codex Agent Console uses `codex app-server` by default instead of embedding the fullscreen Codex TUI.
@@ -42,6 +44,7 @@ The Codex Agent Console uses `codex app-server` by default instead of embedding 
 - Turns the composer arrow into a stop icon while a turn is active.
 - Queues additional messages while Codex is still answering.
 - Buffers streaming deltas before rendering so Obsidian stays responsive during long answers.
+- Updates the `IN` and `OUT` meter from `thread/tokenUsage/updated`; the tooltip includes cached input and reasoning output when Codex reports them.
 - Settings expose Codex executable, app-server mode, approval policy, and login method. The model is selected inside the Agent Console, not typed in Settings.
 
 ### Claude Code
@@ -49,10 +52,10 @@ The Codex Agent Console uses `codex app-server` by default instead of embedding 
 The Claude Code Agent Console separates normal chat turns from login/control prompts.
 
 - Checks login with `claude auth status --json`.
-- Sends normal prompts through a session-specific Claude Code print turn with the configured `--permission-mode` and `--output-format json`.
-- The Claude model, effort, and permission mode are selected inside the Agent Console from dropdowns. Model choices show the resolved version for each alias (`Claude default`, `best`, `Fable 5`, `Opus 4.8`, `Sonnet 5`, `Haiku 4.5`) plus pinned model ids (`claude-opus-4-7`, `claude-opus-4-6`, `claude-sonnet-4-6`); effort: `default`, `low`, `medium`, `high`, `xhigh`, `max`; permission mode: `default`, `auto`, `acceptEdits`, `dontAsk`, `plan`, `bypassPermissions`.
+- Sends normal prompts through a session-specific Claude Code print turn with the configured `--permission-mode` and `--output-format stream-json`.
+- The Claude model, effort, and permission mode are selected inside the Agent Console. Latest aliases show an explicit current version (`Fable 5`, `Opus 5`, `Sonnet 5`, `Haiku 4.5`), while pinned choices use full model ids such as `claude-opus-5`. `Custom model ID` accepts future or gateway-specific ids without a plugin update. After Claude responds, the options row shows the actual resolved model from the stream and updates the selected alias label when it differs.
 - Settings expose Claude executable, effort, permission mode, and strict MCP behavior.
-- The statusline shows the configured Claude model/mode, plugin transcript-context meter, and any usage summary available in Claude's JSON output.
+- Parses Claude's streaming usage events while the turn is running and updates exact `IN` and `OUT` values. Cache creation and cache-read tokens are included in `IN` and exposed in the tooltip.
 - Reads Claude's JSON `session_id` after each print turn and keeps the plugin tab bound to the actual Claude Code session.
 - Passes the prompt through stdin and waits for the `claude` process to finish, allowing long-running skills such as audio transcription or large document analysis.
 - Opens the visible turn card and keeps the in-chat `생각 중` indicator attached while the print-command process is running.
@@ -303,8 +306,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.87
-git push origin 0.6.87
+git tag 0.6.89
+git push origin 0.6.89
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.

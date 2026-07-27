@@ -1,4 +1,4 @@
-import type { AgentUiEvent, AgentUsageWindow, TranscriptItem, TranscriptItemKind } from "../types";
+import type { AgentUiEvent, AgentUsageWindow, TokenUsage, TranscriptItem, TranscriptItemKind } from "../types";
 
 // Maps codex app-server notifications to UI events. Structures verified against
 // codex-cli 0.139.0 (Phase 2 wire probe). Unknown notifications return null and
@@ -35,18 +35,27 @@ export function mapCodexNotification(method: string, params: unknown): AgentUiEv
     }
 
     case "thread/tokenUsage/updated": {
-      const usage = p.tokenUsage as { last?: { totalTokens?: number }; modelContextWindow?: number | null } | undefined;
+      const usage = p.tokenUsage as {
+        last?: {
+          totalTokens?: number;
+          inputTokens?: number;
+          cachedInputTokens?: number;
+          outputTokens?: number;
+          reasoningOutputTokens?: number;
+        };
+        modelContextWindow?: number | null;
+      } | undefined;
       // `total` is cumulative for the thread. Using it as a context-window meter
       // makes resumed/long-lived threads hit 100% almost immediately. `last`
       // tracks the latest request footprint, which is the closest app-server
       // notification value to the Codex statusline context-window percentage.
       const used = usage?.last?.totalTokens;
       const contextWindow = usage?.modelContextWindow;
-      if (typeof used !== "number" || typeof contextWindow !== "number" || contextWindow <= 0) {
-        return { type: "usage-update", contextPercent: null };
-      }
-      const contextPercent = Math.min(100, Math.max(0, (used / contextWindow) * 100));
-      return { type: "usage-update", contextPercent };
+      const contextPercent = typeof used === "number" && typeof contextWindow === "number" && contextWindow > 0
+        ? Math.min(100, Math.max(0, (used / contextWindow) * 100))
+        : null;
+      const tokenUsage = tokenUsageFromCodexBreakdown(usage?.last);
+      return { type: "usage-update", contextPercent, ...(tokenUsage ? { tokenUsage } : {}) };
     }
 
     case "account/rateLimits/updated": {
@@ -83,6 +92,41 @@ export function mapCodexNotification(method: string, params: unknown): AgentUiEv
     default:
       return null;
   }
+}
+
+function tokenUsageFromCodexBreakdown(
+  breakdown: {
+    totalTokens?: number;
+    inputTokens?: number;
+    cachedInputTokens?: number;
+    outputTokens?: number;
+    reasoningOutputTokens?: number;
+  } | undefined
+): TokenUsage | null {
+  if (!breakdown) {
+    return null;
+  }
+  const tokenUsage: TokenUsage = {};
+  if (isTokenCount(breakdown.inputTokens)) {
+    tokenUsage.input = breakdown.inputTokens;
+  }
+  if (isTokenCount(breakdown.outputTokens)) {
+    tokenUsage.output = breakdown.outputTokens;
+  }
+  if (isTokenCount(breakdown.totalTokens)) {
+    tokenUsage.total = breakdown.totalTokens;
+  }
+  if (isTokenCount(breakdown.cachedInputTokens)) {
+    tokenUsage.cachedInput = breakdown.cachedInputTokens;
+  }
+  if (isTokenCount(breakdown.reasoningOutputTokens)) {
+    tokenUsage.reasoningOutput = breakdown.reasoningOutputTokens;
+  }
+  return Object.keys(tokenUsage).length ? tokenUsage : null;
+}
+
+function isTokenCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
 export function rateLimitWindowsFromSnapshot(raw: unknown): AgentUsageWindow[] {

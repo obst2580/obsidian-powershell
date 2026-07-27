@@ -25,7 +25,7 @@ import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, re
 import { homedir } from "os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
 import { CodexAppServerBackend } from "./agent/codex/backend";
-import type { AgentAccessLevel, AgentAttachment, AgentBackend, AgentModelInfo, AgentStatus, AgentUiEvent, AgentUsageWindow, ApprovalRequest, TranscriptItem, TranscriptItemKind } from "./agent/types";
+import type { AgentAccessLevel, AgentAttachment, AgentBackend, AgentModelInfo, AgentStatus, AgentUiEvent, AgentUsageWindow, ApprovalRequest, TokenUsage, TranscriptItem, TranscriptItemKind } from "./agent/types";
 import { CompanyVoiceLexicon } from "./voice/company-lexicon";
 
 type Terminal = any;
@@ -136,19 +136,25 @@ const CODEX_MODEL_ROLE_LABELS: Record<string, string> = {
   "gpt-5.6-terra": "balanced",
   "gpt-5.6-luna": "fast"
 };
-// Aliases track Claude Code's "latest" resolution (shown in the label as of
-// 2026-07); full model ids below pin a specific version regardless of alias drift.
-const CLAUDE_MODEL_CHOICES = [
+const CLAUDE_CUSTOM_MODEL_VALUE = "__custom_model__";
+const CLAUDE_LATEST_MODEL_CHOICES = [
   { value: "", label: "Claude default" },
-  { value: "best", label: "best (auto)" },
-  { value: "fable", label: "Fable 5 (fable)" },
-  { value: "opus", label: "Opus 4.8 (opus)" },
-  { value: "sonnet", label: "Sonnet 5 (sonnet)" },
-  { value: "haiku", label: "Haiku 4.5 (haiku)" },
+  { value: "best", label: "Best (auto)" },
+  { value: "fable", label: "Fable 5 (latest: fable)" },
+  { value: "opus", label: "Opus 5 (latest: opus)" },
+  { value: "sonnet", label: "Sonnet 5 (latest: sonnet)" },
+  { value: "haiku", label: "Haiku 4.5 (latest: haiku)" }
+];
+const CLAUDE_PINNED_MODEL_CHOICES = [
+  { value: "claude-fable-5", label: "Fable 5 (pinned)" },
+  { value: "claude-opus-5", label: "Opus 5 (pinned)" },
+  { value: "claude-sonnet-5", label: "Sonnet 5 (pinned)" },
+  { value: "claude-haiku-4-5", label: "Haiku 4.5 (pinned)" },
   { value: "claude-opus-4-7", label: "Opus 4.7 (pinned)" },
   { value: "claude-opus-4-6", label: "Opus 4.6 (pinned)" },
   { value: "claude-sonnet-4-6", label: "Sonnet 4.6 (pinned)" }
 ];
+const CLAUDE_MODEL_CHOICES = [...CLAUDE_LATEST_MODEL_CHOICES, ...CLAUDE_PINNED_MODEL_CHOICES];
 const CLAUDE_EFFORT_CHOICES = [
   { value: "", label: "Effort: default" },
   { value: "low", label: "Effort: low" },
@@ -296,6 +302,10 @@ interface AgentWorkspaceSessionState extends Record<string, unknown> {
   geminiScrollTop?: number;
   inputText?: string;
   statusText?: string;
+  deepVaultEnabled?: boolean;
+  claudeRequestedModel?: string | null;
+  claudeResolvedModel?: string | null;
+  agentTokenUsage?: TokenUsage | null;
   agentLastUsageText?: string | null;
   createdAt: number;
   updatedAt: number;
@@ -1483,6 +1493,8 @@ class VaultPowerShellView extends ItemView {
   private codexGitBranch: string | null | undefined = undefined;
   private codexOptionsRow: HTMLElement | null = null;
   private claudeModelSelect: HTMLSelectElement | null = null;
+  private claudeCustomModelInput: HTMLInputElement | null = null;
+  private claudeResolvedModelEl: HTMLElement | null = null;
   private claudeEffortSelect: HTMLSelectElement | null = null;
   private claudePermissionSelect: HTMLSelectElement | null = null;
   private codexModelSelect: HTMLSelectElement | null = null;
@@ -1490,6 +1502,10 @@ class VaultPowerShellView extends ItemView {
   private codexAccessSelect: HTMLSelectElement | null = null;
   private geminiModelSelect: HTMLSelectElement | null = null;
   private geminiApprovalSelect: HTMLSelectElement | null = null;
+  private deepVaultButton: HTMLButtonElement | null = null;
+  private agentTokenUsageEl: HTMLElement | null = null;
+  private agentTokenInputValueEl: HTMLElement | null = null;
+  private agentTokenOutputValueEl: HTMLElement | null = null;
   private codexModels: AgentModelInfo[] = [];
   private codexPendingAttachments: AgentAttachment[] = [];
   private codexAttachmentsEl: HTMLElement | null = null;
@@ -1515,6 +1531,7 @@ class VaultPowerShellView extends ItemView {
   private agentStdoutBuffer = "";
   private agentStatusEl: HTMLElement | null = null;
   private agentStatusText = "Idle";
+  private agentTokenUsage: TokenUsage | null = null;
   private agentLastUsageText: string | null = null;
   private agentTranscriptEl: HTMLElement | null = null;
   private claudeTranscriptEl: HTMLElement | null = null;
@@ -1694,11 +1711,19 @@ class VaultPowerShellView extends ItemView {
     this.codexStatusLineEl = null;
     this.codexOptionsRow = null;
     this.claudeModelSelect = null;
+    this.claudeCustomModelInput = null;
+    this.claudeResolvedModelEl = null;
+    this.claudeEffortSelect = null;
+    this.claudePermissionSelect = null;
     this.codexModelSelect = null;
     this.codexEffortSelect = null;
     this.codexAccessSelect = null;
     this.geminiModelSelect = null;
     this.geminiApprovalSelect = null;
+    this.deepVaultButton = null;
+    this.agentTokenUsageEl = null;
+    this.agentTokenInputValueEl = null;
+    this.agentTokenOutputValueEl = null;
     this.paneTabEls = { agent: null, terminal: null };
   }
 
@@ -1887,6 +1912,10 @@ class VaultPowerShellView extends ItemView {
       geminiScrollTop: this.getReadableAgentTranscriptScrollTop(this.geminiTranscriptEl, 0),
       inputText: this.agentInputEl?.value ?? "",
       statusText: this.agentStatusText,
+      deepVaultEnabled: false,
+      claudeRequestedModel: null,
+      claudeResolvedModel: null,
+      agentTokenUsage: null,
       createdAt: now,
       updatedAt: now
     };
@@ -1971,6 +2000,14 @@ class VaultPowerShellView extends ItemView {
     session.agentSeenEntries ??= new Set<string>();
     session.agentLocalMessageCounter ??= 0;
     session.agentLastRawNotice ??= "";
+    session.deepVaultEnabled = session.deepVaultEnabled === true;
+    session.claudeRequestedModel = typeof session.claudeRequestedModel === "string"
+      ? session.claudeRequestedModel.trim()
+      : null;
+    session.claudeResolvedModel = typeof session.claudeResolvedModel === "string" && session.claudeResolvedModel.trim()
+      ? session.claudeResolvedModel.trim()
+      : null;
+    session.agentTokenUsage = normalizeTokenUsage(session.agentTokenUsage);
     session.agentLastUsageText ??= null;
     session.agentAuthState ??= "idle";
     session.agentConversationReady ??= false;
@@ -2053,6 +2090,7 @@ class VaultPowerShellView extends ItemView {
     this.agentSeenEntries = session.agentSeenEntries ?? new Set<string>();
     this.agentLocalMessageCounter = session.agentLocalMessageCounter ?? 0;
     this.agentLastRawNotice = session.agentLastRawNotice ?? "";
+    this.agentTokenUsage = normalizeTokenUsage(session.agentTokenUsage);
     this.agentLastUsageText = typeof session.agentLastUsageText === "string" && session.agentLastUsageText.trim()
       ? session.agentLastUsageText.trim()
       : null;
@@ -2150,6 +2188,7 @@ class VaultPowerShellView extends ItemView {
     session.agentSeenEntries = this.agentSeenEntries;
     session.agentLocalMessageCounter = this.agentLocalMessageCounter;
     session.agentLastRawNotice = this.agentLastRawNotice;
+    session.agentTokenUsage = this.agentTokenUsage;
     session.agentLastUsageText = this.agentLastUsageText;
     session.agentAuthState = this.agentAuthState;
     session.agentConversationReady = this.agentConversationReady;
@@ -2185,6 +2224,11 @@ class VaultPowerShellView extends ItemView {
       geminiScrollTop: includeTranscriptSnapshots ? session.geminiScrollTop ?? 0 : 0,
       inputText: session.inputText ?? "",
       statusText: session.statusText ?? "Idle",
+      deepVaultEnabled: session.deepVaultEnabled === true,
+      claudeRequestedModel: typeof session.claudeRequestedModel === "string" ? session.claudeRequestedModel : null,
+      claudeResolvedModel: typeof session.claudeResolvedModel === "string" ? session.claudeResolvedModel : null,
+      agentTokenUsage: normalizeTokenUsage(session.agentTokenUsage),
+      agentLastUsageText: session.agentLastUsageText ?? null,
       createdAt: session.createdAt,
       updatedAt: session.updatedAt
     }));
@@ -2713,9 +2757,17 @@ class VaultPowerShellView extends ItemView {
     const optionsRow = composer.createDiv("vault-agent-options is-hidden");
     this.codexOptionsRow = optionsRow;
     this.claudeModelSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Claude model" } });
-    for (const opt of CLAUDE_MODEL_CHOICES) {
-      this.claudeModelSelect.createEl("option", { value: opt.value, text: opt.label });
-    }
+    this.claudeCustomModelInput = optionsRow.createEl("input", {
+      cls: "vault-agent-custom-model-input is-hidden",
+      attr: {
+        type: "text",
+        "aria-label": "Custom Claude model ID",
+        placeholder: "claude-opus-5",
+        autocomplete: "off",
+        spellcheck: "false"
+      }
+    });
+    this.claudeResolvedModelEl = optionsRow.createSpan("vault-agent-resolved-model is-hidden");
     this.claudeEffortSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Claude effort" } });
     for (const opt of CLAUDE_EFFORT_CHOICES) {
       this.claudeEffortSelect.createEl("option", { value: opt.value, text: opt.label });
@@ -2729,6 +2781,23 @@ class VaultPowerShellView extends ItemView {
     this.codexAccessSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Access level" } });
     this.geminiModelSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Antigravity model" } });
     this.geminiApprovalSelect = optionsRow.createEl("select", { cls: "vault-agent-option-select", attr: { "aria-label": "Antigravity approval mode" } });
+    this.deepVaultButton = optionsRow.createEl("button", {
+      cls: "vault-agent-deep-vault-toggle",
+      attr: {
+        type: "button",
+        "aria-label": "Enable Deep Vault",
+        "aria-pressed": "false",
+        title: "Search the indexed vault thoroughly before answering"
+      }
+    });
+    setIcon(this.deepVaultButton, "database");
+    this.deepVaultButton.createSpan({ text: "Deep Vault" });
+    this.agentTokenUsageEl = optionsRow.createDiv("vault-agent-token-usage");
+    this.agentTokenUsageEl.createSpan({ cls: "vault-agent-token-label", text: "IN" });
+    this.agentTokenInputValueEl = this.agentTokenUsageEl.createSpan({ cls: "vault-agent-token-value", text: "—" });
+    this.agentTokenUsageEl.createSpan({ cls: "vault-agent-token-separator", text: "·" });
+    this.agentTokenUsageEl.createSpan({ cls: "vault-agent-token-label", text: "OUT" });
+    this.agentTokenOutputValueEl = this.agentTokenUsageEl.createSpan({ cls: "vault-agent-token-value", text: "—" });
     this.codexModelSelect.createEl("option", { value: "", text: "Codex default" });
     this.codexEffortSelect.createEl("option", { value: "", text: "Effort default" });
     for (const opt of [{ v: "read-only", t: "Read-only" }, { v: "auto", t: "Auto (write)" }, { v: "full", t: "Full access" }]) {
@@ -2742,6 +2811,19 @@ class VaultPowerShellView extends ItemView {
     }
     this.codexAccessSelect.value = "full";
     this.claudeModelSelect.addEventListener("change", () => this.onClaudeModelChange());
+    this.claudeCustomModelInput.addEventListener("input", () => this.onClaudeCustomModelInput());
+    this.claudeCustomModelInput.addEventListener("change", () => {
+      void this.plugin.saveSettings();
+      this.refreshClaudeModelControl();
+      this.saveAgentViewState();
+    });
+    this.claudeCustomModelInput.addEventListener("keydown", (event) => {
+      if (isEnterKey(event) && !event.isComposing) {
+        event.preventDefault();
+        this.claudeCustomModelInput?.blur();
+        this.agentInputEl?.focus();
+      }
+    });
     this.claudeEffortSelect.addEventListener("change", () => this.onClaudeEffortChange());
     this.claudePermissionSelect.addEventListener("change", () => this.onClaudePermissionModeChange());
     this.codexModelSelect.addEventListener("change", () => this.onCodexModelChange());
@@ -2749,6 +2831,7 @@ class VaultPowerShellView extends ItemView {
     this.codexAccessSelect.addEventListener("change", () => this.applyCodexTurnOptions());
     this.geminiModelSelect.addEventListener("change", () => this.onGeminiModelChange());
     this.geminiApprovalSelect.addEventListener("change", () => this.onGeminiApprovalModeChange());
+    this.deepVaultButton.addEventListener("click", () => this.toggleDeepVault());
     this.refreshAgentOptionsRow();
 
     const inputActions = inputShell.createDiv("vault-agent-input-actions");
@@ -2859,15 +2942,162 @@ class VaultPowerShellView extends ItemView {
     this.codexAccessSelect?.toggleClass("is-hidden", !isCodex);
     this.geminiModelSelect?.toggleClass("is-hidden", !isGemini);
     this.geminiApprovalSelect?.toggleClass("is-hidden", !isGemini);
+    const customClaudeModel = this.claudeModelSelect?.value === CLAUDE_CUSTOM_MODEL_VALUE;
+    this.claudeCustomModelInput?.toggleClass("is-hidden", !isClaude || !customClaudeModel);
+    this.claudeResolvedModelEl?.toggleClass("is-hidden", !isClaude || !this.getCurrentClaudeResolvedModel());
+    const supportsDeepVault = isClaude || isCodex;
+    this.deepVaultButton?.toggleClass("is-hidden", !supportsDeepVault);
+    this.agentTokenUsageEl?.toggleClass("is-hidden", !supportsDeepVault);
+    this.refreshDeepVaultButton();
+    this.refreshAgentTokenUsage();
+  }
+
+  private toggleDeepVault() {
+    if (this.agentProvider !== "claude" && this.agentProvider !== "codex") {
+      return;
+    }
+    const session = this.getActiveAgentSessionState();
+    session.deepVaultEnabled = session.deepVaultEnabled !== true;
+    session.updatedAt = Date.now();
+    this.refreshDeepVaultButton();
+    this.captureActiveAgentSessionState();
+    this.saveAgentViewState();
+  }
+
+  private refreshDeepVaultButton() {
+    const button = this.deepVaultButton;
+    if (!button || !this.isVisibleAgentSessionContext()) {
+      return;
+    }
+    const supported = this.agentProvider === "claude" || this.agentProvider === "codex";
+    const enabled = supported && this.getActiveAgentSessionState().deepVaultEnabled === true;
+    const stateLabel = enabled ? "Deep Vault on" : "Deep Vault off";
+    button.toggleClass("is-active", enabled);
+    button.setAttr("aria-pressed", String(enabled));
+    button.setAttr("aria-label", stateLabel);
+    button.setAttr(
+      "title",
+      enabled
+        ? "Deep Vault on: iterative vault retrieval is added to this tab's prompts"
+        : "Deep Vault off: enable thorough indexed-vault retrieval for this tab"
+    );
+  }
+
+  private setAgentTokenUsage(value: TokenUsage | null) {
+    this.agentTokenUsage = normalizeTokenUsage(value);
+    this.refreshAgentTokenUsage();
+  }
+
+  private refreshAgentTokenUsage() {
+    const container = this.agentTokenUsageEl;
+    if (!container || !this.isVisibleAgentSessionContext()) {
+      return;
+    }
+    const supported = this.agentProvider === "claude" || this.agentProvider === "codex";
+    container.toggleClass("is-hidden", !supported);
+    if (!supported) {
+      return;
+    }
+
+    const usage = this.agentTokenUsage;
+    if (this.agentTokenInputValueEl) {
+      this.agentTokenInputValueEl.textContent = formatCompactTokenValue(usage?.input);
+    }
+    if (this.agentTokenOutputValueEl) {
+      this.agentTokenOutputValueEl.textContent = formatCompactTokenValue(usage?.output);
+    }
+
+    const live = this.codexTurnActive ||
+      this.agentClaudePrintTurnActive ||
+      (this.agentPrintTurnRuntime?.provider === "claude" && !this.agentPrintTurnRuntime.settled);
+    container.toggleClass("is-live", live);
+    container.setAttr("aria-live", live ? "polite" : "off");
+    container.setAttr("title", formatTokenUsageTitle(usage, live));
   }
 
   private refreshAgentModelControls() {
-    setSelectChoices(this.claudeModelSelect, CLAUDE_MODEL_CHOICES, this.plugin.settings.claudeModel, "Saved");
+    this.refreshClaudeModelControl();
     setSelectChoices(this.claudeEffortSelect, CLAUDE_EFFORT_CHOICES, this.plugin.settings.claudeEffort, "Saved");
     setSelectChoices(this.claudePermissionSelect, CLAUDE_PERMISSION_MODE_CHOICES, this.plugin.settings.claudePermissionMode, "Saved");
     setSelectChoices(this.geminiModelSelect, getGeminiModelChoices(this.plugin.settings), this.plugin.settings.geminiModel, "Saved");
     setSelectChoices(this.geminiApprovalSelect, GEMINI_APPROVAL_MODE_CHOICES, this.plugin.settings.geminiApprovalMode, "Saved");
     this.refreshCodexModelSelect();
+  }
+
+  private refreshClaudeModelControl() {
+    const select = this.claudeModelSelect;
+    if (!select || !this.isVisibleAgentSessionContext()) {
+      return;
+    }
+    const configured = this.plugin.settings.claudeModel.trim();
+    const custom = !isKnownClaudeModelChoice(configured);
+    const resolved = this.getCurrentClaudeResolvedModel();
+    select.empty();
+
+    const latestGroup = select.createEl("optgroup", { attr: { label: "Latest aliases" } });
+    for (const choice of CLAUDE_LATEST_MODEL_CHOICES) {
+      latestGroup.createEl("option", {
+        value: choice.value,
+        text: getClaudeModelChoiceLabel(choice, configured, resolved)
+      });
+    }
+    const pinnedGroup = select.createEl("optgroup", { attr: { label: "Pinned versions" } });
+    for (const choice of CLAUDE_PINNED_MODEL_CHOICES) {
+      pinnedGroup.createEl("option", { value: choice.value, text: choice.label });
+    }
+    select.createEl("option", { value: CLAUDE_CUSTOM_MODEL_VALUE, text: "Custom model ID..." });
+    select.value = custom ? CLAUDE_CUSTOM_MODEL_VALUE : configured;
+
+    if (this.claudeCustomModelInput) {
+      if (custom && this.claudeCustomModelInput.value !== configured) {
+        this.claudeCustomModelInput.value = configured;
+      }
+      this.claudeCustomModelInput.toggleClass("is-hidden", this.agentProvider !== "claude" || !custom);
+    }
+    this.refreshClaudeResolvedModel();
+  }
+
+  private getCurrentClaudeResolvedModel(): string | null {
+    const session = this.getActiveAgentSessionState();
+    const requested = this.plugin.settings.claudeModel.trim();
+    return session.claudeRequestedModel === requested && typeof session.claudeResolvedModel === "string"
+      ? session.claudeResolvedModel
+      : null;
+  }
+
+  private setClaudeResolvedModel(requestedModel: string, resolvedModel: string) {
+    const resolved = resolvedModel.trim();
+    if (!resolved) {
+      return;
+    }
+    const session = this.getActiveAgentSessionState();
+    const requested = requestedModel.trim();
+    if (session.claudeRequestedModel === requested && session.claudeResolvedModel === resolved) {
+      return;
+    }
+    session.claudeRequestedModel = requested;
+    session.claudeResolvedModel = resolved;
+    session.updatedAt = Date.now();
+    if (this.isVisibleAgentSessionContext()) {
+      this.refreshClaudeModelControl();
+    }
+  }
+
+  private refreshClaudeResolvedModel() {
+    const element = this.claudeResolvedModelEl;
+    if (!element || !this.isVisibleAgentSessionContext()) {
+      return;
+    }
+    const resolved = this.agentProvider === "claude" ? this.getCurrentClaudeResolvedModel() : null;
+    element.toggleClass("is-hidden", !resolved);
+    if (!resolved) {
+      element.textContent = "";
+      element.removeAttribute("title");
+      return;
+    }
+    const requested = this.plugin.settings.claudeModel.trim() || "default";
+    element.textContent = `Using ${formatClaudeModelDisplayName(resolved)}`;
+    element.setAttr("title", `Requested ${requested} | resolved ${resolved}`);
   }
 
   private getDefaultCodexModel(): AgentModelInfo | undefined {
@@ -2897,10 +3127,32 @@ class VaultPowerShellView extends ItemView {
   }
 
   private onClaudeModelChange() {
-    this.plugin.settings.claudeModel = this.claudeModelSelect?.value ?? "";
+    const selected = this.claudeModelSelect?.value ?? "";
+    if (selected === CLAUDE_CUSTOM_MODEL_VALUE) {
+      if (this.claudeCustomModelInput) {
+        this.claudeCustomModelInput.value = isKnownClaudeModelChoice(this.plugin.settings.claudeModel)
+          ? ""
+          : this.plugin.settings.claudeModel;
+        this.claudeCustomModelInput.removeClass("is-hidden");
+        this.claudeCustomModelInput.focus();
+        this.claudeCustomModelInput.select();
+      }
+      this.claudeResolvedModelEl?.addClass("is-hidden");
+      return;
+    }
+    this.plugin.settings.claudeModel = selected;
+    this.claudeCustomModelInput?.addClass("is-hidden");
     void this.plugin.saveSettings();
+    this.refreshClaudeModelControl();
     this.refreshCodexStatusLine();
     this.saveAgentViewState();
+  }
+
+  private onClaudeCustomModelInput() {
+    const value = this.claudeCustomModelInput?.value.trim() ?? "";
+    this.plugin.settings.claudeModel = value;
+    this.refreshClaudeResolvedModel();
+    this.refreshCodexStatusLine();
   }
 
   private onClaudeEffortChange() {
@@ -3120,6 +3372,9 @@ class VaultPowerShellView extends ItemView {
         this.renderCodexItemComplete(event.item);
         break;
       case "turn-complete":
+        if (event.tokenUsage) {
+          this.setAgentTokenUsage(event.tokenUsage);
+        }
         this.finishCodexTurn("Codex ready", true);
         break;
       case "usage-update":
@@ -3128,6 +3383,9 @@ class VaultPowerShellView extends ItemView {
         }
         if (event.rateLimits) {
           this.codexRateLimitWindows = event.rateLimits;
+        }
+        if (event.tokenUsage) {
+          this.setAgentTokenUsage(event.tokenUsage);
         }
         this.scheduleCodexStatusLineRefresh();
         break;
@@ -3526,24 +3784,47 @@ class VaultPowerShellView extends ItemView {
     }
 
     if (this.agentProvider === "claude") {
+      const deepVaultContext = this.getDeepVaultRuntimeContextText();
+      const resolvedModel = this.getCurrentClaudeResolvedModel();
       return [
         "Provider: Claude Code",
         `Configured --model: ${this.plugin.settings.claudeModel || "Claude Code default"}`,
+        resolvedModel ? `Resolved model: ${resolvedModel} (${formatClaudeModelDisplayName(resolvedModel)})` : "",
         `Effort: ${this.plugin.settings.claudeEffort || "default"}`,
         `Permission mode: ${this.plugin.settings.claudePermissionMode}`,
-        "If the user asks which LLM/model is in use, answer from this runtime setting rather than from model self-introspection."
-      ].join("\n");
+        "If the user asks which LLM/model is in use, answer from this runtime setting rather than from model self-introspection.",
+        deepVaultContext
+      ].filter(Boolean).join("\n");
     }
 
     if (this.agentProvider === "codex") {
+      const deepVaultContext = this.getDeepVaultRuntimeContextText();
       return [
         "Provider: Codex",
         `Configured model: ${this.codexModelSelect?.value || this.plugin.settings.codexModel || "Codex default"}`,
-        `Access level: ${this.codexAccessSelect?.value || "default"}`
-      ].join("\n");
+        `Access level: ${this.codexAccessSelect?.value || "default"}`,
+        deepVaultContext
+      ].filter(Boolean).join("\n");
     }
 
     return "";
+  }
+
+  private getDeepVaultRuntimeContextText(): string {
+    const supported = this.agentProvider === "claude" || this.agentProvider === "codex";
+    if (!supported || this.getActiveAgentSessionState().deepVaultEnabled !== true) {
+      return "";
+    }
+    return [
+      "Deep Vault workflow profile: enabled. This is a plugin retrieval workflow, not a native model or reasoning tier.",
+      "Before drafting the answer, investigate the indexed vault for relevant evidence.",
+      "Use the seegene-vault-context skill when available. Otherwise run `obst-indexer status`, then use focused `obst-indexer search \"<query>\" --limit 8` queries.",
+      "Refresh the index only when it is missing or stale; do not rescan the vault on every turn.",
+      "Derive several searches from key entities, aliases, dates, decisions, products, and technical terms in the request.",
+      "Open and verify the strongest source documents. Repeat retrieval with refined queries until another pass adds no material evidence.",
+      "Resolve conflicts by source authority and recency. Cite vault paths, and separate confirmed facts, inference, and unresolved gaps.",
+      "Do not claim complete vault coverage when the index is unavailable or stale, and do not read every file blindly."
+    ].join("\n");
   }
 
   private getAgentTranscriptContextText(): string {
@@ -3607,6 +3888,7 @@ class VaultPowerShellView extends ItemView {
       return;
     }
     this.codexTurnActive = true;
+    this.setAgentTokenUsage(null);
     this.agentCurrentTurnStartedAt = Date.now();
     this.updateSendButtonMode();
     const userAttachmentCount = attachments.filter((attachment) => attachment.contextRole !== "active-note").length;
@@ -3676,6 +3958,7 @@ class VaultPowerShellView extends ItemView {
     this.cancelCodexTurnCompletionFallback();
     this.codexTurnActive = false;
     this.updateSendButtonMode();
+    this.refreshAgentTokenUsage();
     this.clearCodexTurnLoadingIndicators();
     this.setAgentStatus(statusText);
     if (flushQueued) {
@@ -5292,6 +5575,9 @@ class VaultPowerShellView extends ItemView {
     }
     this.agentCurrentTurnStartedAt = Date.now();
     this.startCodexTurn(visibleText || text.slice(0, 160), true);
+    if (provider === "claude") {
+      this.setAgentTokenUsage(null);
+    }
     this.agentLastUsageText = null;
     this.clearAgentPromptState();
     this.setAgentStatus(`Waiting for ${getAgentProviderLabel(provider)} response...`);
@@ -5406,6 +5692,10 @@ class VaultPowerShellView extends ItemView {
       }
       this.withAgentSession(sessionKey, () => {
         const output = provider === "gemini" ? formatGeminiPrintOutput(result, this.plugin.settings) : formatClaudePrintOutput(result);
+        const tokenUsage = getPrintCommandTokenUsage(provider, result);
+        if (tokenUsage) {
+          this.setAgentTokenUsage(tokenUsage);
+        }
         this.agentLastUsageText = getPrintCommandUsageSummary(provider, result);
         this.appendAgentTranscript({
           id: this.nextLocalAgentEntryId("assistant"),
@@ -5431,6 +5721,9 @@ class VaultPowerShellView extends ItemView {
           this.agentClaudePrintTurnActive = false;
         }
         this.updateSendButtonMode();
+        this.refreshAgentTokenUsage();
+        this.captureActiveAgentSessionState();
+        this.saveAgentViewState();
         this.drainQueuedPrintTurn(provider);
       });
     }
@@ -5455,7 +5748,13 @@ class VaultPowerShellView extends ItemView {
       : spawnClaudePrintCommand(text, cwd, env, CLAUDE_PRINT_TIMEOUT_MS, {
         ...(options.resumeFork ? { resumeSessionId: sessionId, forkSession: true } : { sessionId }),
         sessionName: this.agentSessionLabel,
-        settings
+        settings,
+        onUsage: (usage) => {
+          this.withAgentSession(sessionKey, () => this.setAgentTokenUsage(usage));
+        },
+        onModel: (modelId) => {
+          this.withAgentSession(sessionKey, () => this.setClaudeResolvedModel(settings.claudeModel, modelId));
+        }
       });
 
     if (handle.child) {
@@ -9293,6 +9592,10 @@ function createAgentWorkspaceSessionState(mode: AgentSessionMode, provider: Agen
     geminiScrollTop: 0,
     inputText: "",
     statusText: "Idle",
+    deepVaultEnabled: false,
+    claudeRequestedModel: null,
+    claudeResolvedModel: null,
+    agentTokenUsage: null,
     agentLastUsageText: null,
     createdAt: now,
     updatedAt: now
@@ -9350,6 +9653,14 @@ function normalizeAgentWorkspaceSessionState(value: unknown): AgentWorkspaceSess
     statusText: typeof candidate.statusText === "string" && candidate.statusText.trim() && !isStaleRestoredAgentStatus(candidate.statusText)
       ? candidate.statusText
       : "Idle",
+    deepVaultEnabled: candidate.deepVaultEnabled === true,
+    claudeRequestedModel: typeof candidate.claudeRequestedModel === "string"
+      ? candidate.claudeRequestedModel.trim()
+      : null,
+    claudeResolvedModel: typeof candidate.claudeResolvedModel === "string" && candidate.claudeResolvedModel.trim()
+      ? candidate.claudeResolvedModel.trim()
+      : null,
+    agentTokenUsage: normalizeTokenUsage(candidate.agentTokenUsage),
     agentLastUsageText: typeof candidate.agentLastUsageText === "string" && candidate.agentLastUsageText.trim()
       ? candidate.agentLastUsageText.trim()
       : null,
@@ -9538,6 +9849,8 @@ interface ClaudePrintOptions {
   forkSession?: boolean;
   sessionName?: string;
   settings?: PowerShellSettings;
+  onUsage?: (usage: TokenUsage) => void;
+  onModel?: (modelId: string) => void;
 }
 
 function getClaudeExecutable(settings: PowerShellSettings): string {
@@ -10255,10 +10568,121 @@ function spawnClaudePrintCommand(
     ...(settings.claudeModel ? ["--model", settings.claudeModel] : []),
     ...(settings.claudeEffort ? ["--effort", settings.claudeEffort] : []),
     "--output-format",
-    "json",
+    "stream-json",
+    "--verbose",
+    "--include-partial-messages",
     "-p"
   ];
-  return spawnCapturedCommand(getClaudeExecutable(settings), args, cwd, env, timeoutMs, `${prompt}\n`);
+  return spawnCapturedCommand(
+    getClaudeExecutable(settings),
+    args,
+    cwd,
+    env,
+    timeoutMs,
+    `${prompt}\n`,
+    createClaudeStreamObserver(options.onUsage, options.onModel)
+  );
+}
+
+function createClaudeStreamObserver(
+  onUsage?: (usage: TokenUsage) => void,
+  onModel?: (modelId: string) => void
+): ((chunk: string) => void) | undefined {
+  if (!onUsage && !onModel) {
+    return undefined;
+  }
+
+  let buffer = "";
+  let currentMessageId = "";
+  let lastEmitted = "";
+  let lastReportedModel = "";
+  const messageUsages = new Map<string, TokenUsage>();
+
+  const emitUsage = (usage: TokenUsage | null) => {
+    const normalized = normalizeTokenUsage(usage);
+    if (!normalized) {
+      return;
+    }
+    const signature = JSON.stringify(normalized);
+    if (signature === lastEmitted) {
+      return;
+    }
+    lastEmitted = signature;
+    onUsage?.(normalized);
+  };
+
+  const emitModel = (value: unknown) => {
+    const modelId = typeof value === "string" ? value.trim() : "";
+    if (!modelId || modelId === lastReportedModel) {
+      return;
+    }
+    lastReportedModel = modelId;
+    onModel?.(modelId);
+  };
+
+  const updateMessageUsage = (messageId: string, usage: TokenUsage | null) => {
+    if (!messageId || !usage) {
+      return;
+    }
+    messageUsages.set(messageId, mergeTokenUsage(messageUsages.get(messageId), usage));
+    emitUsage(sumTokenUsages(messageUsages.values()));
+  };
+
+  const handleRecord = (record: Record<string, unknown>) => {
+    if (record.type === "result") {
+      emitUsage(tokenUsageFromClaudeUsage(record.usage));
+      if (!lastReportedModel) {
+        const modelUsage = asRecord(record.modelUsage) ?? asRecord(record.model_usage);
+        const modelIds = modelUsage ? Object.keys(modelUsage).filter(Boolean) : [];
+        if (modelIds.length === 1) {
+          emitModel(modelIds[0]);
+        }
+      }
+      return;
+    }
+
+    if (record.type === "assistant") {
+      const message = asRecord(record.message);
+      emitModel(message?.model);
+      const messageId = typeof message?.id === "string" ? message.id : "";
+      updateMessageUsage(messageId, tokenUsageFromClaudeUsage(message?.usage));
+      return;
+    }
+
+    if (record.type !== "stream_event") {
+      return;
+    }
+    const event = asRecord(record.event);
+    if (event?.type === "message_start") {
+      const message = asRecord(event.message);
+      emitModel(message?.model);
+      currentMessageId = typeof message?.id === "string" ? message.id : currentMessageId;
+      updateMessageUsage(currentMessageId, tokenUsageFromClaudeUsage(message?.usage));
+    } else if (event?.type === "message_delta") {
+      updateMessageUsage(currentMessageId, tokenUsageFromClaudeUsage(event.usage));
+    }
+  };
+
+  return (chunk: string) => {
+    buffer += chunk;
+    let newlineIndex = buffer.indexOf("\n");
+    while (newlineIndex >= 0) {
+      const line = buffer.slice(0, newlineIndex).trim();
+      buffer = buffer.slice(newlineIndex + 1);
+      if (
+        line.includes("\"usage\"") ||
+        line.includes("\"model\"") ||
+        line.includes("\"modelUsage\"") ||
+        line.includes("\"model_usage\"")
+      ) {
+        const record = parseJsonRecord(line);
+        if (record) {
+          handleRecord(record);
+        }
+      }
+      newlineIndex = buffer.indexOf("\n");
+    }
+  };
 }
 
 function getClaudePrintSessionArgs(options: ClaudePrintOptions): string[] {
@@ -10377,24 +10801,15 @@ function getPrintCommandUsageSummary(provider: AgentProvider, result: CapturedCo
   if (provider !== "claude" || result.cancelled) {
     return null;
   }
+  const tokenUsage = getPrintCommandTokenUsage(provider, result);
   const output = removeClaudeNoStdinWarning(stripTerminalControlSequences(`${result.stdout}\n${result.stderr}`)).trim();
   const parsed = parseClaudePrintJsonOutput(output);
   if (!parsed) {
     return null;
   }
-  const usage = parsed.usage && typeof parsed.usage === "object" && !Array.isArray(parsed.usage)
-    ? parsed.usage as Record<string, unknown>
-    : null;
-  const inputTokens = getNumericField(usage, "input_tokens") ?? getNumericField(usage, "inputTokens");
-  const outputTokens = getNumericField(usage, "output_tokens") ?? getNumericField(usage, "outputTokens");
-  const cacheCreationTokens = getNumericField(usage, "cache_creation_input_tokens") ?? 0;
-  const cacheReadTokens = getNumericField(usage, "cache_read_input_tokens") ?? 0;
-  const totalTokens = [inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens]
-    .filter((value): value is number => typeof value === "number")
-    .reduce((sum, value) => sum + value, 0);
   const pieces: string[] = [];
-  if (totalTokens > 0) {
-    pieces.push(formatCompactNumber(totalTokens));
+  if (tokenUsage) {
+    pieces.push(`IN ${formatCompactTokenValue(tokenUsage.input)} · OUT ${formatCompactTokenValue(tokenUsage.output)}`);
   }
   const cost = getNumericField(parsed, "total_cost_usd") ?? getNumericField(parsed, "totalCostUsd");
   if (typeof cost === "number" && Number.isFinite(cost)) {
@@ -10405,6 +10820,133 @@ function getPrintCommandUsageSummary(provider: AgentProvider, result: CapturedCo
     pieces.push(`${Math.round(turns)}t`);
   }
   return pieces.length ? pieces.join(" / ") : null;
+}
+
+function getPrintCommandTokenUsage(provider: AgentProvider, result: CapturedCommandResult): TokenUsage | null {
+  if (provider !== "claude") {
+    return null;
+  }
+  const output = removeClaudeNoStdinWarning(stripTerminalControlSequences(`${result.stdout}\n${result.stderr}`)).trim();
+  const parsed = parseClaudePrintJsonOutput(output);
+  return tokenUsageFromClaudeUsage(parsed?.usage);
+}
+
+function tokenUsageFromClaudeUsage(value: unknown): TokenUsage | null {
+  const usage = asRecord(value);
+  if (!usage) {
+    return null;
+  }
+  const directInput = getNumericField(usage, "input_tokens") ?? getNumericField(usage, "inputTokens");
+  const output = getNumericField(usage, "output_tokens") ?? getNumericField(usage, "outputTokens");
+  const cacheCreation = getNumericField(usage, "cache_creation_input_tokens") ?? 0;
+  const cacheRead = getNumericField(usage, "cache_read_input_tokens") ?? 0;
+  const hasInput = directInput !== null ||
+    Object.prototype.hasOwnProperty.call(usage, "cache_creation_input_tokens") ||
+    Object.prototype.hasOwnProperty.call(usage, "cache_read_input_tokens");
+  const input = hasInput ? Math.max(0, directInput ?? 0) + Math.max(0, cacheCreation) + Math.max(0, cacheRead) : undefined;
+  const normalizedOutput = output !== null ? Math.max(0, output) : undefined;
+  const tokenUsage: TokenUsage = {
+    ...(input !== undefined ? { input } : {}),
+    ...(normalizedOutput !== undefined ? { output: normalizedOutput } : {}),
+    ...(cacheCreation + cacheRead > 0 ? { cachedInput: cacheCreation + cacheRead } : {})
+  };
+  if (input !== undefined || normalizedOutput !== undefined) {
+    tokenUsage.total = (input ?? 0) + (normalizedOutput ?? 0);
+  }
+  return normalizeTokenUsage(tokenUsage);
+}
+
+function mergeTokenUsage(current: TokenUsage | undefined, next: TokenUsage): TokenUsage {
+  const merged: TokenUsage = {
+    input: next.input ?? current?.input,
+    output: next.output ?? current?.output,
+    cachedInput: next.cachedInput ?? current?.cachedInput,
+    reasoningOutput: next.reasoningOutput ?? current?.reasoningOutput
+  };
+  if (merged.input !== undefined || merged.output !== undefined) {
+    merged.total = (merged.input ?? 0) + (merged.output ?? 0);
+  } else {
+    merged.total = next.total ?? current?.total;
+  }
+  return merged;
+}
+
+function sumTokenUsages(values: Iterable<TokenUsage>): TokenUsage | null {
+  let found = false;
+  let hasInput = false;
+  let hasOutput = false;
+  let hasCachedInput = false;
+  let hasReasoningOutput = false;
+  const total: Required<TokenUsage> = {
+    input: 0,
+    output: 0,
+    total: 0,
+    cachedInput: 0,
+    reasoningOutput: 0
+  };
+  for (const usage of values) {
+    found = true;
+    if (usage.input !== undefined) {
+      hasInput = true;
+      total.input += usage.input;
+    }
+    if (usage.output !== undefined) {
+      hasOutput = true;
+      total.output += usage.output;
+    }
+    if (usage.cachedInput !== undefined) {
+      hasCachedInput = true;
+      total.cachedInput += usage.cachedInput;
+    }
+    if (usage.reasoningOutput !== undefined) {
+      hasReasoningOutput = true;
+      total.reasoningOutput += usage.reasoningOutput;
+    }
+  }
+  if (!found) {
+    return null;
+  }
+  const result: TokenUsage = {
+    ...(hasInput ? { input: total.input } : {}),
+    ...(hasOutput ? { output: total.output } : {}),
+    ...(hasCachedInput ? { cachedInput: total.cachedInput } : {}),
+    ...(hasReasoningOutput ? { reasoningOutput: total.reasoningOutput } : {})
+  };
+  if (hasInput || hasOutput) {
+    result.total = total.input + total.output;
+  }
+  return normalizeTokenUsage(result);
+}
+
+function normalizeTokenUsage(value: unknown): TokenUsage | null {
+  const record = asRecord(value);
+  if (!record) {
+    return null;
+  }
+  const normalized: TokenUsage = {};
+  const fields: Array<[keyof TokenUsage, string]> = [
+    ["input", "input"],
+    ["output", "output"],
+    ["total", "total"],
+    ["cachedInput", "cachedInput"],
+    ["reasoningOutput", "reasoningOutput"]
+  ];
+  for (const [target, source] of fields) {
+    const amount = getNumericField(record, source);
+    if (amount !== null && amount >= 0) {
+      normalized[target] = amount;
+    }
+  }
+  if (normalized.total === undefined && (normalized.input !== undefined || normalized.output !== undefined)) {
+    normalized.total = (normalized.input ?? 0) + (normalized.output ?? 0);
+  }
+  return Object.keys(normalized).length ? normalized : null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
 }
 
 function getNumericField(value: Record<string, unknown> | null, key: string): number | null {
@@ -10419,15 +10961,41 @@ function getNumericField(value: Record<string, unknown> | null, key: string): nu
   return null;
 }
 
-function formatCompactNumber(value: number): string {
+function formatCompactTokenValue(value: number | undefined): string {
+  if (value === undefined || !Number.isFinite(value) || value < 0) {
+    return "—";
+  }
   const rounded = Math.max(0, Math.round(value));
+  if (rounded >= 1_000_000_000) {
+    return `${(rounded / 1_000_000_000).toFixed(1).replace(/\.0$/, "")}b`;
+  }
   if (rounded >= 1_000_000) {
-    return `${(rounded / 1_000_000).toFixed(1).replace(/\.0$/, "")}m tok`;
+    return `${(rounded / 1_000_000).toFixed(1).replace(/\.0$/, "")}m`;
   }
   if (rounded >= 1_000) {
-    return `${(rounded / 1_000).toFixed(1).replace(/\.0$/, "")}k tok`;
+    return `${(rounded / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
   }
-  return `${rounded} tok`;
+  return String(rounded);
+}
+
+function formatTokenUsageTitle(usage: TokenUsage | null, live: boolean): string {
+  if (!usage) {
+    return live ? "Waiting for exact provider-reported token usage" : "No exact token usage for this turn";
+  }
+  const pieces = [
+    usage.input !== undefined ? `Input ${formatTokenInteger(usage.input)}` : "",
+    usage.output !== undefined ? `Output ${formatTokenInteger(usage.output)}` : "",
+    usage.cachedInput !== undefined ? `Cache-related input ${formatTokenInteger(usage.cachedInput)}` : "",
+    usage.reasoningOutput !== undefined ? `Reasoning output ${formatTokenInteger(usage.reasoningOutput)}` : ""
+  ].filter(Boolean);
+  if (pieces.length === 0 && usage.total !== undefined) {
+    pieces.push(`Total ${formatTokenInteger(usage.total)}`);
+  }
+  return `${live ? "Live provider usage" : "Provider-reported usage"} | ${pieces.join(" | ")}`;
+}
+
+function formatTokenInteger(value: number): string {
+  return Math.max(0, Math.round(value)).toLocaleString("en-US");
 }
 
 function getClaudeSessionIdFromPrintResult(result: CapturedCommandResult): string | null {
@@ -10439,9 +11007,34 @@ function getClaudeSessionIdFromPrintResult(result: CapturedCommandResult): strin
 
 function parseClaudePrintJsonOutput(output: string): Record<string, unknown> | null {
   const parsed = parseJsonObject(output);
-  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-    ? parsed as Record<string, unknown>
-    : null;
+  const singleRecord = asRecord(parsed);
+  if (singleRecord) {
+    return singleRecord;
+  }
+  const lines = output.split(/\r?\n/);
+  let lastRecord: Record<string, unknown> | null = null;
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const record = parseJsonRecord(lines[index].trim());
+    if (!record) {
+      continue;
+    }
+    lastRecord ??= record;
+    if (record.type === "result") {
+      return record;
+    }
+  }
+  return lastRecord;
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    return asRecord(JSON.parse(value));
+  } catch {
+    return null;
+  }
 }
 
 function isUuidString(value: string): boolean {
@@ -10829,7 +11422,15 @@ function spawnPtyCapturedCommand(
   };
 }
 
-function spawnCapturedCommand(command: string, args: string[], cwd: string, env: { [key: string]: string | undefined }, timeoutMs: number | null, stdinText?: string): CapturedCommandHandle {
+function spawnCapturedCommand(
+  command: string,
+  args: string[],
+  cwd: string,
+  env: { [key: string]: string | undefined },
+  timeoutMs: number | null,
+  stdinText?: string,
+  onStdout?: (chunk: string) => void
+): CapturedCommandHandle {
   let child: ChildProcessWithoutNullStreams | null = null;
   let killHandle: (reason?: string) => void = () => {
     // Replaced once the child exists.
@@ -10896,7 +11497,13 @@ function spawnCapturedCommand(command: string, args: string[], cwd: string, env:
     }
 
     spawned.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
+      const text = chunk.toString();
+      stdout += text;
+      try {
+        onStdout?.(text);
+      } catch {
+        // Streaming observers must never interrupt the captured command.
+      }
     });
     spawned.stderr.on("data", (chunk: Buffer) => {
       stderr += chunk.toString();
@@ -12277,6 +12884,44 @@ function splitDelimitedSetting(value: string | undefined): string[] {
     .split(/[\r\n,]+/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function isKnownClaudeModelChoice(value: string | undefined): boolean {
+  const normalized = value?.trim() ?? "";
+  return CLAUDE_MODEL_CHOICES.some((choice) => choice.value === normalized);
+}
+
+function getClaudeModelChoiceLabel(
+  choice: { value: string; label: string },
+  requestedModel: string,
+  resolvedModel: string | null
+): string {
+  if (!resolvedModel || choice.value !== requestedModel) {
+    return choice.label;
+  }
+  const resolvedLabel = formatClaudeModelDisplayName(resolvedModel);
+  if (!choice.value) {
+    return `Claude default (${resolvedLabel})`;
+  }
+  if (choice.value === "best") {
+    return `Best auto (${resolvedLabel})`;
+  }
+  return `${resolvedLabel} (latest: ${choice.value})`;
+}
+
+function formatClaudeModelDisplayName(modelId: string): string {
+  const normalized = modelId.trim();
+  const match = normalized.toLowerCase().match(/claude-(fable|opus|sonnet|haiku)-(\d+)(?:-(\d+))?/);
+  if (match) {
+    const family = `${match[1].charAt(0).toUpperCase()}${match[1].slice(1)}`;
+    const minor = match[3] && match[3].length <= 2 ? `.${Number(match[3])}` : "";
+    return `${family} ${Number(match[2])}${minor}`;
+  }
+  const alias = CLAUDE_LATEST_MODEL_CHOICES.find((choice) => choice.value === normalized.toLowerCase());
+  if (alias) {
+    return alias.label.replace(/\s+\(.+$/, "");
+  }
+  return normalized || "Claude";
 }
 
 function setSelectChoices(

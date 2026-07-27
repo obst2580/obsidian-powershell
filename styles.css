@@ -195,6 +195,7 @@
 
 .vault-agent-options {
   display: flex;
+  align-items: center;
   gap: 6px;
   margin-top: 8px;
   flex-wrap: wrap;
@@ -240,6 +241,140 @@
 
 .vault-agent-option-select.is-hidden {
   display: none;
+}
+
+.vault-agent-custom-model-input {
+  flex: 1 1 170px;
+  width: min(220px, 100%);
+  min-width: 140px;
+  max-width: 220px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--oa-border);
+  border-radius: 6px;
+  background: var(--oa-surface-soft);
+  color: var(--text-normal);
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+}
+
+.vault-agent-custom-model-input:focus {
+  outline: none;
+  border-color: var(--oa-accent);
+  box-shadow: 0 0 0 2px var(--oa-accent-soft);
+}
+
+.vault-agent-custom-model-input.is-hidden {
+  display: none;
+}
+
+.vault-agent-resolved-model {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 150px;
+  height: 26px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vault-agent-resolved-model.is-hidden {
+  display: none;
+}
+
+.vault-agent-deep-vault-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--oa-border);
+  border-radius: 6px;
+  background: var(--oa-surface-soft);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 0.15s var(--oa-ease), color 0.15s var(--oa-ease), background-color 0.15s var(--oa-ease);
+}
+
+.vault-agent-deep-vault-toggle:hover {
+  border-color: var(--oa-border-strong);
+  color: var(--text-normal);
+}
+
+.vault-agent-deep-vault-toggle:focus-visible {
+  outline: none;
+  border-color: var(--oa-accent);
+  box-shadow: 0 0 0 2px var(--oa-accent-soft);
+}
+
+.vault-agent-deep-vault-toggle.is-active {
+  border-color: color-mix(in srgb, var(--interactive-accent) 52%, var(--oa-border-strong));
+  background: var(--oa-accent-soft);
+  color: var(--text-normal);
+}
+
+.vault-agent-deep-vault-toggle .svg-icon {
+  width: 13px;
+  height: 13px;
+}
+
+.vault-agent-deep-vault-toggle.is-hidden {
+  display: none;
+}
+
+.vault-agent-token-usage {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 126px;
+  gap: 4px;
+  width: 126px;
+  height: 26px;
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.vault-agent-token-usage.is-hidden {
+  display: none;
+}
+
+.vault-agent-token-usage.is-live {
+  color: var(--text-normal);
+}
+
+.vault-agent-token-usage.is-live::before {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-green, var(--interactive-accent));
+  content: "";
+}
+
+.vault-agent-token-label {
+  color: var(--text-faint);
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.vault-agent-token-value {
+  min-width: 28px;
+  color: inherit;
+  text-align: right;
+}
+
+.vault-agent-token-separator {
+  color: var(--text-faint);
 }
 
 .vault-agent-file-input {

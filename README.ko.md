@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.87`입니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.89`입니다.
 
 [English README](README.md)
 
@@ -30,6 +30,8 @@ Obst Terminal을 처음 열면 기본 `Claude Code` 탭이 생성됩니다. 이�
 
 한 볼트 안에서 여러 AI 세션을 나눠 사용할 수 있습니다. `Open AI workspace` 명령은 첫 Obst Terminal 뷰를 재사용하고, `Open new AI session` 명령이나 Agent Console의 `+` 메뉴는 Obsidian 탭을 새로 만들지 않고 선택한 provider의 세션 탭을 플러그인 내부에 추가합니다. 각 탭은 provider 기반 이름, 독립 session ID, transcript, backend/프로세스 상태를 유지합니다. 탭을 바꿔도 실행 중인 에이전트는 정지되지 않고 자기 세션 transcript에 계속 기록됩니다. 이 구조는 PM, Writer, Reviewer처럼 역할이 다른 여러 AI를 같은 프로젝트 문서 옆에 나눠두는 용도입니다. 한 세션에서 `@all`, `@codex`, `@claude`, `@gemini`(=`@antigravity`), `@"세션 제목"`으로 다른 실행 중인 탭에 지시를 전달할 수 있습니다.
 
+Claude Code와 Codex 탭에는 탭별 `Deep Vault` 토글이 있습니다. 기본값은 꺼짐입니다. 켜면 인덱스 상태를 확인하고, 여러 검색어로 볼트 전체를 조회하고, 근거가 강한 원문을 직접 연 뒤, 새 근거가 더 나오지 않을 때까지 검색을 보정하도록 프롬프트에 조사 절차를 추가합니다. 이는 모델이나 reasoning 등급이 아니라 플러그인 작업 프로필이며 입력·출력 토큰 사용량이 크게 늘 수 있습니다. 같은 옵션 줄의 `IN`, `OUT`에는 현재 turn에서 provider가 실제로 보고한 토큰만 표시하며 추정값은 사용하지 않습니다.
+
 ### Codex
 
 Codex Agent Console은 기본적으로 fullscreen TUI가 아니라 `codex app-server`를 실행합니다.
@@ -42,6 +44,7 @@ Codex Agent Console은 기본적으로 fullscreen TUI가 아니라 `codex app-se
 - 응답 중에는 composer의 화살표가 정지 아이콘으로 바뀌며 현재 turn을 interrupt합니다.
 - 응답 중 새 메시지를 보내면 Codex app처럼 queue에 넣습니다.
 - streaming delta는 일정 간격으로 모아 렌더링해서 Obsidian UI가 멈추는 현상을 줄입니다.
+- `thread/tokenUsage/updated` 이벤트로 `IN`, `OUT`을 갱신합니다. Codex가 캐시 입력과 reasoning 출력을 제공하면 툴팁에서 정확한 수치를 확인할 수 있습니다.
 - 설정에서는 Codex executable, app-server 사용 여부, approval policy, login method를 조정합니다. 모델은 설정 화면에 텍스트로 입력하지 않고 Agent Console 안에서 선택합니다.
 
 ### Claude Code
@@ -49,10 +52,10 @@ Codex Agent Console은 기본적으로 fullscreen TUI가 아니라 `codex app-se
 Claude Code Agent Console은 로그인/제어 흐름과 일반 대화 흐름을 분리합니다.
 
 - 시작 시 `claude auth status --json`으로 로그인 상태를 확인합니다.
-- 일반 메시지는 AI 세션별 Claude Code print turn으로 실행하고, 설정된 `--permission-mode`와 `--output-format json`을 사용합니다.
-- Claude 모델, effort, permission mode는 Agent Console 안의 드롭다운에서 선택합니다(`Claude default`, `best`, `Fable 5 (fable)`, `Opus 4.8 (opus)`, `Sonnet 5 (sonnet)`, `Haiku 4.5 (haiku)`, `Opus 4.7/4.6·Sonnet 4.6 (pinned)`; `default`, `low`, `medium`, `high`, `xhigh`, `max`; `default`, `auto`, `acceptEdits`, `dontAsk`, `plan`, `bypassPermissions`).
+- 일반 메시지는 AI 세션별 Claude Code print turn으로 실행하고, 설정된 `--permission-mode`와 `--output-format stream-json`을 사용합니다.
+- Claude 모델, effort, permission mode는 Agent Console 안에서 선택합니다. 최신 별칭은 현재 버전을 함께 표시합니다(`Fable 5`, `Opus 5`, `Sonnet 5`, `Haiku 4.5`). 고정 선택은 `claude-opus-5` 같은 전체 모델 ID를 사용하고, `Custom model ID`에는 향후 출시 모델이나 사내 gateway 모델 ID를 직접 입력할 수 있습니다. Claude가 응답하면 stream에서 확인한 실제 모델을 옵션 줄에 표시하고, 별칭이 다른 버전으로 해석된 경우 선택 항목의 버전도 자동으로 바꿉니다.
 - 설정에서는 Claude executable, effort, permission mode, strict MCP config 사용 여부를 조정합니다.
-- statusline에는 설정된 Claude 모델/모드, 플러그인이 붙이는 transcript context meter, Claude JSON 출력에서 확인 가능한 usage 요약을 표시합니다.
+- 응답 중 Claude의 streaming usage 이벤트를 읽어 정확한 `IN`, `OUT`을 갱신합니다. cache creation과 cache read 토큰은 `IN`에 포함하고 툴팁에도 따로 표시합니다.
 - Claude print turn 이후 JSON의 `session_id`를 읽어 플러그인 탭을 실제 Claude Code 세션에 계속 묶어둡니다.
 - Claude 응답은 `claude` 프로세스가 종료될 때까지 기다립니다. 전사나 대용량 문서 분석처럼 10분 이상 걸릴 수 있는 장시간 스킬도 중간에 강제 종료하지 않습니다.
 - print-command 프로세스가 실행 중인 동안 현재 turn 카드 안에 `생각 중` 표시를 유지합니다.
@@ -303,8 +306,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-git tag 0.6.87
-git push origin 0.6.87
+git tag 0.6.89
+git push origin 0.6.89
 ```
 
 릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.

@@ -128,6 +128,8 @@ export interface TokenUsage {
   input?: number;
   output?: number;
   total?: number;
+  cachedInput?: number;
+  reasoningOutput?: number;
 }
 
 export interface AgentUsageWindow {
@@ -161,7 +163,7 @@ export type AgentUiEvent =
   | { type: "approval-request"; request: ApprovalRequest }
   | { type: "approval-resolved"; requestId: string }
   | { type: "turn-complete"; status: "completed" | "interrupted" | "failed"; tokenUsage?: TokenUsage }
-  | { type: "usage-update"; contextPercent?: number | null; rateLimits?: AgentUsageWindow[] }
+  | { type: "usage-update"; contextPercent?: number | null; rateLimits?: AgentUsageWindow[]; tokenUsage?: TokenUsage }
   | { type: "thread-ready"; threadId: string }
   | { type: "system-message"; text: string }
   | { type: "fatal"; message: string; canRestart: boolean };
