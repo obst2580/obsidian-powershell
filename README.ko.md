@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.89`입니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.90`입니다.
 
 [English README](README.md)
 
@@ -53,7 +53,7 @@ Claude Code Agent Console은 로그인/제어 흐름과 일반 대화 흐름을 
 
 - 시작 시 `claude auth status --json`으로 로그인 상태를 확인합니다.
 - 일반 메시지는 AI 세션별 Claude Code print turn으로 실행하고, 설정된 `--permission-mode`와 `--output-format stream-json`을 사용합니다.
-- Claude 모델, effort, permission mode는 Agent Console 안에서 선택합니다. 최신 별칭은 현재 버전을 함께 표시합니다(`Fable 5`, `Opus 5`, `Sonnet 5`, `Haiku 4.5`). 고정 선택은 `claude-opus-5` 같은 전체 모델 ID를 사용하고, `Custom model ID`에는 향후 출시 모델이나 사내 gateway 모델 ID를 직접 입력할 수 있습니다. Claude가 응답하면 stream에서 확인한 실제 모델을 옵션 줄에 표시하고, 별칭이 다른 버전으로 해석된 경우 선택 항목의 버전도 자동으로 바꿉니다.
+- Claude 모델, effort, permission mode는 Agent Console 안에서 선택합니다. 최신 별칭은 현재 버전을 함께 표시합니다(`Fable 5`, `Opus 4.8`, `Sonnet 5`, `Haiku 4.5` — `opus` 별칭은 아직 Opus 4.8로 해석됩니다). Opus 5를 쓰려면 `claude-opus-5` 같은 전체 모델 ID의 고정 선택을 사용하고, `Custom model ID`에는 향후 출시 모델이나 사내 gateway 모델 ID를 직접 입력할 수 있습니다. Claude가 응답하면 stream에서 확인한 실제 모델을 옵션 줄에 표시하고, 별칭이 다른 버전으로 해석된 경우 선택 항목의 버전도 자동으로 바꿉니다.
 - 설정에서는 Claude executable, effort, permission mode, strict MCP config 사용 여부를 조정합니다.
 - 응답 중 Claude의 streaming usage 이벤트를 읽어 정확한 `IN`, `OUT`을 갱신합니다. cache creation과 cache read 토큰은 `IN`에 포함하고 툴팁에도 따로 표시합니다.
 - Claude print turn 이후 JSON의 `session_id`를 읽어 플러그인 탭을 실제 Claude Code 세션에 계속 묶어둡니다.
@@ -306,8 +306,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-git tag 0.6.89
-git push origin 0.6.89
+git tag 0.6.90
+git push origin 0.6.90
 ```
 
 릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.

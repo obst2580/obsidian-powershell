@@ -141,7 +141,9 @@ const CLAUDE_LATEST_MODEL_CHOICES = [
   { value: "", label: "Claude default" },
   { value: "best", label: "Best (auto)" },
   { value: "fable", label: "Fable 5 (latest: fable)" },
-  { value: "opus", label: "Opus 5 (latest: opus)" },
+  // The `opus` alias still resolves to Opus 4.8 (verified against claude 2.1.204,
+  // 2026-07-28); pick the pinned claude-opus-5 entry to run Opus 5.
+  { value: "opus", label: "Opus 4.8 (latest: opus)" },
   { value: "sonnet", label: "Sonnet 5 (latest: sonnet)" },
   { value: "haiku", label: "Haiku 4.5 (latest: haiku)" }
 ];

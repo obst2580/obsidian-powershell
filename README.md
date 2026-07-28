@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.89`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.90`.
 
 [한국어 README](README.ko.md)
 
@@ -53,7 +53,7 @@ The Claude Code Agent Console separates normal chat turns from login/control pro
 
 - Checks login with `claude auth status --json`.
 - Sends normal prompts through a session-specific Claude Code print turn with the configured `--permission-mode` and `--output-format stream-json`.
-- The Claude model, effort, and permission mode are selected inside the Agent Console. Latest aliases show an explicit current version (`Fable 5`, `Opus 5`, `Sonnet 5`, `Haiku 4.5`), while pinned choices use full model ids such as `claude-opus-5`. `Custom model ID` accepts future or gateway-specific ids without a plugin update. After Claude responds, the options row shows the actual resolved model from the stream and updates the selected alias label when it differs.
+- The Claude model, effort, and permission mode are selected inside the Agent Console. Latest aliases show an explicit current version (`Fable 5`, `Opus 4.8`, `Sonnet 5`, `Haiku 4.5` — the `opus` alias still resolves to Opus 4.8), while pinned choices use full model ids such as `claude-opus-5` for Opus 5. `Custom model ID` accepts future or gateway-specific ids without a plugin update. After Claude responds, the options row shows the actual resolved model from the stream and updates the selected alias label when it differs.
 - Settings expose Claude executable, effort, permission mode, and strict MCP behavior.
 - Parses Claude's streaming usage events while the turn is running and updates exact `IN` and `OUT` values. Cache creation and cache-read tokens are included in `IN` and exposed in the tooltip.
 - Reads Claude's JSON `session_id` after each print turn and keeps the plugin tab bound to the actual Claude Code session.
@@ -306,8 +306,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.89
-git push origin 0.6.89
+git tag 0.6.90
+git push origin 0.6.90
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.
