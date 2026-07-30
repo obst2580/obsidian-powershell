@@ -2688,8 +2688,9 @@ class VaultPowerShellView extends ItemView {
 
     // One delegated handler covers both MarkdownRenderer internal links and the
     // plugin's own vault-path links, and keeps working across per-session
-    // transcript remounts because it sits on the pane container.
-    this.registerDomEvent(container, "click", (event) => this.handleTranscriptVaultLinkClick(event));
+    // transcript remounts because it sits on the pane container. Capture phase
+    // so transcript-internal handlers cannot swallow the click first.
+    this.registerDomEvent(container, "click", (event) => this.handleTranscriptVaultLinkClick(event), { capture: true });
 
     this.agentSessionTabsEl = container.createDiv("vault-agent-session-tabs");
     this.renderAgentSessionTabs();
@@ -6715,11 +6716,14 @@ class VaultPowerShellView extends ItemView {
       code.appendChild(anchor);
     }
 
+    // Code blocks (pre) and remaining inline-code text are scanned too —
+    // Codex in particular prints created-file paths inside fenced blocks.
+    // The existence gate keeps code samples safe: only real vault files link.
     const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     const textNodes: Text[] = [];
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
       const parent = (node as Text).parentElement;
-      if (!parent || parent.closest("a, code, pre")) {
+      if (!parent || parent.closest("a")) {
         continue;
       }
       textNodes.push(node as Text);

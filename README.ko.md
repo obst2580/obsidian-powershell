@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.91`입니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.92`입니다.
 
 [English README](README.md)
 
@@ -307,8 +307,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-git tag 0.6.91
-git push origin 0.6.91
+git tag 0.6.92
+git push origin 0.6.92
 ```
 
 릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.
