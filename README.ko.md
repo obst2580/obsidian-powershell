@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.92`입니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.93`입니다.
 
 [English README](README.md)
 
@@ -59,6 +59,7 @@ Claude Code Agent Console은 로그인/제어 흐름과 일반 대화 흐름을 
 - 응답 중 Claude의 streaming usage 이벤트를 읽어 정확한 `IN`, `OUT`을 갱신합니다. cache creation과 cache read 토큰은 `IN`에 포함하고 툴팁에도 따로 표시합니다.
 - Claude print turn 이후 JSON의 `session_id`를 읽어 플러그인 탭을 실제 Claude Code 세션에 계속 묶어둡니다.
 - Claude 응답은 `claude` 프로세스가 종료될 때까지 기다립니다. 전사나 대용량 문서 분석처럼 10분 이상 걸릴 수 있는 장시간 스킬도 중간에 강제 종료하지 않습니다.
+- 턴 진행 상황을 실시간으로 표시합니다: 중간 단계 메시지(중간 질문 포함)가 도착하는 대로 나타나고, 도구 활동은 요약 칩(Bash 명령, Read/Edit/Write 대상은 클릭 가능한 볼트 링크)으로, AskUserQuestion 호출은 선택지가 담긴 질문 카드로 표시됩니다.
 - print-command 프로세스가 실행 중인 동안 현재 turn 카드 안에 `생각 중` 표시를 유지합니다.
 - Claude가 session ID 사용 중 오류를 반환하면 `--resume <sessionId> --fork-session`으로 한 번 자동 재시도합니다. 이 fallback은 빈 UUID로 새로 시작하지 않고 기존 Claude 컨텍스트를 fork합니다.
 - Claude 일반 응답 프로세스는 사용자별 로컬 상태 폴더에서 pid를 추적합니다. `Stop`, 탭 닫기, 플러그인 재시작 시 남은 프로세스를 정리하고, 시작 시 로컬 `agent-processes.json`에 남은 stale pid도 확인합니다.
@@ -307,8 +308,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-git tag 0.6.92
-git push origin 0.6.92
+git tag 0.6.93
+git push origin 0.6.93
 ```
 
 릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.

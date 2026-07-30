@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.92`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.93`.
 
 [한국어 README](README.ko.md)
 
@@ -59,6 +59,7 @@ The Claude Code Agent Console separates normal chat turns from login/control pro
 - Parses Claude's streaming usage events while the turn is running and updates exact `IN` and `OUT` values. Cache creation and cache-read tokens are included in `IN` and exposed in the tooltip.
 - Reads Claude's JSON `session_id` after each print turn and keeps the plugin tab bound to the actual Claude Code session.
 - Passes the prompt through stdin and waits for the `claude` process to finish, allowing long-running skills such as audio transcription or large document analysis.
+- Streams intermediate turn progress into the open turn card: each assistant step message (including mid-turn questions) appears as it arrives, tool activity shows as compact chips (Bash commands, Read/Edit/Write targets as clickable vault links), and AskUserQuestion calls render as a question card with their options.
 - Opens the visible turn card and keeps the in-chat `생각 중` indicator attached while the print-command process is running.
 - If Claude reports that the session ID is already in use, the console retries once with `--resume <sessionId> --fork-session` so the fallback keeps the previous Claude context instead of starting from an empty UUID.
 - Claude normal-response processes are tracked by pid in a per-user local state folder. `Stop`, tab close, and plugin reload clean them up, and startup checks the local `agent-processes.json` for stale pids left by a previous crash.
@@ -307,8 +308,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.92
-git push origin 0.6.92
+git tag 0.6.93
+git push origin 0.6.93
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.

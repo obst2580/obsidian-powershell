@@ -532,6 +532,9 @@ interface AgentPrintTurnRuntime {
   promptPreview: string;
   settled: boolean;
   cancelReason?: string;
+  /** Intermediate assistant texts already rendered while streaming, so the
+   *  final result is not appended a second time when it matches the last one. */
+  streamedStepTexts?: { text: string; el: HTMLElement }[];
 }
 
 interface AgentQueuedPrintInput {
@@ -5715,11 +5718,21 @@ class VaultPowerShellView extends ItemView {
           this.setAgentTokenUsage(tokenUsage);
         }
         this.agentLastUsageText = getPrintCommandUsageSummary(provider, result);
-        this.appendAgentTranscript({
-          id: this.nextLocalAgentEntryId("assistant"),
-          role: "assistant",
-          text: output
-        });
+        // The final result of a Claude stream-json turn is usually identical
+        // to the last streamed step — don't render it twice.
+        const streamedSteps = provider === "claude" ? this.agentPrintTurnRuntime?.streamedStepTexts : undefined;
+        const lastStep = streamedSteps && streamedSteps.length > 0 ? streamedSteps[streamedSteps.length - 1] : undefined;
+        if (lastStep && normalizeStreamedStepText(lastStep.text) === normalizeStreamedStepText(output)) {
+          this.codexTurnLoadingEl?.remove();
+          this.codexTurnLoadingEl = null;
+          this.stopTurnProgressTimer();
+        } else {
+          this.appendAgentTranscript({
+            id: this.nextLocalAgentEntryId("assistant"),
+            role: "assistant",
+            text: output
+          });
+        }
         if (result.cancelled) {
           this.setAgentStatus("Stopped");
         } else if (isAgentSessionLimitText(output)) {
@@ -5772,6 +5785,9 @@ class VaultPowerShellView extends ItemView {
         },
         onModel: (modelId) => {
           this.withAgentSession(sessionKey, () => this.setClaudeResolvedModel(settings.claudeModel, modelId));
+        },
+        onEvent: (event) => {
+          this.withAgentSession(sessionKey, () => this.appendClaudePrintStreamEvent(event));
         }
       });
 
@@ -6662,6 +6678,90 @@ class VaultPowerShellView extends ItemView {
       this.openAgentExternalUrl(url);
     });
     this.linkifyVaultPathsIn(container);
+  }
+
+  // Streams Claude Code print-turn progress into the open turn card: step
+  // messages (including mid-turn questions), tool activity, and question
+  // cards — previously only the final result was shown.
+  private appendClaudePrintStreamEvent(event: ClaudePrintStreamEvent) {
+    const runtime = this.agentPrintTurnRuntime;
+    if (!runtime || runtime.provider !== "claude" || runtime.settled) {
+      return;
+    }
+    const answer = this.ensureCodexAnswerEl();
+    if (!answer) {
+      return;
+    }
+    const shouldStickToBottom = this.shouldAutoScrollAgentTranscript();
+
+    if (event.kind === "text") {
+      const block = answer.createDiv("vault-agent-block vault-agent-block-agentMessage vault-agent-block-step");
+      void this.renderCodexMarkdown(block.createDiv("vault-agent-block-body"), event.text);
+      runtime.streamedStepTexts = runtime.streamedStepTexts ?? [];
+      runtime.streamedStepTexts.push({ text: event.text, el: block });
+    } else {
+      this.renderClaudeToolUseChip(answer, event.name, event.input);
+    }
+
+    // Keep the thinking indicator anchored below the newest block.
+    if (this.codexTurnLoadingEl && this.codexTurnLoadingEl.parentElement === answer) {
+      answer.appendChild(this.codexTurnLoadingEl);
+    }
+    this.scrollCodexAnswer(shouldStickToBottom);
+  }
+
+  private renderClaudeToolUseChip(answer: HTMLElement, name: string, input: Record<string, unknown>) {
+    if (name === "TodoWrite") {
+      // Internal task bookkeeping — noise in a chat transcript.
+      return;
+    }
+    if (name === "AskUserQuestion") {
+      this.renderClaudeQuestionCard(answer, input);
+      return;
+    }
+    const chip = answer.createDiv("vault-agent-block vault-agent-tool-chip");
+    chip.createSpan({ cls: "vault-agent-tool-chip-name", text: name });
+    const summary = summarizeClaudeToolInput(name, input);
+    if (summary) {
+      // renderAgentMessageBody linkifies vault paths, so Read/Edit/Write
+      // targets are clickable straight from the chip.
+      this.renderAgentMessageBody(chip.createSpan("vault-agent-tool-chip-summary"), summary);
+    }
+  }
+
+  private renderClaudeQuestionCard(answer: HTMLElement, input: Record<string, unknown>) {
+    const card = answer.createDiv("vault-agent-block vault-agent-question-card");
+    card.createDiv({ cls: "vault-agent-question-title", text: "Claude가 질문했습니다" });
+    const questions = Array.isArray(input.questions) ? input.questions : [input];
+    for (const rawQuestion of questions) {
+      const question = asRecord(rawQuestion);
+      if (!question) {
+        continue;
+      }
+      const questionText = typeof question.question === "string" ? question.question : "";
+      if (questionText) {
+        card.createDiv({ cls: "vault-agent-question-text", text: questionText });
+      }
+      const options = Array.isArray(question.options) ? question.options : [];
+      if (options.length > 0) {
+        const list = card.createEl("ul", { cls: "vault-agent-question-options" });
+        for (const rawOption of options) {
+          const option = asRecord(rawOption);
+          const label = typeof option?.label === "string"
+            ? option.label
+            : typeof rawOption === "string" ? rawOption : "";
+          if (!label) {
+            continue;
+          }
+          const item = list.createEl("li", { text: label });
+          const description = typeof option?.description === "string" ? option.description : "";
+          if (description) {
+            item.createSpan({ cls: "vault-agent-question-option-desc", text: ` — ${description}` });
+          }
+        }
+      }
+    }
+    card.createDiv({ cls: "vault-agent-question-note", text: "print 모드에서는 답변을 받을 수 없어 Claude가 자체 판단으로 계속 진행합니다." });
   }
 
   private handleTranscriptVaultLinkClick(event: MouseEvent) {
@@ -10049,6 +10149,13 @@ interface AgentLaunchOptions {
   sessionName?: string;
 }
 
+// Intermediate events surfaced from a Claude Code stream-json print turn.
+// Claude Code emits one `assistant` record per content block, so text and
+// tool_use blocks arrive individually and can be rendered as they happen.
+type ClaudePrintStreamEvent =
+  | { kind: "text"; text: string }
+  | { kind: "tool_use"; name: string; input: Record<string, unknown> };
+
 interface ClaudePrintOptions {
   sessionId?: string;
   resumeSessionId?: string;
@@ -10057,6 +10164,7 @@ interface ClaudePrintOptions {
   settings?: PowerShellSettings;
   onUsage?: (usage: TokenUsage) => void;
   onModel?: (modelId: string) => void;
+  onEvent?: (event: ClaudePrintStreamEvent) => void;
 }
 
 function getClaudeExecutable(settings: PowerShellSettings): string {
@@ -10786,15 +10894,16 @@ function spawnClaudePrintCommand(
     env,
     timeoutMs,
     `${prompt}\n`,
-    createClaudeStreamObserver(options.onUsage, options.onModel)
+    createClaudeStreamObserver(options.onUsage, options.onModel, options.onEvent)
   );
 }
 
 function createClaudeStreamObserver(
   onUsage?: (usage: TokenUsage) => void,
-  onModel?: (modelId: string) => void
+  onModel?: (modelId: string) => void,
+  onEvent?: (event: ClaudePrintStreamEvent) => void
 ): ((chunk: string) => void) | undefined {
-  if (!onUsage && !onModel) {
+  if (!onUsage && !onModel && !onEvent) {
     return undefined;
   }
 
@@ -10802,6 +10911,7 @@ function createClaudeStreamObserver(
   let currentMessageId = "";
   let lastEmitted = "";
   let lastReportedModel = "";
+  let lastEmittedText = "";
   const messageUsages = new Map<string, TokenUsage>();
 
   const emitUsage = (usage: TokenUsage | null) => {
@@ -10852,6 +10962,25 @@ function createClaudeStreamObserver(
       emitModel(message?.model);
       const messageId = typeof message?.id === "string" ? message.id : "";
       updateMessageUsage(messageId, tokenUsageFromClaudeUsage(message?.usage));
+      if (onEvent) {
+        const content = Array.isArray(message?.content) ? message.content : [];
+        for (const rawBlock of content) {
+          const block = asRecord(rawBlock);
+          if (!block) {
+            continue;
+          }
+          if (block.type === "text" && typeof block.text === "string" && block.text.trim()) {
+            // Guard against repeated snapshots of the same text block.
+            if (block.text.trim() === lastEmittedText.trim()) {
+              continue;
+            }
+            lastEmittedText = block.text;
+            onEvent({ kind: "text", text: block.text });
+          } else if (block.type === "tool_use" && typeof block.name === "string") {
+            onEvent({ kind: "tool_use", name: block.name, input: asRecord(block.input) ?? {} });
+          }
+        }
+      }
       return;
     }
 
@@ -10879,7 +11008,8 @@ function createClaudeStreamObserver(
         line.includes("\"usage\"") ||
         line.includes("\"model\"") ||
         line.includes("\"modelUsage\"") ||
-        line.includes("\"model_usage\"")
+        line.includes("\"model_usage\"") ||
+        (onEvent !== undefined && line.includes("\"assistant\""))
       ) {
         const record = parseJsonRecord(line);
         if (record) {
@@ -10889,6 +11019,45 @@ function createClaudeStreamObserver(
       newlineIndex = buffer.indexOf("\n");
     }
   };
+}
+
+function summarizeClaudeToolInput(name: string, input: Record<string, unknown>): string {
+  const str = (key: string) => (typeof input[key] === "string" ? (input[key] as string) : "");
+  const clip = (value: string, max = 160) => (value.length > max ? `${value.slice(0, max - 1)}…` : value);
+  switch (name) {
+    case "Bash":
+    case "BashOutput":
+      return clip(str("command") || str("description"));
+    case "Read":
+    case "Write":
+    case "Edit":
+      return str("file_path");
+    case "NotebookEdit":
+      return str("notebook_path");
+    case "Glob":
+    case "Grep":
+      return clip(`${str("pattern")}${str("path") ? ` in ${str("path")}` : ""}`);
+    case "WebFetch":
+      return clip(str("url"));
+    case "WebSearch":
+      return clip(str("query"));
+    case "Task":
+    case "Agent":
+      return clip(str("description") || str("prompt"));
+    case "Skill":
+      return clip(str("skill") || str("name") || str("args"));
+    default:
+      try {
+        const serialized = JSON.stringify(input);
+        return serialized === "{}" ? "" : clip(serialized, 120);
+      } catch {
+        return "";
+      }
+  }
+}
+
+function normalizeStreamedStepText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 function getClaudePrintSessionArgs(options: ClaudePrintOptions): string[] {
