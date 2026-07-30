@@ -1828,3 +1828,21 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Vault-file links inside agent transcripts */
+.vault-agent-pane a.vault-agent-vault-link {
+  color: var(--link-color, var(--text-accent));
+  cursor: pointer;
+  text-decoration: none;
+  border-bottom: 1px dashed var(--link-color, var(--text-accent));
+}
+.vault-agent-pane a.vault-agent-vault-link:hover {
+  border-bottom-style: solid;
+}
+.vault-agent-pane code a.vault-agent-vault-link {
+  font-family: inherit;
+  font-size: inherit;
+}
+.vault-agent-pane .markdown-rendered a.internal-link {
+  cursor: pointer;
+}

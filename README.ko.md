@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.90`입니다.
+Obsidian 데스크톱 우측 사이드바에서 현재 볼트 경로를 작업 디렉터리로 쓰는 **멀티 AI Agent Console** 플러그인입니다. 이 저장소의 현재 버전은 `0.6.91`입니다.
 
 [English README](README.md)
 
@@ -23,6 +23,7 @@ Obst Terminal은 한 명의 AI와만 대화하는 단일 콘솔이 아니라, **
 - 마이크 버튼을 누르면 녹음을 시작하고, 정지할 때 전체 녹음을 설정된 서버로 한 번만 보내 전사합니다. 녹음 중에는 경과 시간만 표시하며, 결과는 AI에 자동 전송하지 않고 녹음을 시작한 탭의 입력창에 넣습니다.
 - 입력창 위에는 현재 활성 Obsidian 노트와 선택 영역이 계속 표시됩니다. 연결을 끄지 않은 일반 turn은 이 상태를 전송 시점에 공유하므로 `이게`, `여기`, `이 부분`, `보니까`처럼 문서명을 생략해도 현재 문맥으로 해석합니다.
 - Claude, Codex, Antigravity transcript 안에서 마우스로 일부 영역만 선택해 복사할 때 전체 메시지 카드가 복사되지 않도록 플러그인이 선택 범위 기준으로 복사합니다.
+- 대화에서 언급되거나 생성된 볼트 문서는 transcript에서 클릭 가능한 링크로 표시됩니다. 클릭하면 메인 워크스페이스에서 열리고(Ctrl/Cmd+클릭은 새 탭), `문서.md:12` 형태는 해당 줄로 이동합니다. 실제로 존재하는 볼트 파일로 확인된 경로만 링크화합니다.
 
 ## 현재 동작 기준
 
@@ -306,8 +307,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 릴리스 tag는 `manifest.json`의 version과 정확히 같아야 합니다. `v` prefix를 붙이지 않습니다.
 
 ```powershell
-git tag 0.6.90
-git push origin 0.6.90
+git tag 0.6.91
+git push origin 0.6.91
 ```
 
 릴리스 workflow는 `npm ci`, `npm run build`, OS별 전체 ZIP, runtime-only ZIP, `runtime-manifest.json`, 표준 플러그인 파일을 생성합니다.

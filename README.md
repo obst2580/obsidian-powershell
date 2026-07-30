@@ -1,6 +1,6 @@
 # Obst Terminal
 
-Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.90`.
+Obst Terminal is an Obsidian Desktop plugin that opens a vault-rooted **multi-session AI Agent Console** in the right sidebar. This branch currently reports version `0.6.91`.
 
 [한국어 README](README.ko.md)
 
@@ -23,6 +23,7 @@ Obst Terminal is not just a single chat console. It is designed as a **multi-ses
 - Use the microphone button to record audio. Pressing Stop sends the complete recording to the configured server exactly once for transcription. Only elapsed time is shown while recording, and the completed text is inserted into the originating tab without being sent automatically.
 - The composer continuously shows the active Obsidian note and selected lines. Unless unlinked, each normal turn captures that note as shared context, so implicit phrases such as `this`, `here`, or `this part` resolve without requiring a special command.
 - Mouse selection and copy inside Claude, Codex, and Antigravity transcripts are handled by the plugin so copying a partial selection does not expand to the whole message card.
+- Vault documents mentioned or created during a conversation become clickable links in the transcript. Clicking opens the note in the main workspace (Ctrl/Cmd+click for a new tab); a `path.md:12` reference jumps to that line. Only paths that resolve to an existing vault file are linkified.
 
 ## Current Behavior
 
@@ -306,8 +307,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Platform windows -Arch x64 
 Release tags must match `manifest.json` exactly. Do not prefix tags with `v`.
 
 ```powershell
-git tag 0.6.90
-git push origin 0.6.90
+git tag 0.6.91
+git push origin 0.6.91
 ```
 
 The release workflow runs `npm ci`, `npm run build`, full ZIP packaging, runtime-only ZIP packaging, `runtime-manifest.json` generation, and standard plugin file upload.

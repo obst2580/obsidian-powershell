@@ -3,6 +3,7 @@ import {
   App,
   FileSystemAdapter,
   ItemView,
+  Keymap,
   MarkdownView,
   MarkdownRenderer,
   Menu,
@@ -137,6 +138,14 @@ const CODEX_MODEL_ROLE_LABELS: Record<string, string> = {
   "gpt-5.6-luna": "fast"
 };
 const CLAUDE_CUSTOM_MODEL_VALUE = "__custom_model__";
+// Candidate matcher for vault-file mentions in transcript text. Deliberately
+// loose (allows spaces for Korean file names, absolute Windows paths, and a
+// trailing :line suffix) — every candidate is existence-checked against the
+// vault before it becomes a link, so prose is never linkified by accident.
+const VAULT_PATH_CANDIDATE_SOURCE =
+  "(?:[A-Za-z]:[\\\\/])?[^\\n\\t`\"'<>|?*:\\[\\]]{0,240}?" +
+  "\\.(?:md|canvas|base|pdf|png|jpe?g|webp|svg|gif|bmp|xlsx?|docx?|pptx?|csv|json|txt|html?)" +
+  "(?::\\d{1,6})?";
 const CLAUDE_LATEST_MODEL_CHOICES = [
   { value: "", label: "Claude default" },
   { value: "best", label: "Best (auto)" },
@@ -2677,6 +2686,11 @@ class VaultPowerShellView extends ItemView {
     container.empty();
     this.ensureInternalAgentSessions();
 
+    // One delegated handler covers both MarkdownRenderer internal links and the
+    // plugin's own vault-path links, and keeps working across per-session
+    // transcript remounts because it sits on the pane container.
+    this.registerDomEvent(container, "click", (event) => this.handleTranscriptVaultLinkClick(event));
+
     this.agentSessionTabsEl = container.createDiv("vault-agent-session-tabs");
     this.renderAgentSessionTabs();
 
@@ -4119,6 +4133,7 @@ class VaultPowerShellView extends ItemView {
     el.addClass("markdown-rendered");
     try {
       await MarkdownRenderer.render(this.app, markdown, el, "", this);
+      this.linkifyVaultPathsIn(el);
     } catch {
       el.removeClass("markdown-rendered");
       this.renderAgentMessageBody(el, markdown);
@@ -6645,6 +6660,191 @@ class VaultPowerShellView extends ItemView {
     appendTextWithLinks(container, text, (url) => {
       this.openAgentExternalUrl(url);
     });
+    this.linkifyVaultPathsIn(container);
+  }
+
+  private handleTranscriptVaultLinkClick(event: MouseEvent) {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    const link = target?.closest<HTMLElement>("a.internal-link, a.vault-agent-vault-link");
+    if (!link) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+
+    const vaultPath = link.getAttribute("data-vault-path");
+    const linktext = vaultPath ?? link.getAttribute("data-href") ?? link.getAttribute("href") ?? "";
+    if (!linktext) {
+      return;
+    }
+    const lineAttr = link.getAttribute("data-vault-line");
+    const line = lineAttr ? Number(lineAttr) : null;
+    const state = line !== null && Number.isFinite(line) && line > 0
+      ? { eState: { line: line - 1 } }
+      : undefined;
+    // Opened from the sidebar console, so this lands in the main workspace
+    // area; Ctrl/Cmd+click opens a new tab via Keymap.isModEvent.
+    void Promise.resolve(this.app.workspace.openLinkText(linktext, "", Keymap.isModEvent(event), state))
+      .catch(() => {
+        new Notice(`문서를 열 수 없습니다: ${linktext}`);
+      });
+  }
+
+  // Turn vault-file mentions in rendered transcript content into clickable
+  // links. Only candidates that resolve to an existing vault file become
+  // links, so ordinary prose is never mangled.
+  private linkifyVaultPathsIn(root: HTMLElement) {
+    const doc = root.ownerDocument;
+
+    // Agents usually quote paths as inline code (`folder/note.md`) — handle
+    // whole-content code spans first, keeping the code styling.
+    for (const code of Array.from(root.querySelectorAll("code"))) {
+      if (code.closest("pre, a") || code.querySelector("a")) {
+        continue;
+      }
+      const raw = (code.textContent ?? "").trim();
+      if (!raw || raw.length > 300) {
+        continue;
+      }
+      const resolved = this.resolveVaultFileReference(raw);
+      if (!resolved) {
+        continue;
+      }
+      const anchor = this.createVaultFileLinkEl(doc, raw, resolved.path, resolved.line);
+      code.textContent = "";
+      code.appendChild(anchor);
+    }
+
+    const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const textNodes: Text[] = [];
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const parent = (node as Text).parentElement;
+      if (!parent || parent.closest("a, code, pre")) {
+        continue;
+      }
+      textNodes.push(node as Text);
+    }
+
+    for (const textNode of textNodes) {
+      const value = textNode.nodeValue ?? "";
+      if (value.length < 4 || !value.includes(".")) {
+        continue;
+      }
+      const pattern = new RegExp(VAULT_PATH_CANDIDATE_SOURCE, "gi");
+      let frag: DocumentFragment | null = null;
+      let cursor = 0;
+      for (const match of value.matchAll(pattern)) {
+        const raw = match[0];
+        const start = match.index ?? 0;
+        if (start < cursor) {
+          continue;
+        }
+        const resolved = this.resolveVaultFileReference(raw);
+        if (!resolved) {
+          continue;
+        }
+        let anchorText = resolved.line !== null ? `${resolved.display}:${resolved.line}` : resolved.display;
+        let inner = raw.indexOf(anchorText);
+        if (inner === -1) {
+          anchorText = resolved.display;
+          inner = raw.indexOf(anchorText);
+        }
+        if (inner === -1) {
+          continue;
+        }
+        const absStart = start + inner;
+        frag = frag ?? doc.createDocumentFragment();
+        if (absStart > cursor) {
+          frag.appendChild(doc.createTextNode(value.slice(cursor, absStart)));
+        }
+        frag.appendChild(this.createVaultFileLinkEl(doc, anchorText, resolved.path, resolved.line));
+        cursor = absStart + anchorText.length;
+      }
+      if (frag) {
+        if (cursor < value.length) {
+          frag.appendChild(doc.createTextNode(value.slice(cursor)));
+        }
+        textNode.replaceWith(frag);
+      }
+    }
+  }
+
+  private createVaultFileLinkEl(doc: Document, text: string, path: string, line: number | null): HTMLAnchorElement {
+    const anchor = doc.createElement("a");
+    anchor.className = "vault-agent-vault-link";
+    anchor.textContent = text;
+    anchor.setAttribute("data-vault-path", path);
+    if (line !== null) {
+      anchor.setAttribute("data-vault-line", String(line));
+    }
+    anchor.setAttribute("title", line !== null ? `${path}:${line}` : path);
+    return anchor;
+  }
+
+  // Accepts a raw mention ("C:\...\note.md", "folder/문서 초안.md:12",
+  // "`note.md`", …) and returns the resolved vault path plus the display
+  // substring that should become the link. Returns null unless the file
+  // actually exists in this vault.
+  private resolveVaultFileReference(raw: string): { path: string; display: string; line: number | null } | null {
+    let candidate = raw.trim()
+      .replace(/^[\s"'`(\[{<]+/, "")
+      .replace(/[\s"'`)\]}>,.;!?]+$/, "");
+    let line: number | null = null;
+    const lineMatch = candidate.match(/:(\d{1,6})$/);
+    if (lineMatch) {
+      line = Number(lineMatch[1]);
+      candidate = candidate.slice(0, -lineMatch[0].length);
+    }
+    candidate = candidate.replace(/[":]+$/, "");
+    if (!candidate || candidate.length > 300) {
+      return null;
+    }
+
+    // The candidate may drag in leading sentence words (spaces are legal in
+    // note names) — retry with progressively shorter suffixes until one
+    // resolves. Existence-checking keeps this safe.
+    let display = candidate;
+    for (let i = 0; i < 8 && display; i++) {
+      const found = this.tryResolveVaultPath(display);
+      if (found) {
+        return { path: found, display, line };
+      }
+      const spaceIndex = display.indexOf(" ");
+      if (spaceIndex !== -1) {
+        display = display.slice(spaceIndex + 1).trimStart();
+        continue;
+      }
+      const punctTrimmed = display.replace(/^[\s"'`(\[{<]+/, "");
+      if (punctTrimmed !== display) {
+        display = punctTrimmed;
+        continue;
+      }
+      break;
+    }
+    return null;
+  }
+
+  private tryResolveVaultPath(reference: string): string | null {
+    let path = reference;
+    if (/^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\")) {
+      const rel = this.plugin.getVaultRelativePath(path);
+      if (!rel) {
+        return null;
+      }
+      path = rel;
+    }
+    path = normalizePath(path.replace(/\\/g, "/").replace(/^\.\//, ""));
+    if (!path || path === "/") {
+      return null;
+    }
+    const byPath = this.app.vault.getAbstractFileByPath(path);
+    if (byPath instanceof TFile) {
+      return byPath.path;
+    }
+    // Bare note names ("RMF 초안.md") resolve like wiki links even when the
+    // file lives in a subfolder.
+    const byLink = this.app.metadataCache.getFirstLinkpathDest(path, "");
+    return byLink ? byLink.path : null;
   }
 
   private setAgentStatus(text: string) {
