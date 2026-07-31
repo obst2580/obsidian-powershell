@@ -6766,23 +6766,56 @@ class VaultPowerShellView extends ItemView {
 
   private handleTranscriptVaultLinkClick(event: MouseEvent) {
     const target = event.target instanceof HTMLElement ? event.target : null;
-    const link = target?.closest<HTMLElement>("a.internal-link, a.vault-agent-vault-link");
+    const link = target?.closest<HTMLElement>("a");
     if (!link) {
       return;
     }
-    event.preventDefault();
-    event.stopPropagation();
 
-    const vaultPath = link.getAttribute("data-vault-path");
-    const linktext = vaultPath ?? link.getAttribute("data-href") ?? link.getAttribute("href") ?? "";
+    const lineAttr = link.getAttribute("data-vault-line");
+    const line = lineAttr ? Number(lineAttr) : null;
+    let linktext = link.getAttribute("data-vault-path") ?? link.getAttribute("data-href") ?? link.getAttribute("href") ?? "";
     if (!linktext) {
       return;
     }
-    const lineAttr = link.getAttribute("data-vault-line");
-    const line = lineAttr ? Number(lineAttr) : null;
-    if (!this.openResolvedVaultLink(linktext, line, event)) {
+
+    // obsidian://open?vault=...&file=... — extract the file reference.
+    if (/^obsidian:\/\//i.test(linktext)) {
+      try {
+        const fileParam = new URL(linktext).searchParams.get("file");
+        if (fileParam) {
+          linktext = fileParam;
+        }
+      } catch {
+        // fall through with the raw URI (will fail resolution → notice)
+      }
+    }
+
+    // 1) Anything that resolves to a file in this vault opens in the vault —
+    //    including external-looking targets like Codex's
+    //    [문서 열기](C:/path/with%20spaces/note.md), which MarkdownRenderer
+    //    renders as an external link.
+    if (this.openResolvedVaultLink(linktext, line, event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    // 2) Web links open in the system browser.
+    if (/^https?:\/\//i.test(linktext)) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.openAgentExternalUrl(linktext);
+      return;
+    }
+
+    // 3) Unresolvable vault-ish links: swallow the click so Obsidian never
+    //    creates an empty note, and tell the user instead.
+    if (link.hasClass("internal-link") || link.hasClass("vault-agent-vault-link")) {
+      event.preventDefault();
+      event.stopPropagation();
       new Notice(`볼트에서 문서를 찾을 수 없습니다: ${linktext}`);
     }
+    // Anything else keeps its default behavior.
   }
 
   // Resolve-first navigation. openLinkText CREATES an empty note when the
