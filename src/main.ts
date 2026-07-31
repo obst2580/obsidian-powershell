@@ -6780,15 +6780,50 @@ class VaultPowerShellView extends ItemView {
     }
     const lineAttr = link.getAttribute("data-vault-line");
     const line = lineAttr ? Number(lineAttr) : null;
-    const state = line !== null && Number.isFinite(line) && line > 0
-      ? { eState: { line: line - 1 } }
-      : undefined;
-    // Opened from the sidebar console, so this lands in the main workspace
-    // area; Ctrl/Cmd+click opens a new tab via Keymap.isModEvent.
-    void Promise.resolve(this.app.workspace.openLinkText(linktext, "", Keymap.isModEvent(event), state))
-      .catch(() => {
-        new Notice(`문서를 열 수 없습니다: ${linktext}`);
-      });
+    if (!this.openResolvedVaultLink(linktext, line, event)) {
+      new Notice(`볼트에서 문서를 찾을 수 없습니다: ${linktext}`);
+    }
+  }
+
+  // Resolve-first navigation. openLinkText CREATES an empty note when the
+  // link text does not resolve (standard wiki-link behavior) — never what a
+  // transcript click should do. Resolve to an existing file (trying the
+  // URL-decoded form too, for agent-written markdown links with %20), then
+  // navigate with the resolved path so creation can't happen.
+  private openResolvedVaultLink(raw: string, line: number | null, event: MouseEvent): boolean {
+    const variants = [raw];
+    try {
+      const decoded = decodeURIComponent(raw);
+      if (decoded !== raw) {
+        variants.push(decoded);
+      }
+    } catch {
+      // Malformed escape sequence — raw form only.
+    }
+
+    for (const variant of variants) {
+      const hashIndex = variant.indexOf("#");
+      const base = hashIndex === -1 ? variant : variant.slice(0, hashIndex);
+      const subpath = hashIndex === -1 ? "" : variant.slice(hashIndex);
+      if (!base.trim()) {
+        continue;
+      }
+      const resolved = this.tryResolveVaultPath(base.trim());
+      if (!resolved) {
+        continue;
+      }
+      const state = line !== null && Number.isFinite(line) && line > 0
+        ? { eState: { line: line - 1 } }
+        : undefined;
+      // Opened from the sidebar console, so this lands in the main workspace
+      // area; Ctrl/Cmd+click opens a new tab via Keymap.isModEvent.
+      void Promise.resolve(this.app.workspace.openLinkText(resolved + subpath, "", Keymap.isModEvent(event), state))
+        .catch(() => {
+          new Notice(`문서를 열 수 없습니다: ${resolved}`);
+        });
+      return true;
+    }
+    return false;
   }
 
   // Turn vault-file mentions in rendered transcript content into clickable
