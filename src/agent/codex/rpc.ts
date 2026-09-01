@@ -37,7 +37,8 @@ export class JsonRpcClient {
   private serverRequestHandler: RpcServerRequestHandler | null = null;
   private disposed = false;
 
-  constructor(private readonly writeLine: (line: string) => void) {}
+  /** `writeLine` returns false when the line could not be sent. */
+  constructor(private readonly writeLine: (line: string) => boolean) {}
 
   onNotification(handler: RpcNotificationHandler): void {
     this.notificationHandler = handler;
@@ -81,26 +82,31 @@ export class JsonRpcClient {
     }
   }
 
-  notify(method: string, params?: unknown): void {
+  /** Returns false when the notification could not be sent. */
+  notify(method: string, params?: unknown): boolean {
     if (this.disposed) {
-      return;
+      return false;
     }
-    this.writeLine(JSON.stringify(params === undefined ? { method } : { method, params }));
+    return this.writeLine(JSON.stringify(params === undefined ? { method } : { method, params }));
   }
 
-  /** Answer a server -> client request (e.g. an approval) by its id. */
-  respond(id: number | string, result: unknown): void {
+  /**
+   * Answer a server -> client request (e.g. an approval) by its id. Returns
+   * false when the answer could not be sent; unlike a request there is no
+   * timeout behind this, so a silent drop hangs the server indefinitely.
+   */
+  respond(id: number | string, result: unknown): boolean {
     if (this.disposed) {
-      return;
+      return false;
     }
-    this.writeLine(JSON.stringify({ id, result }));
+    return this.writeLine(JSON.stringify({ id, result }));
   }
 
-  respondError(id: number | string, code: number, message: string): void {
+  respondError(id: number | string, code: number, message: string): boolean {
     if (this.disposed) {
-      return;
+      return false;
     }
-    this.writeLine(JSON.stringify({ id, error: { code, message } }));
+    return this.writeLine(JSON.stringify({ id, error: { code, message } }));
   }
 
   /** Reject all in-flight requests; further calls become no-ops. */
@@ -128,7 +134,15 @@ export class JsonRpcClient {
           }, timeoutMs)
         : null;
       this.pending.set(id, { resolve, reject, timer });
-      this.writeLine(JSON.stringify(params === undefined ? { method, id } : { method, id, params }));
+      if (!this.writeLine(JSON.stringify(params === undefined ? { method, id } : { method, id, params }))) {
+        // Fail now instead of waiting out the full timeout for a reply that
+        // cannot arrive.
+        this.pending.delete(id);
+        if (timer) {
+          clearTimeout(timer);
+        }
+        reject(new Error(`Could not send RPC request "${method}": codex app-server is not accepting input`));
+      }
     });
   }
 

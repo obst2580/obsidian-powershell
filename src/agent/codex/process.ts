@@ -14,10 +14,15 @@ export interface CodexProcessOptions {
   onSpawnError?: (message: string) => void;
 }
 
+/** Wait after stdin closes before signalling, and again before SIGKILL. */
+const GRACE_PERIOD_MS = 500;
+const FORCE_KILL_DELAY_MS = 2_000;
+
 export class CodexProcess {
   readonly rpc: JsonRpcClient;
   private child: ChildProcessWithoutNullStreams | null = null;
   private exited = false;
+  private resolvedExecutable: string | null = null;
 
   constructor(private readonly options: CodexProcessOptions) {
     this.rpc = new JsonRpcClient((line) => this.writeLine(line));
@@ -32,6 +37,7 @@ export class CodexProcess {
       return false;
     }
 
+    this.resolvedExecutable = executable;
     const plan = buildCodexSpawnPlan(executable, ["app-server"], process.platform, process.env.ComSpec);
     let child: ChildProcessWithoutNullStreams;
     try {
@@ -59,6 +65,16 @@ export class CodexProcess {
     return true;
   }
 
+  /** The live child's pid, or undefined once stopped. Read it before stop(). */
+  get pid(): number | undefined {
+    return this.child?.pid;
+  }
+
+  /** The executable path this process was actually launched from. */
+  get executable(): string | null {
+    return this.resolvedExecutable;
+  }
+
   stop(): void {
     this.rpc.dispose("stopped");
     const child = this.child;
@@ -69,23 +85,48 @@ export class CodexProcess {
     try {
       child.stdin.end();
     } catch {
-      // ignore
+      // Already closed; the escalation below still applies.
     }
-    // Grace period, then force-kill if still alive.
+    // EOF on stdin should be enough. Escalate to SIGTERM, then SIGKILL, so a
+    // wedged app-server does not survive as an orphan.
     setTimeout(() => {
-      if (!this.exited) {
-        try {
-          child.kill();
-        } catch {
-          // ignore
-        }
+      if (this.exited) {
+        return;
       }
-    }, 500);
+      try {
+        child.kill();
+      } catch {
+        // Already gone.
+      }
+      setTimeout(() => {
+        if (this.exited) {
+          return;
+        }
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // Already gone.
+        }
+      }, FORCE_KILL_DELAY_MS);
+    }, GRACE_PERIOD_MS);
   }
 
-  private writeLine(line: string): void {
-    if (this.child && !this.exited && this.child.stdin.writable) {
-      this.child.stdin.write(`${line}\n`);
+  /**
+   * Hand one line to the child. Returns false when it could not be written --
+   * callers must surface that, because a dropped `respond` leaves codex waiting
+   * forever for an approval decision that will never arrive.
+   */
+  private writeLine(line: string): boolean {
+    const child = this.child;
+    if (!child || this.exited || !child.stdin.writable) {
+      return false;
+    }
+    try {
+      child.stdin.write(`${line}\n`);
+      return true;
+    } catch {
+      // EPIPE when app-server died between the writable check and the write.
+      return false;
     }
   }
 }

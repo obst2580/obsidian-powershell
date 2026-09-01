@@ -34,7 +34,7 @@ ObstTerminal-<version>-windows-x64.zip
 예시:
 
 ```text
-C:\obsidian\labide-validation
+C:\obsidian\my-vault
 ```
 
 ZIP 파일을 아래 위치에 압축 해제합니다.
@@ -48,7 +48,7 @@ ZIP 파일을 아래 위치에 압축 해제합니다.
 예시:
 
 ```text
-C:\obsidian\labide-validation\.obsidian\plugins\vault-terminal\
+C:\obsidian\my-vault\.obsidian\plugins\vault-terminal\
 ```
 
 압축 해제 후 폴더 안에 다음 파일과 폴더가 있어야 합니다.
@@ -188,7 +188,7 @@ npm run build
 Windows에서 설치 스크립트를 사용하는 경우:
 
 ```powershell
-.\install.ps1 -VaultPath "C:\obsidian\labide-validation"
+.\install.ps1 -VaultPath "C:\obsidian\my-vault"
 .\install.ps1 -VaultPath "C:\obsidian\team-vault"
 .\install.ps1 -VaultPath "D:\vaults\project-a"
 ```

@@ -22,11 +22,12 @@ import { clipboard } from "electron";
 import { unzipSync } from "fflate";
 import { ChildProcessWithoutNullStreams, spawn, spawnSync } from "child_process";
 import { createHash, randomUUID } from "crypto";
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from "fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
 import { CodexAppServerBackend } from "./agent/codex/backend";
 import type { AgentAccessLevel, AgentAttachment, AgentBackend, AgentModelInfo, AgentStatus, AgentUiEvent, AgentUsageWindow, ApprovalRequest, TokenUsage, TranscriptItem, TranscriptItemKind } from "./agent/types";
+import { quoteWindowsShellCommand } from "./shell/windows-args";
 import { CompanyVoiceLexicon } from "./voice/company-lexicon";
 
 type Terminal = any;
@@ -40,6 +41,9 @@ const GITHUB_REPOSITORY = "obst2580/obsidian-powershell";
 const RUNTIME_INFO_FILE = "runtime.json";
 const RUNTIME_MANIFEST_FILE = "runtime-manifest.json";
 const AGENT_PROCESS_REGISTRY_FILE = "agent-processes.json";
+// Records whose liveness we could never confirm are retried until this age, then
+// dropped so an unverifiable entry cannot accumulate forever.
+const AGENT_PROCESS_REGISTRY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const MIN_PTY_COLS = 80;
 const MIN_PTY_ROWS = 5;
 const OBST_TERMINAL_ICON = "obst-terminal";
@@ -66,7 +70,12 @@ const AGENT_PROVIDER_CHOICES: ReadonlyArray<{ provider: AgentProvider; label: st
   { provider: "gemini", label: "Antigravity", icon: ANTIGRAVITY_PROVIDER_ICON }
 ];
 const DEFAULT_ATTACHMENT_FOLDER = "Obst Terminal Attachments";
-const DEFAULT_VOICE_TRANSCRIPTION_API_BASE_URL = (process.env.TRANSCRIBE_API_BASE_URL?.trim() || "http://10.10.101.61:3000").replace(/\/+$/, "");
+// Deployment-specific, so there is no built-in endpoint: voice transcription
+// stays disabled until an install supplies one through settings or the
+// TRANSCRIBE_API_BASE_URL environment variable.
+const DEFAULT_VOICE_TRANSCRIPTION_API_BASE_URL = (process.env.TRANSCRIBE_API_BASE_URL?.trim() ?? "").replace(/\/+$/, "");
+const VOICE_TRANSCRIPTION_SERVER_PLACEHOLDER = "https://transcribe.example.com";
+const VOICE_TRANSCRIPTION_UNCONFIGURED_MESSAGE = "전사 서버 주소가 설정되지 않았습니다. 설정에서 Voice transcription server를 입력하세요.";
 const VOICE_RECORDING_MAX_MS = 2 * 60 * 60 * 1000;
 const VOICE_TRANSCRIPTION_TIMEOUT_MS = 30 * 60 * 1000;
 const VOICE_WAV_SAMPLE_RATE = 16_000;
@@ -225,6 +234,8 @@ interface PowerShellSettings {
   codexApprovalPolicy: CodexApprovalPolicy;
   codexLoginMethod: CodexLoginMethod;
   codexModel: string;
+  codexAccessLevel: AgentAccessLevel;
+  deepVaultSkillName: string;
   claudeExecutable: string;
   claudeModel: string;
   claudeEffort: ClaudeEffort;
@@ -562,11 +573,17 @@ interface AgentQueuedTurnInput {
 
 interface AgentPrintProcessRecord {
   pid: number;
-  provider: "claude" | "gemini";
+  provider: AgentProvider;
   sessionId: string | null;
   cwd: string;
   startedAt: number;
   pluginVersion: string;
+  /**
+   * Resolved executable path. Required to identify a codex app-server, because
+   * other applications (the ChatGPT desktop app among them) run one too and a
+   * recycled pid must never be mistaken for ours.
+   */
+  executable?: string;
 }
 
 interface ClipboardNativeImage {
@@ -611,6 +628,10 @@ const DEFAULT_SETTINGS: PowerShellSettings = {
   codexApprovalPolicy: "on-request",
   codexLoginMethod: "browser",
   codexModel: "",
+  // Sandboxed to the vault folder. "full" disables the sandbox entirely, so it
+  // stays an explicit opt-in rather than the shipped default.
+  codexAccessLevel: "auto",
+  deepVaultSkillName: "",
   claudeExecutable: "",
   claudeModel: "",
   claudeEffort: "",
@@ -834,6 +855,8 @@ export default class VaultPowerShellPlugin extends Plugin {
     this.settings.codexApprovalPolicy = normalizeCodexApprovalPolicy(this.settings.codexApprovalPolicy);
     this.settings.codexLoginMethod = normalizeCodexLoginMethod(this.settings.codexLoginMethod);
     this.settings.codexModel = this.settings.codexModel?.trim() ?? "";
+    this.settings.codexAccessLevel = normalizeCodexAccessLevel(this.settings.codexAccessLevel);
+    this.settings.deepVaultSkillName = this.settings.deepVaultSkillName?.trim() ?? "";
     this.settings.claudeExecutable = this.settings.claudeExecutable?.trim() ?? "";
     this.settings.claudeModel = this.settings.claudeModel?.trim() ?? "";
     this.settings.claudeEffort = normalizeClaudeEffort(this.settings.claudeEffort);
@@ -1132,7 +1155,21 @@ export default class VaultPowerShellPlugin extends Plugin {
 
     try {
       return normalizePrivatePluginData(JSON.parse(readFileSync(path, "utf8")));
-    } catch {
+    } catch (error) {
+      // This file holds every session tab and its resumable session ids. Falling
+      // through to {} silently hands an empty workspace to the next save, which
+      // then overwrites the only copy, so move the damaged file aside and say so.
+      const backupPath = `${path}.corrupt`;
+      let kept = false;
+      try {
+        renameSync(path, backupPath);
+        kept = true;
+      } catch {
+        // Could not move it; the next save will overwrite it regardless.
+      }
+      new Notice(kept
+        ? `Obst Terminal could not read its saved sessions, so none were restored. The damaged file was kept at ${backupPath}`
+        : `Obst Terminal could not read its saved sessions, so none were restored: ${error instanceof Error ? error.message : String(error)}`);
       return {};
     }
   }
@@ -2820,7 +2857,7 @@ class VaultPowerShellView extends ItemView {
     this.agentTokenOutputValueEl = this.agentTokenUsageEl.createSpan({ cls: "vault-agent-token-value", text: "—" });
     this.codexModelSelect.createEl("option", { value: "", text: "Codex default" });
     this.codexEffortSelect.createEl("option", { value: "", text: "Effort default" });
-    for (const opt of [{ v: "read-only", t: "Read-only" }, { v: "auto", t: "Auto (write)" }, { v: "full", t: "Full access" }]) {
+    for (const opt of [{ v: "read-only", t: "Read-only" }, { v: "auto", t: "Workspace write" }, { v: "full", t: "Full access (no sandbox)" }]) {
       this.codexAccessSelect.createEl("option", { value: opt.v, text: opt.t });
     }
     for (const opt of getGeminiModelChoices(this.plugin.settings)) {
@@ -2829,7 +2866,7 @@ class VaultPowerShellView extends ItemView {
     for (const opt of GEMINI_APPROVAL_MODE_CHOICES) {
       this.geminiApprovalSelect.createEl("option", { value: opt.value, text: opt.label });
     }
-    this.codexAccessSelect.value = "full";
+    this.codexAccessSelect.value = normalizeCodexAccessLevel(this.plugin.settings.codexAccessLevel);
     this.claudeModelSelect.addEventListener("change", () => this.onClaudeModelChange());
     this.claudeCustomModelInput.addEventListener("input", () => this.onClaudeCustomModelInput());
     this.claudeCustomModelInput.addEventListener("change", () => {
@@ -2848,7 +2885,7 @@ class VaultPowerShellView extends ItemView {
     this.claudePermissionSelect.addEventListener("change", () => this.onClaudePermissionModeChange());
     this.codexModelSelect.addEventListener("change", () => this.onCodexModelChange());
     this.codexEffortSelect.addEventListener("change", () => this.applyCodexTurnOptions());
-    this.codexAccessSelect.addEventListener("change", () => this.applyCodexTurnOptions());
+    this.codexAccessSelect.addEventListener("change", () => this.onCodexAccessLevelChange());
     this.geminiModelSelect.addEventListener("change", () => this.onGeminiModelChange());
     this.geminiApprovalSelect.addEventListener("change", () => this.onGeminiApprovalModeChange());
     this.deepVaultButton.addEventListener("click", () => this.toggleDeepVault());
@@ -3301,6 +3338,21 @@ class VaultPowerShellView extends ItemView {
         sessionName: this.agentSessionLabel,
         model: this.plugin.settings.codexModel || undefined
       });
+      // Register the app-server the same way print turns are registered, so a
+      // crash or a quit that skips teardown still gets reaped on the next load.
+      const codexPid = backend.getProcessId();
+      const codexExecutable = backend.getProcessExecutable();
+      if (codexPid !== undefined && codexExecutable) {
+        this.plugin.registerAgentPrintProcess({
+          pid: codexPid,
+          provider: "codex",
+          sessionId: null,
+          cwd,
+          startedAt: Date.now(),
+          pluginVersion: this.plugin.manifest.version,
+          executable: codexExecutable
+        });
+      }
       await this.withAgentSessionAsync(sessionKey, () => this.populateCodexModels());
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -3838,13 +3890,21 @@ class VaultPowerShellView extends ItemView {
     return [
       "Deep Vault workflow profile: enabled. This is a plugin retrieval workflow, not a native model or reasoning tier.",
       "Before drafting the answer, investigate the indexed vault for relevant evidence.",
-      "Use the seegene-vault-context skill when available. Otherwise run `obst-indexer status`, then use focused `obst-indexer search \"<query>\" --limit 8` queries.",
+      this.getDeepVaultRetrievalInstruction(),
       "Refresh the index only when it is missing or stale; do not rescan the vault on every turn.",
       "Derive several searches from key entities, aliases, dates, decisions, products, and technical terms in the request.",
       "Open and verify the strongest source documents. Repeat retrieval with refined queries until another pass adds no material evidence.",
       "Resolve conflicts by source authority and recency. Cite vault paths, and separate confirmed facts, inference, and unresolved gaps.",
       "Do not claim complete vault coverage when the index is unavailable or stale, and do not read every file blindly."
     ].join("\n");
+  }
+
+  private getDeepVaultRetrievalInstruction(): string {
+    const indexerSteps = "run `obst-indexer status`, then use focused `obst-indexer search \"<query>\" --limit 8` queries.";
+    const skill = this.plugin.settings.deepVaultSkillName.trim();
+    return skill
+      ? `Use the ${skill} skill when available. Otherwise ${indexerSteps}`
+      : `To retrieve, ${indexerSteps}`;
   }
 
   private getAgentTranscriptContextText(): string {
@@ -4257,6 +4317,10 @@ class VaultPowerShellView extends ItemView {
         this.refreshAgentOptionsRow();
       }
       this.onCodexModelChange();
+      // onCodexModelChange skips background sessions, which would otherwise
+      // start their first turn on the thread/start defaults instead of the
+      // sandbox the user selected.
+      this.applyCodexTurnOptions();
       this.refreshCodexStatusLine();
     });
   }
@@ -4287,14 +4351,26 @@ class VaultPowerShellView extends ItemView {
     this.refreshCodexStatusLine();
   }
 
-  private applyCodexTurnOptions() {
-    if (!this.isVisibleAgentSessionContext()) {
+  private onCodexAccessLevelChange() {
+    if (!this.codexAccessSelect) {
       return;
     }
+    this.plugin.settings.codexAccessLevel = normalizeCodexAccessLevel(this.codexAccessSelect.value);
+    void this.plugin.saveSettings();
+    this.applyCodexTurnOptions();
+  }
+
+  private applyCodexTurnOptions() {
+    // The composer controls belong to whichever session is on screen, so a
+    // background session reads from settings instead. Returning early here would
+    // leave that session on the thread/start defaults, giving two sessions with
+    // the same configuration different sandboxes depending on tab focus.
+    const settings = this.plugin.settings;
+    const visible = this.isVisibleAgentSessionContext();
     this.agentBackend?.setTurnOptions({
-      model: this.codexModelSelect?.value || undefined,
-      effort: this.codexEffortSelect?.value || undefined,
-      accessLevel: (this.codexAccessSelect?.value as AgentAccessLevel) || undefined
+      model: (visible ? this.codexModelSelect?.value : settings.codexModel) || undefined,
+      effort: (visible ? this.codexEffortSelect?.value : "") || undefined,
+      accessLevel: normalizeCodexAccessLevel(settings.codexAccessLevel)
     });
   }
 
@@ -4304,6 +4380,11 @@ class VaultPowerShellView extends ItemView {
     }
     if (!navigator.mediaDevices?.getUserMedia) {
       new Notice("이 Obsidian 환경에서는 마이크 녹음을 지원하지 않습니다.");
+      return;
+    }
+    // Fail before recording rather than after the upload attempt.
+    if (!normalizeVoiceTranscriptionApiBaseUrl(this.plugin.settings.voiceTranscriptionApiBaseUrl)) {
+      new Notice(VOICE_TRANSCRIPTION_UNCONFIGURED_MESSAGE);
       return;
     }
 
@@ -6312,7 +6393,16 @@ class VaultPowerShellView extends ItemView {
         this.ingestAgentSessionLog(existing, true);
         this.agentSessionOffset = Buffer.byteLength(existing, "utf8");
       } catch {
-        this.agentSessionOffset = getFileSize(sessionPath) ?? 0;
+        const size = getFileSize(sessionPath);
+        if (size === null) {
+          // Neither the read nor the stat worked, so we have no idea where the
+          // backlog ends. Starting at 0 would replay the entire prior
+          // conversation as new messages, because the cutoff filter only applies
+          // to the initial-backlog pass. Drop the path and retry next poll.
+          this.agentSessionPath = null;
+          return;
+        }
+        this.agentSessionOffset = size;
       }
       return;
     }
@@ -7982,10 +8072,22 @@ class VaultPowerShellView extends ItemView {
     this.agentPrintQueuedInputs = [];
 
     if (this.agentBackend) {
+      // Read the pid before stop() clears it.
+      const codexPid = this.agentBackend.getProcessId?.();
       this.agentBackendUnsubscribe?.();
       this.agentBackendUnsubscribe = null;
       void this.agentBackend.stop();
       this.agentBackend = null;
+      if (codexPid !== undefined) {
+        // stop() closes stdin and escalates on a timer, but that timer does not
+        // survive an app quit, and codex's own children outlive a signal sent to
+        // the parent alone. Take the tree down the way the PTY host does, and
+        // drop the registry record only once that succeeded -- if it did not,
+        // the record is what lets the next load reap the process.
+        if (kill && killProcessTreeByPid(codexPid)) {
+          this.plugin.unregisterAgentPrintProcess(codexPid);
+        }
+      }
     }
     this.codexItemEls.clear();
     this.codexDeltaBuffers.clear();
@@ -8146,13 +8248,26 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Voice transcription server")
-      .setDesc("Whisper-compatible server that receives the complete in-memory recording once after Stop.")
+      .setDesc("Required for voice input. Whisper-compatible server that receives the complete in-memory recording once after Stop. Prefer https, since the upload carries the recording and the terminology prompt.")
       .addText((text) =>
         text
-          .setPlaceholder(DEFAULT_VOICE_TRANSCRIPTION_API_BASE_URL)
+          .setPlaceholder(VOICE_TRANSCRIPTION_SERVER_PLACEHOLDER)
           .setValue(this.plugin.settings.voiceTranscriptionApiBaseUrl)
           .onChange((value) => {
             this.plugin.settings.voiceTranscriptionApiBaseUrl = normalizeVoiceTranscriptionApiBaseUrl(value);
+            void this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Deep Vault skill")
+      .setDesc("Optional agent skill name Deep Vault should prefer for vault retrieval. Leave empty to use obst-indexer search only.")
+      .addText((text) =>
+        text
+          .setPlaceholder("my-vault-context")
+          .setValue(this.plugin.settings.deepVaultSkillName)
+          .onChange((value) => {
+            this.plugin.settings.deepVaultSkillName = value.trim();
             void this.plugin.saveSettings();
           })
       );
@@ -8214,7 +8329,7 @@ class VaultPowerShellSettingTab extends PluginSettingTab {
 
     new Setting(agentEl)
       .setName("Codex approval policy")
-      .setDesc("Default approval policy for Codex app-server sessions.")
+      .setDesc("When Codex asks before acting. Applies to every turn regardless of the composer's access level; \"never\" lets Codex run commands unprompted.")
       .addDropdown((dropdown) =>
         dropdown
           .addOption("on-request", "on-request")
@@ -8906,6 +9021,9 @@ async function transcribeVoiceAudio(
 
 function getVoiceTranscriptionEndpoint(baseUrl: string): string {
   const normalized = normalizeVoiceTranscriptionApiBaseUrl(baseUrl);
+  if (!normalized) {
+    throw new Error(VOICE_TRANSCRIPTION_UNCONFIGURED_MESSAGE);
+  }
   let url: URL;
   try {
     url = new URL(normalized);
@@ -11913,10 +12031,14 @@ function spawnCapturedCommand(
     }
 
     try {
-      child = spawn(command, args, {
+      // Windows needs the shell so npm's extensionless/.cmd CLI shims resolve,
+      // and the shell makes quoting our own responsibility.
+      const useShell = process.platform === "win32";
+      const line = useShell ? quoteWindowsShellCommand(command, args) : { command, args };
+      child = spawn(line.command, line.args, {
         cwd,
         env,
-        shell: process.platform === "win32",
+        shell: useShell,
         windowsHide: true
       });
     } catch (error) {
@@ -11988,15 +12110,28 @@ function killCapturedCommandProcess(child: ChildProcessWithoutNullStreams | null
   }
 }
 
-function killProcessTreeByPid(pid: number) {
+/**
+ * Best-effort termination. Windows takes the whole tree down; POSIX signals only
+ * the process itself, because these children are not spawned into their own
+ * process group. Returns false when the kill could not be delivered, so callers
+ * can keep the record and retry instead of forgetting a live process.
+ */
+function killProcessTreeByPid(pid: number): boolean {
   if (process.platform === "win32") {
-    spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true });
-    return;
+    try {
+      const result = spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true });
+      // spawnSync reports failure on the result rather than by throwing. Exit 128
+      // is "no such process", which is the state we wanted anyway.
+      return !result.error && (result.status === 0 || result.status === 128);
+    } catch {
+      return false;
+    }
   }
   try {
     process.kill(pid, "SIGTERM");
-  } catch {
-    // The process may already be gone.
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ESRCH";
   }
 }
 
@@ -12034,14 +12169,23 @@ function cleanupAgentPrintProcessRegistry(path: string) {
     return;
   }
 
+  const staleCutoff = Date.now() - AGENT_PROCESS_REGISTRY_MAX_AGE_MS;
   const keep: AgentPrintProcessRecord[] = [];
   for (const record of records) {
-    if (!isAgentPrintProcessAlive(record)) {
+    const alive = isAgentPrintProcessAlive(record);
+    if (alive === false) {
       continue;
     }
-    try {
-      killProcessTreeByPid(record.pid);
-    } catch {
+    if (alive === null) {
+      // The lookup failed, so we cannot tell a finished process from a running
+      // one. Keep the record and retry on a later load rather than forgetting a
+      // process that may still be alive; the age cap bounds the registry.
+      if (record.startedAt >= staleCutoff) {
+        keep.push(record);
+      }
+      continue;
+    }
+    if (!killProcessTreeByPid(record.pid)) {
       keep.push(record);
     }
   }
@@ -12054,23 +12198,36 @@ function isAgentPrintProcessRecord(value: unknown): value is AgentPrintProcessRe
   }
   const candidate = value as Partial<AgentPrintProcessRecord>;
   return typeof candidate.pid === "number" &&
-    (candidate.provider === "claude" || candidate.provider === "gemini") &&
+    (candidate.provider === "claude" || candidate.provider === "gemini" || candidate.provider === "codex") &&
     (candidate.sessionId === null || typeof candidate.sessionId === "string") &&
     typeof candidate.cwd === "string" &&
     typeof candidate.startedAt === "number" &&
     typeof candidate.pluginVersion === "string";
 }
 
-function isAgentPrintProcessAlive(record: AgentPrintProcessRecord): boolean {
+/** true = running and ours, false = confirmed gone, null = could not determine. */
+function isAgentPrintProcessAlive(record: AgentPrintProcessRecord): boolean | null {
   const commandLine = getProcessCommandLine(record.pid);
+  if (commandLine === null) {
+    return null;
+  }
   if (!commandLine) {
     return false;
   }
-  const lower = commandLine.toLowerCase();
-  return matchesAgentPrintCommandLine(record, lower);
+  return matchesAgentPrintCommandLine(record, commandLine.toLowerCase());
 }
 
 function matchesAgentPrintCommandLine(record: AgentPrintProcessRecord, lowerCommandLine: string): boolean {
+  if (record.provider === "codex") {
+    // "codex app-server" is also how the ChatGPT desktop app runs its own
+    // backend, so the bare name is not enough to claim the process as ours.
+    // Without a recorded executable we refuse to match, and nothing is killed.
+    const executable = record.executable?.trim().toLowerCase();
+    return !!executable &&
+      lowerCommandLine.includes("app-server") &&
+      lowerCommandLine.includes(executable);
+  }
+
   if (record.provider === "claude") {
     return lowerCommandLine.includes("claude") &&
       !!record.sessionId &&
@@ -12086,6 +12243,11 @@ function matchesAgentPrintCommandLine(record: AgentPrintProcessRecord, lowerComm
     lowerCommandLine.includes("--output-format");
 }
 
+/**
+ * The process's command line, "" when the pid does not exist, and null when the
+ * lookup itself failed. Callers must not read null as "not running" -- doing so
+ * drops live processes from the registry and leaks them permanently.
+ */
 function getProcessCommandLine(pid: number): string | null {
   try {
     if (process.platform === "win32") {
@@ -12095,10 +12257,17 @@ function getProcessCommandLine(pid: number): string | null {
         "-Command",
         `$p = Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}" -ErrorAction SilentlyContinue; if ($p) { $p.CommandLine }`
       ], { encoding: "utf8", windowsHide: true });
-      return result.stdout?.trim() || null;
+      if (result.error || result.status !== 0) {
+        return null;
+      }
+      return result.stdout?.trim() ?? "";
     }
     const result = spawnSync("ps", ["-p", String(pid), "-o", "command="], { encoding: "utf8" });
-    return result.stdout?.trim() || null;
+    if (result.error) {
+      return null;
+    }
+    // ps exits non-zero when the pid does not exist.
+    return result.status === 0 ? (result.stdout?.trim() ?? "") : "";
   } catch {
     return null;
   }
@@ -13275,6 +13444,10 @@ function normalizeCodexApprovalPolicy(value: string | undefined): CodexApprovalP
   return value === "untrusted" || value === "on-failure" || value === "never"
     ? value
     : "on-request";
+}
+
+function normalizeCodexAccessLevel(value: string | undefined): AgentAccessLevel {
+  return value === "read-only" || value === "full" ? value : "auto";
 }
 
 function normalizeCodexLoginMethod(value: string | undefined): CodexLoginMethod {

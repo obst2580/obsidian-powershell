@@ -3,7 +3,12 @@ import { existsSync, readFileSync, statSync } from "fs";
 import { homedir } from "os";
 import { join, resolve } from "path";
 
+// Listed first so its explicit mappings win over aliases derived from the
+// glossary when both produce the same spoken form.
+const SPOKEN_ALIAS_FILE_NAME = "음성-별칭.md";
+
 const REFERENCE_FILE_NAMES = [
+  SPOKEN_ALIAS_FILE_NAME,
   "용어사전.md",
   "용어사전-상세.md",
   "조직구조.md",
@@ -21,24 +26,6 @@ const FOR_AI_RELATIVE_DIRS = [
 const MAX_PROMPT_LENGTH = 1_800;
 const MAX_PROMPT_TERMS = 80;
 const MAX_PROMPT_PEOPLE = 32;
-
-const SPOKEN_TERM_ALIASES: ReadonlyArray<readonly [string, string]> = [
-  ["랩 아이디", "LabIDE"],
-  ["랩아이디", "LabIDE"],
-  ["뷰어 프로", "ViewerPro"],
-  ["뷰어프로", "ViewerPro"],
-  ["런처 프로", "LauncherPro"],
-  ["런처프로", "LauncherPro"],
-  ["에이오스", "AIOS"],
-  ["에이 아이 오 에스", "AIOS"],
-  ["씨젠 허브", "Seegene Hub"],
-  ["시젠 허브", "Seegene Hub"],
-  ["알고리즘 팩", "Algorithm Pack"],
-  ["디에스피", "DSP"],
-  ["에스지 아이디어", "SG-IDEA"],
-  ["에스지 디디에스", "SG-DDS"],
-  ["에스티 아고라", "STAgora"]
-];
 
 interface VoiceAlias {
   alias: string;
@@ -67,6 +54,7 @@ export class CompanyVoiceLexicon {
   private referenceSignature = "";
   private aliases: VoiceAlias[] = [];
   private terms: string[] = [];
+  private spokenAliasTargets: string[] = [];
   private people: PersonRecord[] = [];
   private leadershipPeople: PersonRecord[] = [];
 
@@ -83,7 +71,7 @@ export class CompanyVoiceLexicon {
       ? this.people.filter((person) => normalizedContext.includes(normalizeLookupKey(person.name)))
       : [];
     const priorityTerms = uniqueStrings([
-      ...SPOKEN_TERM_ALIASES.map(([, target]) => target),
+      ...this.spokenAliasTargets,
       ...relevantTerms,
       ...this.terms
     ]).slice(0, MAX_PROMPT_TERMS);
@@ -97,7 +85,7 @@ export class CompanyVoiceLexicon {
       sections.push(`현재 문서 문맥: ${context}`);
     }
     if (priorityTerms.length > 0) {
-      sections.push(`씨젠 표준 용어: ${priorityTerms.join(", ")}`);
+      sections.push(`표준 용어: ${priorityTerms.join(", ")}`);
     }
     if (priorityPeople.length > 0) {
       sections.push(`직원 이름과 소속: ${priorityPeople.map(formatPersonPrompt).join(", ")}`);
@@ -153,12 +141,9 @@ export class CompanyVoiceLexicon {
     }
 
     this.referenceSignature = signature;
-    this.aliases = SPOKEN_TERM_ALIASES.map(([alias, target]) => ({
-      alias,
-      target,
-      source: "용어사전"
-    }));
-    this.terms = uniqueStrings(SPOKEN_TERM_ALIASES.map(([, target]) => target));
+    this.aliases = [];
+    this.terms = [];
+    this.spokenAliasTargets = [];
     this.people = [];
     this.leadershipPeople = [];
     if (!directory) {
@@ -180,6 +165,10 @@ export class CompanyVoiceLexicon {
     }
 
     for (const [fileName, markdown] of documents) {
+      if (fileName === SPOKEN_ALIAS_FILE_NAME) {
+        this.extractSpokenAliases(markdown);
+        continue;
+      }
       if (fileName === "조직구조.md" || fileName === "조직구조-전직원.md") {
         const records = extractPeople(markdown);
         this.people.push(...records);
@@ -194,6 +183,25 @@ export class CompanyVoiceLexicon {
     this.leadershipPeople = uniquePeople(this.leadershipPeople);
     this.terms = uniqueStrings(this.terms);
     this.sortAndDedupeAliases();
+  }
+
+  /**
+   * Reads the vault's spoken-form table: column 0 is what the transcriber hears,
+   * column 1 is the canonical spelling to write instead.
+   */
+  private extractSpokenAliases(markdown: string) {
+    for (const table of parseMarkdownTables(markdown)) {
+      for (const row of table.rows) {
+        const alias = normalizeTerm(row[0] ?? "");
+        const target = normalizeTerm(row[1] ?? "");
+        if (!isUsefulTerm(alias) || !target) {
+          continue;
+        }
+        this.aliases.push({ alias, target, source: SPOKEN_ALIAS_FILE_NAME });
+        this.addTerm(target, SPOKEN_ALIAS_FILE_NAME);
+        this.spokenAliasTargets.push(target);
+      }
+    }
   }
 
   private extractTerms(fileName: string, markdown: string) {
@@ -272,10 +280,9 @@ export class CompanyVoiceLexicon {
 
     const roots = uniquePaths([
       this.vaultRoot ?? "",
-      process.env.SEEGENE_VAULT_PATH ?? "",
+      process.env.OBST_VOICE_VAULT_PATH ?? "",
       process.env.OBST_INDEXER_VAULT ?? "",
-      getDefaultObstIndexerVault(),
-      join(homedir(), "SeegeneVault")
+      getDefaultObstIndexerVault()
     ]);
     for (const root of roots) {
       for (const relativeParts of FOR_AI_RELATIVE_DIRS) {

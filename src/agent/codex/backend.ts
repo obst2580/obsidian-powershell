@@ -30,7 +30,7 @@ export interface CodexBackendDeps {
   configuredExecutable: string;
   env: { [key: string]: string | undefined };
   clientVersion: string;
-  /** Initial AskForApproval policy for thread/start (overridable per-turn via access level). */
+  /** AskForApproval policy applied at thread/start and on every turn. */
   approvalPolicy?: string;
 }
 
@@ -52,6 +52,8 @@ export class CodexAppServerBackend implements AgentBackend {
   private proc: CodexProcess | null = null;
   private readonly listeners = new Set<AgentUiListener>();
   private readonly pendingApprovals = new Map<string, number | string>();
+  /** itemId -> latest known changes, so a fileChange approval can show its diff. */
+  private readonly fileChangeItems = new Map<string, unknown[]>();
   private cwd = "";
   private threadId: string | null = null;
   private resumeThreadId: string | null = null;
@@ -66,6 +68,15 @@ export class CodexAppServerBackend implements AgentBackend {
     return () => {
       this.listeners.delete(listener);
     };
+  }
+
+  getProcessId(): number | undefined {
+    return this.proc?.pid;
+  }
+
+  /** Executable the running app-server was launched from, for orphan matching. */
+  getProcessExecutable(): string | null {
+    return this.proc?.executable ?? null;
   }
 
   private emit(event: AgentUiEvent): void {
@@ -167,6 +178,7 @@ export class CodexAppServerBackend implements AgentBackend {
       this.proc?.rpc.respond(rpcId, { decision: "cancel" });
     }
     this.pendingApprovals.clear();
+    this.fileChangeItems.clear();
     this.proc?.stop();
     this.proc = null;
     this.threadId = null;
@@ -232,7 +244,12 @@ export class CodexAppServerBackend implements AgentBackend {
       return;
     }
     this.pendingApprovals.delete(requestId);
-    this.proc.rpc.respond(rpcId, { decision });
+    if (!this.proc.rpc.respond(rpcId, { decision })) {
+      this.emit({
+        type: "system-message",
+        text: "Could not send the approval decision to codex — the app-server is no longer accepting input. Restart the session.",
+      });
+    }
     this.emit({ type: "approval-resolved", requestId });
   }
 
@@ -247,8 +264,11 @@ export class CodexAppServerBackend implements AgentBackend {
       params.effort = this.turnOptions.effort;
     }
     if (this.turnOptions.accessLevel) {
-      params.approvalPolicy = accessApprovalPolicy(this.turnOptions.accessLevel);
+      // Access level selects the sandbox only. Approvals stay under the user's
+      // configured policy; deriving them from the access level here silently
+      // overrode that setting on every turn.
       params.sandboxPolicy = accessSandboxPolicy(this.turnOptions.accessLevel, this.cwd);
+      params.approvalPolicy = this.deps.approvalPolicy ?? accessApprovalPolicy(this.turnOptions.accessLevel);
     }
     return params;
   }
@@ -368,7 +388,15 @@ export class CodexAppServerBackend implements AgentBackend {
     const p = (params ?? {}) as Record<string, unknown>;
 
     if (method === "account/login/completed") {
-      void this.refreshAccount();
+      // Fire-and-forget, so it needs its own handler: an unhandled rejection
+      // here used to leave the UI stuck in login-in-progress forever.
+      void this.refreshAccount().catch((err) => {
+        this.emit({
+          type: "system-message",
+          text: `Signed in, but reading the codex account failed: ${errorText(err)}`,
+        });
+        this.emit({ type: "status", state: "login-required" });
+      });
       return;
     }
     if (method === "thread/started") {
@@ -384,6 +412,17 @@ export class CodexAppServerBackend implements AgentBackend {
       this.currentTurnId = typeof id === "string" ? id : null;
     } else if (method === "turn/completed") {
       this.currentTurnId = null;
+      this.fileChangeItems.clear();
+      // Any card still open belongs to a turn that is over; its buttons would
+      // answer request ids the server has already forgotten.
+      this.discardPendingApprovals();
+    } else if (method === "serverRequest/resolved") {
+      // Codex can resolve an approval on its own (timeout, guardian auto-review).
+      this.discardPendingApproval(p.requestId);
+    } else if (method === "item/started" || method === "item/completed") {
+      this.rememberFileChangeItem(p.item);
+    } else if (method === "item/fileChange/patchUpdated" && typeof p.itemId === "string") {
+      this.rememberFileChange(p.itemId, p.changes);
     }
 
     const event = mapCodexNotification(method, params);
@@ -392,32 +431,128 @@ export class CodexAppServerBackend implements AgentBackend {
     }
   }
 
+  private discardPendingApproval(requestId: unknown): void {
+    if (typeof requestId !== "string" && typeof requestId !== "number") {
+      return;
+    }
+    const key = String(requestId);
+    if (this.pendingApprovals.delete(key)) {
+      this.emit({ type: "approval-resolved", requestId: key });
+    }
+  }
+
+  private discardPendingApprovals(): void {
+    for (const requestId of [...this.pendingApprovals.keys()]) {
+      this.pendingApprovals.delete(requestId);
+      this.emit({ type: "approval-resolved", requestId });
+    }
+  }
+
+  private rememberFileChangeItem(raw: unknown): void {
+    if (!raw || typeof raw !== "object") {
+      return;
+    }
+    const item = raw as Record<string, unknown>;
+    if (item.type === "fileChange" && typeof item.id === "string") {
+      this.rememberFileChange(item.id, item.changes);
+    }
+  }
+
+  private rememberFileChange(itemId: string, changes: unknown): void {
+    if (Array.isArray(changes) && changes.length > 0) {
+      this.fileChangeItems.set(itemId, changes);
+    }
+  }
+
   private handleServerRequest(id: number | string, method: string, params: unknown): void {
     const p = (params ?? {}) as Record<string, unknown>;
 
     let kind: ApprovalRequest["kind"] | null = null;
-    if (method.includes("commandExecution/requestApproval")) {
+    if (method.endsWith("commandExecution/requestApproval")) {
       kind = "commandExecution";
-    } else if (method.includes("fileChange/requestApproval")) {
+    } else if (method.endsWith("fileChange/requestApproval")) {
       kind = "fileChange";
     }
 
     if (!kind) {
-      this.proc?.rpc.respond(id, { decision: "cancel" });
+      // A decision is the wrong response shape for most other server requests,
+      // and cancelling silently leaves the user with an unexplained failure.
+      // Reject explicitly and say which request was refused.
+      this.proc?.rpc.respondError(id, -32601, `Unsupported server request: ${method}`);
+      this.emit({
+        type: "system-message",
+        text: `Codex sent "${method}", which this console cannot answer yet. It was declined.`,
+      });
       return;
     }
 
     const requestId = String(id);
     this.pendingApprovals.set(requestId, id);
 
-    const command = typeof p.command === "string" ? p.command : "";
     const reason = typeof p.reason === "string" ? p.reason : "";
-    const summary = kind === "commandExecution" ? command || "Run command" : "Apply file change";
-    const detail = [command, reason].filter(Boolean).join("\n\n") || summary;
+    let summary: string;
+    let detail: string;
+
+    if (kind === "commandExecution") {
+      const command = typeof p.command === "string" ? p.command : "";
+      summary = command || "Run command";
+      detail = [command, reason].filter(Boolean).join("\n\n") || summary;
+    } else {
+      // The approval request itself carries no diff, only the item it belongs
+      // to, so pair it with the changes seen on that item. Without this the user
+      // approves a patch they cannot see.
+      const itemId = typeof p.itemId === "string" ? p.itemId : "";
+      const changes = itemId ? this.fileChangeItems.get(itemId) : undefined;
+      const grantRoot = typeof p.grantRoot === "string" && p.grantRoot
+        ? `Requests write access under: ${p.grantRoot}`
+        : "";
+      summary = fileChangeSummary(changes) ?? "Apply file change";
+      detail = [reason, grantRoot, formatFileChanges(changes)].filter(Boolean).join("\n\n") ||
+        "Apply file change. Codex did not include a diff with this request.";
+    }
 
     this.emit({ type: "status", state: "waiting-approval" });
     this.emit({ type: "approval-request", request: { id: requestId, kind, summary, detail } });
   }
+}
+
+function fileChangePaths(changes: unknown[] | undefined): string[] {
+  if (!changes) {
+    return [];
+  }
+  return changes
+    .map((raw) => (raw && typeof raw === "object" ? (raw as Record<string, unknown>).path : null))
+    .filter((path): path is string => typeof path === "string" && path.length > 0);
+}
+
+function fileChangeSummary(changes: unknown[] | undefined): string | null {
+  const paths = fileChangePaths(changes);
+  if (paths.length === 0) {
+    return null;
+  }
+  return paths.length === 1
+    ? `Apply file change: ${paths[0]}`
+    : `Apply file changes to ${paths.length} files: ${paths.join(", ")}`;
+}
+
+function formatFileChanges(changes: unknown[] | undefined): string {
+  if (!changes) {
+    return "";
+  }
+  return changes
+    .map((raw) => {
+      if (!raw || typeof raw !== "object") {
+        return "";
+      }
+      const change = raw as Record<string, unknown>;
+      const path = typeof change.path === "string" ? change.path : "";
+      const kind = typeof change.kind === "string" ? change.kind : "";
+      const diff = typeof change.diff === "string" ? change.diff : "";
+      const header = [kind, path].filter(Boolean).join(" ");
+      return [header, diff].filter(Boolean).join("\n");
+    })
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function buildTurnInput(input: AgentUserInput): unknown[] {

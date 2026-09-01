@@ -27,6 +27,11 @@ export interface AgentBackend {
   setTurnOptions(options: AgentTurnOptions): void;
   /** Subscribe to UI events. Returns an unsubscribe function. */
   on(listener: AgentUiListener): () => void;
+  /**
+   * OS pid of the backing process, when the backend has one. Callers use it to
+   * take the process tree down; read it before stop().
+   */
+  getProcessId?(): number | undefined;
 }
 
 export interface AgentModelInfo {
