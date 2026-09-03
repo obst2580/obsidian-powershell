@@ -25,6 +25,19 @@ test("a tab-label custom-title is ignored in favour of the first request", () =>
   assert.equal(isGenericSessionLabel("결정 로그 정리"), false);
 });
 
+test("forks share a first message, so the latest text request becomes the title", () => {
+  const toolResult = line({ type: "user", timestamp: "2026-09-03T00:00:00.000Z", sessionId: "s1", message: { content: [{ type: "tool_result", content: "ok" }] } });
+  const forkA = [user("옆에 문서를 검토해줘"), user("[현재 사용자 요청]\nremove-ai 수정해줘"), toolResult, toolResult].join("\n");
+  const forkB = [user("옆에 문서를 검토해줘"), user("PPT로 만들어줘"), toolResult].join("\n");
+  assert.equal(parseClaudeSession([forkA], "a")?.title, "remove-ai 수정해줘");
+  assert.equal(parseClaudeSession([forkB], "b")?.title, "PPT로 만들어줘");
+});
+
+test("a deliberate custom title still outranks the latest request", () => {
+  const text = [user("첫 요청"), user("둘째 요청"), line({ type: "custom-title", customTitle: "내가 붙인 이름", sessionId: "s1" })].join("\n");
+  assert.equal(parseClaudeSession([text], "f")?.title, "내가 붙인 이름");
+});
+
 test("falls back to the first user line with the preamble stripped", () => {
   const entry = parseClaudeSession([user("[현재 실행 설정]\nx\n\n[현재 사용자 요청]\n실제 요청\n더")], "f");
   assert.equal(entry?.title, "실제 요청");

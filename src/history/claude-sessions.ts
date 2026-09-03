@@ -28,6 +28,7 @@ interface ParseAccumulator {
   sessionId: string | null;
   customTitle: string | null;
   firstUserText: string | null;
+  lastUserText: string | null;
   maxTimestamp: number;
   assistantCount: number;
   cwd: string | null;
@@ -40,6 +41,7 @@ export function parseClaudeSession(slices: readonly string[], fallbackId: string
     sessionId: null,
     customTitle: null,
     firstUserText: null,
+    lastUserText: null,
     maxTimestamp: 0,
     assistantCount: 0,
     cwd: null,
@@ -54,7 +56,12 @@ export function parseClaudeSession(slices: readonly string[], fallbackId: string
   // custom title. "Claude Code 3" says nothing about the conversation, so fall
   // through to the user's first request in that case.
   const usableTitle = customTitle && !isGenericSessionLabel(customTitle) ? customTitle : "";
-  const title = usableTitle || (acc.firstUserText ? titleFromPrompt(acc.firstUserText) : "") || "(제목 없음)";
+  // Forked sessions all inherit the same first message, so the latest request
+  // is what tells them apart; the first request is only a fallback.
+  const title = usableTitle
+    || (acc.lastUserText ? titleFromPrompt(acc.lastUserText) : "")
+    || (acc.firstUserText ? titleFromPrompt(acc.firstUserText) : "")
+    || "(제목 없음)";
   return {
     provider: "claude",
     id,
@@ -97,9 +104,13 @@ function foldLine(acc: ParseAccumulator, line: string): ParseAccumulator {
   if (type === "user" && record.isSidechain !== true) {
     const text = userText(record.message);
     const isPlugin = record.promptSource === "sdk" || (text !== null && hasPluginPreamble(text));
+    // Tool results arrive as user records with no text block; they carry no
+    // request and must not displace the real prompts.
+    const hasRequest = text !== null && titleFromPrompt(text).length > 0;
     return {
       ...next,
-      firstUserText: next.firstUserText ?? text,
+      firstUserText: next.firstUserText ?? (hasRequest ? text : null),
+      lastUserText: hasRequest ? text : next.lastUserText,
       sawPluginTurn: next.sawPluginTurn || isPlugin
     };
   }

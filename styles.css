@@ -2043,3 +2043,40 @@
   color: var(--text-muted);
   padding: 6px 2px;
 }
+
+/* Themes skin `button` with selectors that outrank one class (see the tab-bar
+   resets above); the history controls need the same treatment or they inherit
+   fixed heights that clip the second line and hide the icon svg. */
+.vault-agent-session-tabs button.vault-agent-session-history,
+.vault-agent-history button.vault-agent-history-icon,
+.vault-agent-history button.vault-agent-history-chip,
+.vault-agent-history button.vault-agent-history-row {
+  appearance: none;
+  -webkit-appearance: none;
+  box-shadow: none;
+  font: inherit;
+  line-height: 1.35;
+  min-height: 0;
+}
+.vault-agent-session-tabs button.vault-agent-session-history,
+.vault-agent-history button.vault-agent-history-icon {
+  height: 28px;
+  width: 28px;
+  padding: 0;
+}
+.vault-agent-session-tabs button.vault-agent-session-history svg,
+.vault-agent-history button.vault-agent-history-icon svg,
+.vault-agent-history .vault-agent-history-provider svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+.vault-agent-history button.vault-agent-history-chip {
+  height: auto;
+  padding: 2px 10px;
+}
+.vault-agent-history button.vault-agent-history-row {
+  height: auto;
+  white-space: normal;
+  padding: 8px 10px;
+}
