@@ -51,7 +51,9 @@ interface AgentHistorySource {
 
 - 디렉터리 탐색과 cwd 매칭은 기존 `getAgentSessionRoot`, `agentSessionFileMatches` 재사용.
 - 제목: `type: "custom-title"` 레코드의 `customTitle`(이 볼트 47/47 존재).
-  없으면 첫 `type: "user"` 메시지 텍스트. 플러그인 프리앰블
+  **단, 플러그인이 print 턴에 `--name <탭 라벨>`을 넘기고 Claude Code가 그것을
+  custom-title로 저장하므로 "Claude Code 3" 같은 탭 라벨은 제목으로 쓰지 않는다.**
+  그 경우와 custom-title이 없는 경우 첫 `type: "user"` 메시지 텍스트. 플러그인 프리앰블
   `[현재 실행 설정] … [현재 사용자 요청]\n` 이 앞에 붙어 있으면 그 뒤만 취한다.
 - `lastActiveAt`: 레코드 `timestamp`의 **최대값**. (`last-prompt` 등 timestamp 없는
   레코드가 파일 끝에 오므로 tail을 쓰면 안 된다.)
@@ -99,7 +101,9 @@ interface AgentHistorySource {
 Antigravity는 재개뿐 아니라 **포착**도 필요하다. print 턴에 `--output-format json`을
 쓰면 응답에 `conversation_id`가 온다. 이를 `agentGeminiSessionId`에 저장해야
 플러그인에서 시작한 대화도 다음 턴부터 이어지고 히스토리에서 다시 열린다.
-출력 파싱은 `response` 필드를 본문으로 쓴다(현재 텍스트 출력과 동일 내용).
+출력 파싱은 `response` 필드를 본문으로 쓴다. **실패 시에는 stderr가 비고 stdout JSON의
+`error` 필드에 메시지가 오므로(exit 1, `status: "ERROR"`) 그 텍스트를 표시·매칭에 쓴다.**
+`usage`(input/output/thinking/cache_read/total)는 IN/OUT 토큰 표시에 연결한다.
 
 ## 6. 패널
 

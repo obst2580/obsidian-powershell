@@ -28,6 +28,11 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
 import { CodexAppServerBackend } from "./agent/codex/backend";
 import type { AgentAccessLevel, AgentAttachment, AgentBackend, AgentModelInfo, AgentStatus, AgentUiEvent, AgentUsageWindow, ApprovalRequest, TokenUsage, TranscriptItem, TranscriptItemKind } from "./agent/types";
 import { quoteWindowsShellCommand } from "./shell/windows-args";
+import { listClaudeSessions } from "./history/claude-sessions";
+import { listCodexThreads } from "./history/codex-threads";
+import { listAntigravityConversations } from "./history/antigravity-conversations";
+import { filterHistory, mergeHistory, type MergedHistoryEntry } from "./history/merge";
+import type { AgentHistoryEntry, HistoryListResult } from "./history/types";
 import { CompanyVoiceLexicon } from "./voice/company-lexicon";
 
 type Terminal = any;
@@ -136,6 +141,10 @@ const AGENT_SESSION_LOOKBACK_MS = 30000;
 // `agy models` is a network call (~3.5s measured); keep it off the start path's
 // critical section and fall back to the built-in list when it does not answer.
 const ANTIGRAVITY_MODELS_TIMEOUT_MS = 15000;
+const HISTORY_NODE_TIMEOUT_MS = 15000;
+// Transcripts can reach tens of MB; the title lives near the head and the
+// latest timestamp near the tail, so read only those ends past this size.
+const HISTORY_SLICE_BYTES = 1024 * 1024;
 const AGENT_SESSION_MATCH_BYTES = 262144;
 const AGENT_SESSION_MAX_READ_BYTES = 1024 * 1024;
 const AGENT_SESSION_TURN_CUTOFF_SLOP_MS = 2000;
@@ -1587,6 +1596,16 @@ class VaultPowerShellView extends ItemView {
   private codexModelSelect: HTMLSelectElement | null = null;
   private codexEffortSelect: HTMLSelectElement | null = null;
   private codexAccessSelect: HTMLSelectElement | null = null;
+  private historyPanelEl: HTMLElement | null = null;
+  private historyListEl: HTMLElement | null = null;
+  private historyNoticeEl: HTMLElement | null = null;
+  private historySearchEl: HTMLInputElement | null = null;
+  private historyToggleButton: HTMLButtonElement | null = null;
+  private historyVisible = false;
+  private historyLoading = false;
+  private historyResults: HistoryListResult[] = [];
+  private historyQuery = "";
+  private historyProviderFilter: AgentProvider | null = null;
   private geminiModelSelect: HTMLSelectElement | null = null;
   private geminiApprovalSelect: HTMLSelectElement | null = null;
   private deepVaultButton: HTMLButtonElement | null = null;
@@ -1776,6 +1795,11 @@ class VaultPowerShellView extends ItemView {
     this.agentStatusEl = null;
     this.agentSessionTabsEl = null;
     this.agentSessionAddButton = null;
+    this.historyPanelEl = null;
+    this.historyListEl = null;
+    this.historyNoticeEl = null;
+    this.historySearchEl = null;
+    this.historyToggleButton = null;
     this.agentSessionTabEls.clear();
     this.agentTranscriptMountEl = null;
     this.agentSessionTitleInputEl = null;
@@ -1924,11 +1948,19 @@ class VaultPowerShellView extends ItemView {
     return this.agentGeminiSessionId;
   }
 
-  createInternalAgentSession(provider: AgentProvider) {
+  createInternalAgentSession(provider: AgentProvider, resume: AgentSessionResume = {}) {
     this.ensureInternalAgentSessions();
     this.captureActiveAgentSessionState();
 
-    const session = createAgentWorkspaceSessionState("isolated", provider);
+    // A resumed tab starts from the stored CLI session instead of a fresh id.
+    // geminiNativeSessionStarted is what makes the Antigravity print path pass
+    // --conversation, so a history pick must set it alongside the id.
+    const session: AgentWorkspaceSessionState = {
+      ...createAgentWorkspaceSessionState("isolated", provider),
+      ...(resume.claudeSessionId ? { claudeSessionId: resume.claudeSessionId } : {}),
+      ...(resume.codexThreadId ? { codexThreadId: resume.codexThreadId } : {}),
+      ...(resume.geminiSessionId ? { geminiSessionId: resume.geminiSessionId, geminiNativeSessionStarted: true } : {})
+    };
     this.ensureAgentSessionRuntime(session);
     this.agentSessions.push(session);
     session.agentSessionLabel = getUniqueProviderAgentSessionLabel(this.agentSessions, session.agentProvider, session.agentSessionKey);
@@ -2710,6 +2742,15 @@ class VaultPowerShellView extends ItemView {
       }
     }
 
+    const history = list.createEl("button", {
+      cls: "vault-agent-session-history",
+      attr: { "aria-label": "Session history", title: "Session history", "aria-pressed": String(this.historyVisible) }
+    });
+    history.toggleClass("is-active", this.historyVisible);
+    setIcon(history, "history");
+    history.addEventListener("click", () => this.toggleHistoryPanel());
+    this.historyToggleButton = history;
+
     const add = list.createEl("button", {
       cls: "vault-agent-session-add",
       attr: {
@@ -2758,6 +2799,206 @@ class VaultPowerShellView extends ItemView {
     new Notice("Raw terminal has been removed. Use Agent Console instead.");
   }
 
+  private buildHistoryPanel(panel: HTMLElement) {
+    const header = panel.createDiv("vault-agent-history-header");
+    header.createSpan({ cls: "vault-agent-history-title", text: "히스토리" });
+    const refresh = header.createEl("button", { cls: "vault-agent-history-icon", attr: { "aria-label": "Refresh", title: "Refresh" } });
+    setIcon(refresh, "refresh-cw");
+    refresh.addEventListener("click", () => void this.loadHistory());
+    const close = header.createEl("button", { cls: "vault-agent-history-icon", attr: { "aria-label": "Close history", title: "Close" } });
+    setIcon(close, "x");
+    close.addEventListener("click", () => this.toggleHistoryPanel(false));
+
+    const controls = panel.createDiv("vault-agent-history-controls");
+    this.historySearchEl = controls.createEl("input", { cls: "vault-agent-history-search", attr: { type: "search", placeholder: "제목 검색" } });
+    this.historySearchEl.addEventListener("input", () => {
+      this.historyQuery = this.historySearchEl?.value ?? "";
+      this.renderHistoryList();
+    });
+    const chips = controls.createDiv("vault-agent-history-chips");
+    const chipDefs: Array<{ value: AgentProvider | null; label: string }> = [
+      { value: null, label: "전체" },
+      ...AGENT_PROVIDER_CHOICES.map((choice) => ({ value: choice.provider, label: choice.label }))
+    ];
+    for (const chip of chipDefs) {
+      const button = chips.createEl("button", { cls: "vault-agent-history-chip", text: chip.label });
+      button.toggleClass("is-active", this.historyProviderFilter === chip.value);
+      button.addEventListener("click", () => {
+        this.historyProviderFilter = chip.value;
+        for (const sibling of Array.from(chips.children)) {
+          sibling.toggleClass("is-active", sibling === button);
+        }
+        this.renderHistoryList();
+      });
+    }
+
+    this.historyListEl = panel.createDiv("vault-agent-history-list");
+    this.historyNoticeEl = panel.createDiv("vault-agent-history-notice");
+  }
+
+  private toggleHistoryPanel(force?: boolean) {
+    const next = force ?? !this.historyVisible;
+    if (next === this.historyVisible) {
+      return;
+    }
+    this.historyVisible = next;
+    this.historyPanelEl?.toggleClass("is-hidden", !next);
+    this.agentTranscriptMountEl?.toggleClass("is-hidden", next);
+    this.historyToggleButton?.toggleClass("is-active", next);
+    this.historyToggleButton?.setAttr("aria-pressed", String(next));
+    if (next) {
+      void this.loadHistory();
+      this.historySearchEl?.focus();
+    }
+  }
+
+  private async loadHistory() {
+    if (this.historyLoading) {
+      return;
+    }
+    const cwd = this.plugin.getVaultPath();
+    if (!cwd) {
+      return;
+    }
+    this.historyLoading = true;
+    this.historyResults = [];
+    this.renderHistoryList();
+    const env = buildProcessEnv({
+      useSystemCa: this.plugin.settings.useSystemCa,
+      extraCaCertPath: this.plugin.getExtraCaCertPath()
+    });
+    const settle = (promise: Promise<HistoryListResult>, provider: AgentProvider) =>
+      promise
+        .catch((error): HistoryListResult => ({
+          provider,
+          entries: [],
+          notice: `${getAgentProviderLabel(provider)} 기록을 읽지 못했습니다: ${error instanceof Error ? error.message : String(error)}`
+        }))
+        .then((result) => {
+          this.historyResults = [...this.historyResults.filter((item) => item.provider !== provider), result];
+          this.renderHistoryList();
+        });
+    await Promise.all([
+      settle(this.listClaudeHistory(cwd), "claude"),
+      settle(this.listCodexHistory(cwd), "codex"),
+      settle(this.listAntigravityHistory(cwd, env), "gemini")
+    ]);
+    this.historyLoading = false;
+    this.renderHistoryList();
+  }
+
+  private listClaudeHistory(cwd: string): Promise<HistoryListResult> {
+    const home = getUserHome();
+    if (!home) {
+      return Promise.resolve({ provider: "claude", entries: [], notice: null });
+    }
+    return listClaudeSessions(join(home, ".claude", "projects"), cwd, {
+      readdir: (dir) => Promise.resolve(readdirSync(dir)),
+      readSlices: (path) => Promise.resolve(readFileHeadAndTail(path, HISTORY_SLICE_BYTES)),
+      join
+    });
+  }
+
+  private async listCodexHistory(cwd: string): Promise<HistoryListResult> {
+    const backends = this.agentSessions
+      .map((session) => session.agentBackend)
+      .filter((backend): backend is CodexAppServerBackend => backend instanceof CodexAppServerBackend);
+    const backend = backends[0];
+    if (!backend) {
+      return { provider: "codex", entries: [], notice: "Codex 세션을 하나 시작하면 목록이 나옵니다." };
+    }
+    return listCodexThreads(async (_method, params) => {
+      const response = await backend.listThreadsForHistory(params as Record<string, unknown>);
+      return response ?? { data: [], nextCursor: null };
+    }, cwd);
+  }
+
+  private listAntigravityHistory(cwd: string, env: { [key: string]: string | undefined }): Promise<HistoryListResult> {
+    const home = getUserHome();
+    const dbPath = home ? join(home, ".gemini", "antigravity-cli", "conversation_summaries.db") : "";
+    if (!dbPath || !existsSync(dbPath)) {
+      return Promise.resolve({ provider: "gemini", entries: [], notice: null });
+    }
+    const nodeExecutable = this.plugin.getNodeExecutable();
+    return listAntigravityConversations(async (script, args) => {
+      const result = await runCapturedCommand(nodeExecutable, ["--no-warnings", "--input-type=module", "-", ...args], cwd, env, HISTORY_NODE_TIMEOUT_MS, script);
+      return { stdout: result.stdout, exitCode: result.exitCode, error: result.error };
+    }, dbPath, cwd);
+  }
+
+  private openHistorySessionRefs(): Array<{ provider: AgentProvider; id: string }> {
+    return this.agentSessions.flatMap((session) => {
+      const id = session.agentProvider === "claude"
+        ? session.claudeSessionId
+        : session.agentProvider === "codex"
+          ? session.codexThreadId
+          : session.geminiNativeSessionStarted ? session.geminiSessionId : null;
+      return id ? [{ provider: session.agentProvider, id }] : [];
+    });
+  }
+
+  private renderHistoryList() {
+    const list = this.historyListEl;
+    const noticeEl = this.historyNoticeEl;
+    if (!list || !noticeEl) {
+      return;
+    }
+    const merged = mergeHistory(this.historyResults.map((result) => result.entries), this.openHistorySessionRefs());
+    const visible = filterHistory(merged, this.historyQuery, this.historyProviderFilter ? new Set([this.historyProviderFilter]) : null);
+    list.empty();
+    if (visible.length === 0) {
+      list.createDiv({ cls: "vault-agent-history-empty", text: this.historyLoading ? "불러오는 중..." : "이 볼트에서 기록된 세션이 없습니다." });
+    }
+    for (const entry of visible) {
+      this.renderHistoryRow(list, entry);
+    }
+    const notices = this.historyResults.map((result) => result.notice).filter((notice): notice is string => !!notice);
+    noticeEl.empty();
+    for (const notice of notices) {
+      noticeEl.createDiv({ cls: "vault-agent-history-notice-line", text: notice });
+    }
+  }
+
+  private renderHistoryRow(list: HTMLElement, entry: MergedHistoryEntry) {
+    const row = list.createEl("button", { cls: "vault-agent-history-row", attr: { title: entry.title } });
+    row.addClass(`vault-agent-history-row-${entry.provider}`);
+    const icon = row.createSpan("vault-agent-history-provider");
+    setIcon(icon, getAgentProviderIcon(entry.provider));
+    const body = row.createDiv("vault-agent-history-body");
+    body.createDiv({ cls: "vault-agent-history-row-title", text: entry.title });
+    const meta = body.createDiv("vault-agent-history-meta");
+    meta.createSpan({ text: formatRelativeTime(entry.lastActiveAt) });
+    if (entry.turnCount !== null) {
+      meta.createSpan({ text: `${entry.turnCount}턴` });
+    }
+    if (entry.open) {
+      meta.createSpan({ cls: "vault-agent-history-badge is-open", text: "열림" });
+    } else if (entry.source === "external") {
+      meta.createSpan({ cls: "vault-agent-history-badge", text: "외부" });
+    }
+    row.addEventListener("click", () => this.openHistoryEntry(entry));
+  }
+
+  private openHistoryEntry(entry: AgentHistoryEntry) {
+    const open = this.agentSessions.find((session) => {
+      if (session.agentProvider !== entry.provider) {
+        return false;
+      }
+      const id = entry.provider === "claude" ? session.claudeSessionId : entry.provider === "codex" ? session.codexThreadId : session.geminiSessionId;
+      return id === entry.id;
+    });
+    if (open) {
+      this.switchInternalAgentSession(open.agentSessionKey);
+    } else {
+      this.createInternalAgentSession(entry.provider, entry.provider === "claude"
+        ? { claudeSessionId: entry.id }
+        : entry.provider === "codex"
+          ? { codexThreadId: entry.id }
+          : { geminiSessionId: entry.id });
+    }
+    this.toggleHistoryPanel(false);
+  }
+
   private createAgentConsole(container: HTMLElement) {
     container.empty();
     this.ensureInternalAgentSessions();
@@ -2802,6 +3043,8 @@ class VaultPowerShellView extends ItemView {
     // Separate transcript DOM per AI session/provider so internal tabs can keep
     // running while hidden and re-mount without losing output.
     this.agentTranscriptMountEl = container.createDiv("vault-agent-transcript-mount");
+    this.historyPanelEl = container.createDiv("vault-agent-history is-hidden");
+    this.buildHistoryPanel(this.historyPanelEl);
     this.applyAgentSessionRuntime(this.getActiveAgentSessionState());
     this.mountVisibleAgentSessionTranscript();
 
@@ -5834,6 +6077,17 @@ class VaultPowerShellView extends ItemView {
       if (resultSessionId) {
         this.withAgentSession(sessionKey, () => {
           this.agentClaudeSessionId = resultSessionId;
+          this.refreshAgentSessionChrome();
+          this.saveAgentViewState();
+        });
+      }
+      const antigravityConversationId = provider === "gemini" && isAntigravityCli(this.plugin.settings)
+        ? getAntigravityConversationIdFromPrintResult(result)
+        : null;
+      if (antigravityConversationId) {
+        this.withAgentSession(sessionKey, () => {
+          this.agentGeminiSessionId = antigravityConversationId;
+          this.agentGeminiNativeSessionStarted = true;
           this.refreshAgentSessionChrome();
           this.saveAgentViewState();
         });
@@ -9846,6 +10100,49 @@ function stripScrollbackClear(data: string): string {
   return data.replace(/\x1b\[3J/g, "");
 }
 
+function getAgentProviderIcon(provider: AgentProvider): string {
+  return AGENT_PROVIDER_CHOICES.find((choice) => choice.provider === provider)?.icon ?? OBST_TERMINAL_ICON;
+}
+
+function formatRelativeTime(epochMs: number): string {
+  if (!epochMs) {
+    return "";
+  }
+  const diff = Date.now() - epochMs;
+  const minute = 60_000;
+  if (diff < minute) {
+    return "방금";
+  }
+  if (diff < 60 * minute) {
+    return `${Math.floor(diff / minute)}분 전`;
+  }
+  if (diff < 24 * 60 * minute) {
+    return `${Math.floor(diff / (60 * minute))}시간 전`;
+  }
+  if (diff < 7 * 24 * 60 * minute) {
+    return `${Math.floor(diff / (24 * 60 * minute))}일 전`;
+  }
+  return new Date(epochMs).toISOString().slice(0, 10);
+}
+
+/** Whole file when small; otherwise the first and last `sliceBytes` so both ends are seen. */
+function readFileHeadAndTail(path: string, sliceBytes: number): string[] {
+  const size = statSync(path).size;
+  if (size <= sliceBytes * 4) {
+    return [readFileSync(path, "utf8")];
+  }
+  const fd = openSync(path, "r");
+  try {
+    const head = Buffer.alloc(sliceBytes);
+    const tail = Buffer.alloc(sliceBytes);
+    const headRead = readSync(fd, head, 0, sliceBytes, 0);
+    const tailRead = readSync(fd, tail, 0, sliceBytes, size - sliceBytes);
+    return [head.subarray(0, headRead).toString("utf8"), tail.subarray(0, tailRead).toString("utf8")];
+  } finally {
+    closeSync(fd);
+  }
+}
+
 function getAgentProviderLabel(provider: AgentProvider): string {
   if (provider === "claude") {
     return "Claude Code";
@@ -10386,6 +10683,13 @@ function formatResetTime(value: number | null): string {
 interface AgentLaunchOptions {
   claudeSessionId?: string;
   sessionName?: string;
+}
+
+/** Which stored CLI session a new tab should continue from. */
+interface AgentSessionResume {
+  claudeSessionId?: string;
+  codexThreadId?: string;
+  geminiSessionId?: string;
 }
 
 // Intermediate events surfaced from a Claude Code stream-json print turn.
@@ -11364,6 +11668,11 @@ function spawnGeminiPrintCommand(
       prompt,
       "--print-timeout",
       "12h",
+      // JSON carries conversation_id, which is what lets the next turn (and the
+      // history panel) resume this conversation with --conversation.
+      "--output-format",
+      "json",
+      ...(options.resumeNativeSession && options.sessionId ? ["--conversation", options.sessionId] : []),
       ...(model && !["auto", "pro", "flash", "flash-lite"].includes(model) ? ["--model", model] : []),
       ...(settings.geminiApprovalMode === "yolo" ? ["--dangerously-skip-permissions"] : []),
       ...(settings.geminiSandbox ? ["--sandbox"] : []),
@@ -11467,6 +11776,9 @@ function getPrintCommandUsageSummary(provider: AgentProvider, result: CapturedCo
 }
 
 function getPrintCommandTokenUsage(provider: AgentProvider, result: CapturedCommandResult): TokenUsage | null {
+  if (provider === "gemini") {
+    return tokenUsageFromAntigravityUsage(parseAntigravityJsonOutput(result.stdout)?.usage);
+  }
   if (provider !== "claude") {
     return null;
   }
@@ -11685,6 +11997,61 @@ function isUuidString(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
+interface AntigravityJsonOutput {
+  conversation_id?: unknown;
+  response?: unknown;
+  status?: unknown;
+  error?: unknown;
+  usage?: unknown;
+}
+
+/** The answer on success, the error message on failure, or null when there is no envelope. */
+function getAntigravityTextFromPrintResult(result: CapturedCommandResult): string | null {
+  const parsed = parseAntigravityJsonOutput(result.stdout);
+  if (!parsed) {
+    return null;
+  }
+  const response = typeof parsed.response === "string" ? parsed.response.trim() : "";
+  const error = typeof parsed.error === "string" ? parsed.error.trim() : "";
+  return response || error || null;
+}
+
+function tokenUsageFromAntigravityUsage(usage: unknown): TokenUsage | null {
+  if (!usage || typeof usage !== "object") {
+    return null;
+  }
+  const record = usage as Record<string, unknown>;
+  const num = (key: string) => (typeof record[key] === "number" && Number.isFinite(record[key]) ? (record[key] as number) : undefined);
+  const mapped: TokenUsage = {
+    input: num("input_tokens"),
+    output: num("output_tokens"),
+    total: num("total_tokens"),
+    cachedInput: num("cache_read_tokens"),
+    reasoningOutput: num("thinking_tokens")
+  };
+  return mapped.input === undefined && mapped.output === undefined ? null : mapped;
+}
+
+/** `agy --print --output-format json` writes one object; tolerate leading noise. */
+function parseAntigravityJsonOutput(stdout: string): AntigravityJsonOutput | null {
+  const start = stdout.indexOf("{");
+  const end = stdout.lastIndexOf("}");
+  if (start === -1 || end <= start) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(stdout.slice(start, end + 1)) as unknown;
+    return parsed && typeof parsed === "object" ? (parsed as AntigravityJsonOutput) : null;
+  } catch {
+    return null;
+  }
+}
+
+function getAntigravityConversationIdFromPrintResult(result: CapturedCommandResult): string | null {
+  const id = parseAntigravityJsonOutput(result.stdout)?.conversation_id;
+  return typeof id === "string" && id.trim() ? id.trim() : null;
+}
+
 function formatGeminiPrintOutput(result: CapturedCommandResult, settings: PowerShellSettings): string {
   const antigravity = isAntigravityCli(settings);
   const cliLabel = antigravity ? "Antigravity" : "Gemini";
@@ -11693,6 +12060,13 @@ function formatGeminiPrintOutput(result: CapturedCommandResult, settings: PowerS
   }
   const output = removeGeminiCliNoise(stripTerminalControlSequences(`${result.stdout}\n${result.stderr}`)).trim();
   if (output) {
+    // Antigravity's JSON envelope puts both the answer and any failure in
+    // stdout; stderr stays empty. Read the human text out of it first so the
+    // matchers and the user see the message, not the envelope.
+    const antigravityText = antigravity ? getAntigravityTextFromPrintResult(result) : null;
+    if (antigravityText) {
+      return formatGeminiAuthErrorOutput(antigravityText, settings) ?? antigravityText;
+    }
     return formatGeminiAuthErrorOutput(output, settings) ?? getGeminiResultTextFromPrintOutput(output) ?? output;
   }
 
@@ -11778,7 +12152,7 @@ function formatGeminiAuthErrorOutput(output: string, settings: PowerShellSetting
     return `${cliLabel} 로그인이 필요합니다. Agent Console의 Login을 누르거나 ${loginHint}.`;
   }
 
-  if (/ModelNotFoundError|Requested entity was not found/i.test(output)) {
+  if (/ModelNotFoundError|Requested entity was not found|not recognized as a known model/i.test(output)) {
     return antigravity
       ? "Antigravity 모델을 찾을 수 없습니다. Agent Console의 모델 드롭다운에서 Antigravity default 또는 현재 계정에서 접근 가능한 모델로 바꾼 뒤 다시 시도하세요."
       : "Gemini model was not found. Choose Gemini default, auto, pro, flash, flash-lite, or another model available to this account and try again.";
@@ -11818,7 +12192,7 @@ function isClaudeSessionInUseResult(result: CapturedCommandResult): boolean {
 
 function isGeminiModelUnavailableResult(result: CapturedCommandResult): boolean {
   const output = stripTerminalControlSequences(`${result.stdout}\n${result.stderr}\n${result.error ?? ""}`);
-  return /ModelNotFoundError|Requested entity was not found|RetryableQuotaError|No capacity available for model/i.test(output);
+  return /ModelNotFoundError|Requested entity was not found|not recognized as a known model|RetryableQuotaError|No capacity available for model/i.test(output);
 }
 
 function isGeminiNativeSessionResumeMissingResult(result: CapturedCommandResult): boolean {

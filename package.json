@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node esbuild.config.mjs --watch",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
-    "test": "node --experimental-strip-types --test \"test/**/*.test.mts\""
+    "test": "node --no-warnings --experimental-strip-types --test \"test/**/*.test.mts\""
   },
   "keywords": [
     "obsidian",

@@ -74,6 +74,14 @@ export class CodexAppServerBackend implements AgentBackend {
     return this.proc?.pid;
   }
 
+  /** Raw thread/list pages for the history panel. Null when the app-server is not running. */
+  async listThreadsForHistory(params: Record<string, unknown>): Promise<unknown> {
+    if (!this.proc) {
+      return null;
+    }
+    return this.proc.rpc.request("thread/list", params);
+  }
+
   /** Executable the running app-server was launched from, for orphan matching. */
   getProcessExecutable(): string | null {
     return this.proc?.executable ?? null;

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { claudeProjectSlug, listClaudeSessions, parseClaudeSession } from "../../src/history/claude-sessions.ts";
+import { claudeProjectSlug, isGenericSessionLabel, listClaudeSessions, parseClaudeSession } from "../../src/history/claude-sessions.ts";
 
 const line = (record: Record<string, unknown>) => JSON.stringify(record);
 const user = (text: string, extra: Record<string, unknown> = {}) =>
@@ -15,6 +15,14 @@ test("slug replaces each non-alphanumeric character with a hyphen, Korean includ
 test("custom-title wins over the first user message", () => {
   const entry = parseClaudeSession([[user("첫 질문"), line({ type: "custom-title", customTitle: "붙인 제목", sessionId: "s1" })].join("\n")], "f");
   assert.equal(entry?.title, "붙인 제목");
+});
+
+test("a tab-label custom-title is ignored in favour of the first request", () => {
+  const text = [user("[현재 사용자 요청]\n진짜 제목"), line({ type: "custom-title", customTitle: "Claude Code 3", sessionId: "s1" })].join("\n");
+  assert.equal(parseClaudeSession([text], "f")?.title, "진짜 제목");
+  assert.equal(isGenericSessionLabel("Antigravity CLI"), true);
+  assert.equal(isGenericSessionLabel("Agent ab12"), true);
+  assert.equal(isGenericSessionLabel("결정 로그 정리"), false);
 });
 
 test("falls back to the first user line with the preamble stripped", () => {

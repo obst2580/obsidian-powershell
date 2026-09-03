@@ -1886,3 +1886,160 @@
   font-size: 0.8em;
   color: var(--text-muted);
 }
+
+/* ------------------------------------------------------------------ */
+/* Session history: one list across providers, shown in place of the    */
+/* transcript while open.                                                */
+/* ------------------------------------------------------------------ */
+.vault-agent-session-history {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: var(--oa-radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.vault-agent-session-history:hover,
+.vault-agent-session-history.is-active {
+  color: var(--text-normal);
+  background: var(--oa-surface-soft);
+  border-color: var(--oa-border);
+}
+.vault-agent-history {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 8px;
+  padding: 8px 10px;
+}
+.vault-agent-history.is-hidden,
+.vault-agent-transcript-mount.is-hidden {
+  display: none;
+}
+.vault-agent-history-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.vault-agent-history-title {
+  font-weight: 600;
+  font-size: var(--font-ui-small);
+  flex: 1 1 auto;
+}
+.vault-agent-history-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: var(--oa-radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.vault-agent-history-icon:hover {
+  color: var(--text-normal);
+  background: var(--oa-surface-soft);
+}
+.vault-agent-history-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.vault-agent-history-search {
+  width: 100%;
+}
+.vault-agent-history-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.vault-agent-history-chip {
+  font-size: var(--font-ui-smaller);
+  padding: 2px 10px;
+  border-radius: var(--oa-radius-pill);
+  border: 1px solid var(--oa-border);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.vault-agent-history-chip.is-active {
+  color: var(--text-normal);
+  border-color: var(--oa-border-strong);
+  background: var(--oa-surface-soft);
+}
+.vault-agent-history-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.vault-agent-history-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid var(--oa-border);
+  border-radius: var(--oa-radius);
+  background: var(--oa-surface);
+  color: var(--text-normal);
+  cursor: pointer;
+}
+.vault-agent-history-row:hover {
+  background: var(--oa-surface-soft);
+  border-color: var(--oa-border-strong);
+}
+.vault-agent-history-provider {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+.vault-agent-history-row-claude .vault-agent-history-provider { color: var(--oa-claude); }
+.vault-agent-history-row-codex .vault-agent-history-provider { color: var(--oa-codex); }
+.vault-agent-history-row-gemini .vault-agent-history-provider { color: var(--oa-gemini); }
+.vault-agent-history-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.vault-agent-history-row-title {
+  font-size: var(--font-ui-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vault-agent-history-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.vault-agent-history-badge {
+  padding: 0 6px;
+  border-radius: var(--oa-radius-pill);
+  border: 1px solid var(--oa-border);
+}
+.vault-agent-history-badge.is-open {
+  color: var(--oa-accent);
+  border-color: var(--oa-bubble-border);
+  background: var(--oa-accent-soft);
+}
+.vault-agent-history-empty,
+.vault-agent-history-notice-line {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  padding: 6px 2px;
+}

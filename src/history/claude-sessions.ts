@@ -13,6 +13,13 @@ export interface ClaudeSessionFileDeps {
   join(...parts: string[]): string;
 }
 
+const GENERIC_SESSION_LABEL = /^(Claude Code|Codex|Gemini CLI|Antigravity CLI|Agent [A-Za-z0-9]{1,16})(?: \d+)?$/;
+
+/** Provider tab labels the plugin generates; they never describe the conversation. */
+export function isGenericSessionLabel(title: string): boolean {
+  return GENERIC_SESSION_LABEL.test(title.trim());
+}
+
 export function claudeProjectSlug(cwd: string): string {
   return cwd.replace(/[^A-Za-z0-9]/g, "-");
 }
@@ -42,7 +49,12 @@ export function parseClaudeSession(slices: readonly string[], fallbackId: string
   if (!id || acc.maxTimestamp === 0) {
     return null;
   }
-  const title = acc.customTitle?.trim() || (acc.firstUserText ? titleFromPrompt(acc.firstUserText) : "") || "(제목 없음)";
+  const customTitle = acc.customTitle?.trim() ?? "";
+  // The plugin passes its tab label as --name, which Claude Code stores as the
+  // custom title. "Claude Code 3" says nothing about the conversation, so fall
+  // through to the user's first request in that case.
+  const usableTitle = customTitle && !isGenericSessionLabel(customTitle) ? customTitle : "";
+  const title = usableTitle || (acc.firstUserText ? titleFromPrompt(acc.firstUserText) : "") || "(제목 없음)";
   return {
     provider: "claude",
     id,
