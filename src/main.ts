@@ -125,7 +125,7 @@ const ESCAPE_SEQUENCE = "\x1b";
 const KILL_LINE_SEQUENCE = "\x15";
 const CODEX_RESIZE_REFLOW_CONFIG = "tui.terminal_resize_reflow=false";
 const TERMINAL_FIT_STABILIZATION_DELAYS_MS = [0, 16, 50, 150, 400, 1000];
-const SETTINGS_SCHEMA_VERSION = 12;
+const SETTINGS_SCHEMA_VERSION = 13;
 const PRIVATE_STATE_FILE = "private-state.json";
 const AGENT_CONSOLE_COLS = 300;
 const AGENT_CONSOLE_ROWS = 30;
@@ -133,6 +133,9 @@ const WSL_CHECK_TIMEOUT_MS = 3000;
 const AGENT_READY_DELAY_MS = 2500;
 const AGENT_SESSION_POLL_MS = 1200;
 const AGENT_SESSION_LOOKBACK_MS = 30000;
+// `agy models` is a network call (~3.5s measured); keep it off the start path's
+// critical section and fall back to the built-in list when it does not answer.
+const ANTIGRAVITY_MODELS_TIMEOUT_MS = 15000;
 const AGENT_SESSION_MATCH_BYTES = 262144;
 const AGENT_SESSION_MAX_READ_BYTES = 1024 * 1024;
 const AGENT_SESSION_TURN_CUTOFF_SLOP_MS = 2000;
@@ -166,6 +169,7 @@ const CLAUDE_LATEST_MODEL_CHOICES = [
   { value: "haiku", label: "Haiku 4.5 (latest: haiku)" }
 ];
 const CLAUDE_PINNED_MODEL_CHOICES = [
+  { value: "claude-fable-5-1", label: "Fable 5.1 (pinned)" },
   { value: "claude-fable-5", label: "Fable 5 (pinned)" },
   { value: "claude-opus-5", label: "Opus 5 (pinned)" },
   { value: "claude-sonnet-5", label: "Sonnet 5 (pinned)" },
@@ -193,16 +197,20 @@ const CLAUDE_PERMISSION_MODE_CHOICES = [
 ];
 // Antigravity CLI --model values are display names, verified against
 // `agy models` output (agy 1.0.16, 2026-07-06).
+// Fallback only -- the live list comes from `agy models` at session start.
+// Antigravity bakes the reasoning effort into the model id (-low/-medium/-high),
+// and a separate --effort that disagrees with the id is rejected outright, so
+// the suffixed id is the entire selection and we never send --effort.
 const GEMINI_MODEL_CHOICES = [
   { value: "", label: "Antigravity default" },
-  { value: "Gemini 3.5 Flash (Low)", label: "Gemini 3.5 Flash (Low)" },
-  { value: "Gemini 3.5 Flash (Medium)", label: "Gemini 3.5 Flash (Medium)" },
-  { value: "Gemini 3.5 Flash (High)", label: "Gemini 3.5 Flash (High)" },
-  { value: "Gemini 3.1 Pro (Low)", label: "Gemini 3.1 Pro (Low)" },
-  { value: "Gemini 3.1 Pro (High)", label: "Gemini 3.1 Pro (High)" },
-  { value: "Claude Sonnet 4.6 (Thinking)", label: "Claude Sonnet 4.6 (Thinking)" },
-  { value: "Claude Opus 4.6 (Thinking)", label: "Claude Opus 4.6 (Thinking)" },
-  { value: "GPT-OSS 120B (Medium)", label: "GPT-OSS 120B (Medium)" }
+  { value: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" },
+  { value: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (Medium)" },
+  { value: "gemini-3.8-flash-low", label: "Gemini 3.8 Flash (Low)" },
+  { value: "gemini-3.1-pro-high", label: "Gemini 3.1 Pro (High)" },
+  { value: "gemini-3.1-pro-low", label: "Gemini 3.1 Pro (Low)" },
+  { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (Thinking)" },
+  { value: "claude-opus-4-6-thinking", label: "Claude Opus 4.6 (Thinking)" },
+  { value: "gpt-oss-120b-medium", label: "GPT-OSS 120B (Medium)" }
 ];
 const LEGACY_GEMINI_MODEL_CHOICES = [
   { value: "", label: "Gemini default" },
@@ -764,6 +772,7 @@ export default class VaultPowerShellPlugin extends Plugin {
   private privateState: PrivatePluginData = {};
   private runtimeInstallPromise: Promise<void> | null = null;
   private companyVoiceLexicon: CompanyVoiceLexicon | null = null;
+  private antigravityModelChoices: Array<{ value: string; label: string }> | null = null;
 
   async onload() {
     await this.loadSettings();
@@ -827,12 +836,17 @@ export default class VaultPowerShellPlugin extends Plugin {
     // 2026-06-18 consumer Gemini CLI shutdown. Clear explicit legacy defaults so
     // executable auto-detection and Antigravity model names take over.
     const needsAntigravityRestoreMigration = previousSchemaVersion < 8;
+    // v13: Antigravity model ids replaced the display-name strings the picker
+    // used to store ("Gemini 3.5 Flash (Low)"). Those names are retired, and agy
+    // rejects the turn outright rather than falling back, so clear them.
+    const needsAntigravityModelIdMigration = previousSchemaVersion < 13;
     const sharedAgentViewState = normalizeAgentViewSessionState(saved?.agentViewState);
     let shouldSaveSettings = needsCodexScrollbackMigration ||
       needsGeminiStableModelMigration ||
       needsAntigravityMigration ||
       needsPrivateStateMigration ||
       needsAntigravityRestoreMigration ||
+      needsAntigravityModelIdMigration ||
       saved?.voiceTranscriptionMode !== undefined ||
       saved?.voiceLiveTranscription !== undefined ||
       saved?.agentViewState !== undefined;
@@ -878,6 +892,10 @@ export default class VaultPowerShellPlugin extends Plugin {
     if (needsAntigravityMigration && !this.settings.geminiExecutable) {
       this.settings.geminiModel = "";
     }
+    if (needsAntigravityModelIdMigration && /[\s()]/.test(this.settings.geminiModel ?? "")) {
+      this.settings.geminiModel = "";
+    }
+
     if (needsAntigravityRestoreMigration &&
         isAntigravityCli(this.settings) &&
         (["auto", "pro", "flash", "flash-lite"].includes(this.settings.geminiModel) || /^gemini-\d/.test(this.settings.geminiModel))) {
@@ -1136,6 +1154,24 @@ export default class VaultPowerShellPlugin extends Plugin {
       this.companyVoiceLexicon = new CompanyVoiceLexicon(this.getVaultPath());
     }
     return this.companyVoiceLexicon;
+  }
+
+  /** Live Antigravity model list, replaced whenever `agy models` answers. */
+  getAntigravityModelChoices(): Array<{ value: string; label: string }> | null {
+    return this.antigravityModelChoices;
+  }
+
+  async refreshAntigravityModelChoices(cwd: string, env: { [key: string]: string | undefined }): Promise<boolean> {
+    const executable = getGeminiExecutable(this.settings);
+    if (!isAntigravityExecutablePath(executable)) {
+      return false;
+    }
+    const choices = await fetchAntigravityModelChoices(executable, cwd, env);
+    if (!choices) {
+      return false;
+    }
+    this.antigravityModelChoices = choices;
+    return true;
   }
 
   private getPrivateDataDirPath(): string {
@@ -2860,7 +2896,7 @@ class VaultPowerShellView extends ItemView {
     for (const opt of [{ v: "read-only", t: "Read-only" }, { v: "auto", t: "Workspace write" }, { v: "full", t: "Full access (no sandbox)" }]) {
       this.codexAccessSelect.createEl("option", { value: opt.v, text: opt.t });
     }
-    for (const opt of getGeminiModelChoices(this.plugin.settings)) {
+    for (const opt of this.getGeminiModelChoiceList()) {
       this.geminiModelSelect.createEl("option", { value: opt.value, text: opt.label });
     }
     for (const opt of GEMINI_APPROVAL_MODE_CHOICES) {
@@ -3072,11 +3108,20 @@ class VaultPowerShellView extends ItemView {
     container.setAttr("title", formatTokenUsageTitle(usage, live));
   }
 
+  /** Live `agy models` list when we have one, otherwise the built-in fallback. */
+  private getGeminiModelChoiceList(): Array<{ value: string; label: string }> {
+    const live = this.plugin.getAntigravityModelChoices();
+    if (live && isAntigravityCli(this.plugin.settings)) {
+      return [{ value: "", label: "Antigravity default" }, ...live];
+    }
+    return getGeminiModelChoices(this.plugin.settings);
+  }
+
   private refreshAgentModelControls() {
     this.refreshClaudeModelControl();
     setSelectChoices(this.claudeEffortSelect, CLAUDE_EFFORT_CHOICES, this.plugin.settings.claudeEffort, "Saved");
     setSelectChoices(this.claudePermissionSelect, CLAUDE_PERMISSION_MODE_CHOICES, this.plugin.settings.claudePermissionMode, "Saved");
-    setSelectChoices(this.geminiModelSelect, getGeminiModelChoices(this.plugin.settings), this.plugin.settings.geminiModel, "Saved");
+    setSelectChoices(this.geminiModelSelect, this.getGeminiModelChoiceList(), this.plugin.settings.geminiModel, "Saved");
     setSelectChoices(this.geminiApprovalSelect, GEMINI_APPROVAL_MODE_CHOICES, this.plugin.settings.geminiApprovalMode, "Saved");
     this.refreshCodexModelSelect();
   }
@@ -4897,6 +4942,14 @@ class VaultPowerShellView extends ItemView {
             return;
           }
           this.agentReadyForInput = true;
+          // Antigravity retires model ids between releases, so refresh the
+          // picker from the CLI rather than trusting the built-in list. Runs
+          // detached: a slow or failed lookup must not delay the session.
+          void this.plugin.refreshAntigravityModelChoices(cwd, env).then((updated) => {
+            if (updated) {
+              this.withAgentSession(sessionKey, () => this.refreshAgentModelControls());
+            }
+          });
           this.markAgentConversationReady(`${getAgentProviderLabel(provider)} CLI가 확인되었습니다. 이제 대화를 시작할 수 있습니다.`);
           this.refreshAgentPromptActions();
         });
@@ -10400,6 +10453,34 @@ function getGeminiLoginHintCommand(settings: PowerShellSettings): string {
   return isAntigravityCli(settings) ? "agy" : "gemini";
 }
 
+/**
+ * Ask the Antigravity CLI which models it actually serves. Output is one
+ * `id<TAB>display name` row per model, preceded by a status banner. Returns null
+ * on any failure so callers keep the built-in list.
+ */
+async function fetchAntigravityModelChoices(
+  executable: string,
+  cwd: string,
+  env: { [key: string]: string | undefined }
+): Promise<Array<{ value: string; label: string }> | null> {
+  const result = await runCapturedCommand(executable, ["models"], cwd, env, ANTIGRAVITY_MODELS_TIMEOUT_MS);
+  if (result.error || result.timedOut || result.cancelled || result.exitCode !== 0) {
+    return null;
+  }
+
+  const choices: Array<{ value: string; label: string }> = [];
+  for (const line of result.stdout.split(/\r?\n/)) {
+    const [rawId, rawLabel] = line.split("\t");
+    const id = rawId?.trim() ?? "";
+    // The banner line carries no tab, so it lands here as a spaced id.
+    if (!id || id.includes(" ")) {
+      continue;
+    }
+    choices.push({ value: id, label: rawLabel?.trim() || id });
+  }
+  return choices.length > 0 ? choices : null;
+}
+
 function getGeminiModelChoices(settings: PowerShellSettings): Array<{ value: string; label: string }> {
   return isAntigravityCli(settings) ? GEMINI_MODEL_CHOICES : LEGACY_GEMINI_MODEL_CHOICES;
 }
@@ -11273,8 +11354,10 @@ function spawnGeminiPrintCommand(
   if (isAntigravityExecutablePath(executable)) {
     // Antigravity CLI: --print takes the prompt; the built-in print timeout
     // defaults to 5m, so raise it for long-running agent turns. There is no
-    // --output-format/--approval-mode/--skip-trust; yolo maps to
-    // --dangerously-skip-permissions.
+    // --approval-mode/--skip-trust; yolo maps to --dangerously-skip-permissions.
+    // `--output-format stream-json` exists as of agy 1.1.24 but we still read
+    // plain text. Never add --effort here: the model ids already carry the
+    // effort suffix and agy rejects the pair when they disagree.
     const model = settings.geminiModel?.trim() ?? "";
     const args = [
       "--print",
