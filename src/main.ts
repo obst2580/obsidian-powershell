@@ -1704,6 +1704,9 @@ class VaultPowerShellView extends ItemView {
 
   getState(): Record<string, unknown> {
     this.captureActiveAgentSessionState();
+    if (this.plugin.settings.persistAgentTranscriptSnapshots) {
+      this.snapshotTranscriptHtml();
+    }
     return {
       agentSessions: this.cloneAgentSessionsForState(this.plugin.settings.persistAgentTranscriptSnapshots),
       activeAgentSessionKey: this.activeAgentSessionKey,
@@ -2244,23 +2247,19 @@ class VaultPowerShellView extends ItemView {
     session.codexThreadId = this.agentCodexThreadId;
     session.geminiSessionId = this.agentGeminiSessionId;
     session.geminiNativeSessionStarted = this.agentGeminiNativeSessionStarted;
-    if (this.claudeTranscriptEl) {
-      session.claudeTranscriptHtml = sanitizeAgentTranscriptHtml(this.claudeTranscriptEl.innerHTML);
-      if (this.isVisibleAgentSessionContext() && this.isAgentTranscriptScrollReadable(this.claudeTranscriptEl)) {
-        session.claudeScrollTop = this.claudeTranscriptEl.scrollTop;
-      }
+    // Transcript HTML is deliberately not serialized here. This runs on every
+    // backend event (each streamed delta included), and stringifying three
+    // transcripts per event grows quadratically with the conversation until
+    // the renderer runs out of heap. Nothing reads the live string while the
+    // element exists; snapshotTranscriptHtml() fills it only at save time.
+    if (this.claudeTranscriptEl && this.isVisibleAgentSessionContext() && this.isAgentTranscriptScrollReadable(this.claudeTranscriptEl)) {
+      session.claudeScrollTop = this.claudeTranscriptEl.scrollTop;
     }
-    if (this.codexTranscriptEl) {
-      session.codexTranscriptHtml = sanitizeAgentTranscriptHtml(this.codexTranscriptEl.innerHTML);
-      if (this.isVisibleAgentSessionContext() && this.isAgentTranscriptScrollReadable(this.codexTranscriptEl)) {
-        session.codexScrollTop = this.codexTranscriptEl.scrollTop;
-      }
+    if (this.codexTranscriptEl && this.isVisibleAgentSessionContext() && this.isAgentTranscriptScrollReadable(this.codexTranscriptEl)) {
+      session.codexScrollTop = this.codexTranscriptEl.scrollTop;
     }
-    if (this.geminiTranscriptEl) {
-      session.geminiTranscriptHtml = sanitizeAgentTranscriptHtml(this.geminiTranscriptEl.innerHTML);
-      if (this.isVisibleAgentSessionContext() && this.isAgentTranscriptScrollReadable(this.geminiTranscriptEl)) {
-        session.geminiScrollTop = this.geminiTranscriptEl.scrollTop;
-      }
+    if (this.geminiTranscriptEl && this.isVisibleAgentSessionContext() && this.isAgentTranscriptScrollReadable(this.geminiTranscriptEl)) {
+      session.geminiScrollTop = this.geminiTranscriptEl.scrollTop;
     }
     if (this.agentInputEl) {
       session.inputText = this.agentInputEl.value;
@@ -2322,6 +2321,15 @@ class VaultPowerShellView extends ItemView {
     session.agentPromptState = this.agentPromptState;
     session.agentOpenedExternalUrls = this.agentOpenedExternalUrls;
     session.updatedAt = Date.now();
+  }
+
+  /** Serialize every session's transcript once, for persistence. Kept off the event path on purpose. */
+  private snapshotTranscriptHtml() {
+    for (const session of this.agentSessions) {
+      session.claudeTranscriptHtml = sanitizeAgentTranscriptHtml(session.claudeTranscriptEl?.innerHTML ?? "");
+      session.codexTranscriptHtml = sanitizeAgentTranscriptHtml(session.codexTranscriptEl?.innerHTML ?? "");
+      session.geminiTranscriptHtml = sanitizeAgentTranscriptHtml(session.geminiTranscriptEl?.innerHTML ?? "");
+    }
   }
 
   private cloneAgentSessionsForState(includeTranscriptSnapshots: boolean): AgentWorkspaceSessionState[] {

@@ -21,6 +21,7 @@ import type {
 } from "../types";
 import { CodexProcess } from "./process";
 import { mapCodexNotification } from "./events";
+import { truncateForApproval } from "./approval-text";
 import type { InitializeResponse } from "./protocol/InitializeResponse";
 import type { GetAccountResponse } from "./protocol/v2/GetAccountResponse";
 import type { GetAccountRateLimitsResponse } from "./protocol/v2/GetAccountRateLimitsResponse";
@@ -520,7 +521,7 @@ export class CodexAppServerBackend implements AgentBackend {
     }
 
     this.emit({ type: "status", state: "waiting-approval" });
-    this.emit({ type: "approval-request", request: { id: requestId, kind, summary, detail } });
+    this.emit({ type: "approval-request", request: { id: requestId, kind, summary, detail: truncateForApproval(detail) } });
   }
 }
 
