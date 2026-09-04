@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { claudeProjectSlug, isGenericSessionLabel, listClaudeSessions, parseClaudeSession } from "../../src/history/claude-sessions.ts";
+import { claudeProjectSlug, isDescriptiveRequest, isGenericSessionLabel, listClaudeSessions, parseClaudeSession } from "../../src/history/claude-sessions.ts";
 
 const line = (record: Record<string, unknown>) => JSON.stringify(record);
 const user = (text: string, extra: Record<string, unknown> = {}) =>
@@ -31,6 +31,18 @@ test("forks share a first message, so the latest text request becomes the title"
   const forkB = [user("옆에 문서를 검토해줘"), user("PPT로 만들어줘"), toolResult].join("\n");
   assert.equal(parseClaudeSession([forkA], "a")?.title, "remove-ai 수정해줘");
   assert.equal(parseClaudeSession([forkB], "b")?.title, "PPT로 만들어줘");
+});
+
+test("injected lines and acknowledgements are skipped in favour of the last real request", () => {
+  const text = [user("입시정보 수집 서비스 준비 검토해줘"), user("[Request interrupted by user]"), user("<task-notification>"), user("계속 진행해"), user("알았어.")].join("\n");
+  assert.equal(parseClaudeSession([text], "f")?.title, "입시정보 수집 서비스 준비 검토해줘");
+  assert.equal(isDescriptiveRequest("Base directory for this skill: /x"), false);
+  assert.equal(isDescriptiveRequest("결정 로그 갱신해줘"), true);
+  assert.equal(isDescriptiveRequest("네"), false);
+});
+
+test("when nothing descriptive exists the latest request is still used", () => {
+  assert.equal(parseClaudeSession([[user("알았어."), user("계속하자")].join("\n")], "f")?.title, "계속하자");
 });
 
 test("a deliberate custom title still outranks the latest request", () => {

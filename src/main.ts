@@ -30,6 +30,7 @@ import type { AgentAccessLevel, AgentAttachment, AgentBackend, AgentModelInfo, A
 import { quoteWindowsShellCommand } from "./shell/windows-args";
 import { listClaudeSessions } from "./history/claude-sessions";
 import { listCodexThreads } from "./history/codex-threads";
+import { listCodexSessionFiles } from "./history/codex-sessions";
 import { listAntigravityConversations } from "./history/antigravity-conversations";
 import { filterHistory, mergeHistory, type MergedHistoryEntry } from "./history/merge";
 import type { AgentHistoryEntry, HistoryListResult } from "./history/types";
@@ -2900,17 +2901,29 @@ class VaultPowerShellView extends ItemView {
   }
 
   private async listCodexHistory(cwd: string): Promise<HistoryListResult> {
-    const backends = this.agentSessions
+    // Rollout files answer without a running app-server. When one is live,
+    // its thread/list is richer (user-set names), so it goes first and the
+    // merge keeps the first entry per id.
+    const root = getAgentSessionRoot("codex");
+    const fromFiles = root
+      ? await listCodexSessionFiles(root, cwd, {
+          // Not getRecentJsonlFiles: its newest-50 cap spans every cwd and
+          // silently drops older sessions of this vault.
+          listFiles: (dir) => Promise.resolve(listJsonlFilesRecursively(dir)),
+          readSlices: (path) => Promise.resolve(readFileHeadAndTail(path, HISTORY_SLICE_BYTES))
+        })
+      : { provider: "codex" as const, entries: [], notice: null };
+    const backend = this.agentSessions
       .map((session) => session.agentBackend)
-      .filter((backend): backend is CodexAppServerBackend => backend instanceof CodexAppServerBackend);
-    const backend = backends[0];
+      .find((candidate): candidate is CodexAppServerBackend => candidate instanceof CodexAppServerBackend);
     if (!backend) {
-      return { provider: "codex", entries: [], notice: "Codex 세션을 하나 시작하면 목록이 나옵니다." };
+      return fromFiles;
     }
-    return listCodexThreads(async (_method, params) => {
+    const fromRpc = await listCodexThreads(async (_method, params) => {
       const response = await backend.listThreadsForHistory(params as Record<string, unknown>);
       return response ?? { data: [], nextCursor: null };
-    }, cwd);
+    }, cwd).catch((): HistoryListResult => ({ provider: "codex", entries: [], notice: null }));
+    return { provider: "codex", entries: [...fromRpc.entries, ...fromFiles.entries], notice: fromRpc.notice };
   }
 
   private listAntigravityHistory(cwd: string, env: { [key: string]: string | undefined }): Promise<HistoryListResult> {
@@ -2960,7 +2973,9 @@ class VaultPowerShellView extends ItemView {
   }
 
   private renderHistoryRow(list: HTMLElement, entry: MergedHistoryEntry) {
-    const row = list.createEl("button", { cls: "vault-agent-history-row", attr: { title: entry.title } });
+    // A div, not a button: themes and the UA style <button> in ways that clip
+    // multi-line content, and this row needs two lines.
+    const row = list.createDiv({ cls: "vault-agent-history-row", attr: { title: entry.title, role: "button", tabindex: "0" } });
     row.addClass(`vault-agent-history-row-${entry.provider}`);
     const icon = row.createSpan("vault-agent-history-provider");
     setIcon(icon, getAgentProviderIcon(entry.provider));
@@ -2977,6 +2992,12 @@ class VaultPowerShellView extends ItemView {
       meta.createSpan({ cls: "vault-agent-history-badge", text: "외부" });
     }
     row.addEventListener("click", () => this.openHistoryEntry(entry));
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        this.openHistoryEntry(entry);
+      }
+    });
   }
 
   private openHistoryEntry(entry: AgentHistoryEntry) {
@@ -10123,6 +10144,39 @@ function formatRelativeTime(epochMs: number): string {
     return `${Math.floor(diff / (24 * 60 * minute))}일 전`;
   }
   return new Date(epochMs).toISOString().slice(0, 10);
+}
+
+/** Every .jsonl under root, any depth, unsorted. Unreadable directories are skipped. */
+function listJsonlFilesRecursively(root: string): string[] {
+  const found: string[] = [];
+  const stack = [root];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) {
+      continue;
+    }
+    let entries: string[];
+    try {
+      entries = readdirSync(current);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const fullPath = join(current, entry);
+      let stats;
+      try {
+        stats = statSync(fullPath);
+      } catch {
+        continue;
+      }
+      if (stats.isDirectory()) {
+        stack.push(fullPath);
+      } else if (stats.isFile() && entry.toLowerCase().endsWith(".jsonl")) {
+        found.push(fullPath);
+      }
+    }
+  }
+  return found;
 }
 
 /** Whole file when small; otherwise the first and last `sliceBytes` so both ends are seen. */

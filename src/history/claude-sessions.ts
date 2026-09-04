@@ -4,7 +4,7 @@
 // path segments collapse one-for-one). Title comes from the CLI's own
 // custom-title record when present, else the first user turn.
 
-import { hasPluginPreamble, titleFromPrompt } from "./prompt-preamble.ts";
+import { hasPluginPreamble, isDescriptiveRequest, isGenericSessionLabel, titleFromPrompt } from "./prompt-preamble.ts";
 import type { AgentHistoryEntry, HistoryListResult } from "./types.ts";
 
 export interface ClaudeSessionFileDeps {
@@ -13,12 +13,7 @@ export interface ClaudeSessionFileDeps {
   join(...parts: string[]): string;
 }
 
-const GENERIC_SESSION_LABEL = /^(Claude Code|Codex|Gemini CLI|Antigravity CLI|Agent [A-Za-z0-9]{1,16})(?: \d+)?$/;
-
-/** Provider tab labels the plugin generates; they never describe the conversation. */
-export function isGenericSessionLabel(title: string): boolean {
-  return GENERIC_SESSION_LABEL.test(title.trim());
-}
+export { isDescriptiveRequest, isGenericSessionLabel };
 
 export function claudeProjectSlug(cwd: string): string {
   return cwd.replace(/[^A-Za-z0-9]/g, "-");
@@ -29,6 +24,7 @@ interface ParseAccumulator {
   customTitle: string | null;
   firstUserText: string | null;
   lastUserText: string | null;
+  lastGoodUserText: string | null;
   maxTimestamp: number;
   assistantCount: number;
   cwd: string | null;
@@ -42,6 +38,7 @@ export function parseClaudeSession(slices: readonly string[], fallbackId: string
     customTitle: null,
     firstUserText: null,
     lastUserText: null,
+    lastGoodUserText: null,
     maxTimestamp: 0,
     assistantCount: 0,
     cwd: null,
@@ -59,6 +56,7 @@ export function parseClaudeSession(slices: readonly string[], fallbackId: string
   // Forked sessions all inherit the same first message, so the latest request
   // is what tells them apart; the first request is only a fallback.
   const title = usableTitle
+    || (acc.lastGoodUserText ? titleFromPrompt(acc.lastGoodUserText) : "")
     || (acc.lastUserText ? titleFromPrompt(acc.lastUserText) : "")
     || (acc.firstUserText ? titleFromPrompt(acc.firstUserText) : "")
     || "(제목 없음)";
@@ -107,10 +105,12 @@ function foldLine(acc: ParseAccumulator, line: string): ParseAccumulator {
     // Tool results arrive as user records with no text block; they carry no
     // request and must not displace the real prompts.
     const hasRequest = text !== null && titleFromPrompt(text).length > 0;
+    const isGood = hasRequest && isDescriptiveRequest(titleFromPrompt(text as string));
     return {
       ...next,
       firstUserText: next.firstUserText ?? (hasRequest ? text : null),
       lastUserText: hasRequest ? text : next.lastUserText,
+      lastGoodUserText: isGood ? text : next.lastGoodUserText,
       sawPluginTurn: next.sawPluginTurn || isPlugin
     };
   }
