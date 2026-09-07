@@ -154,8 +154,10 @@ const AGENT_TRANSCRIPT_BOTTOM_EPSILON_PX = 96;
 const AGENT_TRANSCRIPT_CONTEXT_MAX_CHARS = 12000;
 const ACTIVE_NOTE_SELECTION_MAX_CHARS = 6000;
 const CODEX_TURN_COMPLETION_FALLBACK_MS = 15000;
+// Tier hints for models whose role stays stable as new tops arrive. Never put
+// a "frontier"/"best" here: the newest default comes from codex's own
+// isDefault flag, and a static label would keep pointing at last month's model.
 const CODEX_MODEL_ROLE_LABELS: Record<string, string> = {
-  "gpt-5.6-sol": "frontier",
   "gpt-5.6-terra": "balanced",
   "gpt-5.6-luna": "fast"
 };
@@ -3490,8 +3492,8 @@ class VaultPowerShellView extends ItemView {
       text: defaultModel ? `${defaultModel.displayName} (default)` : "Codex default"
     });
     for (const model of this.codexModels) {
-      const role = CODEX_MODEL_ROLE_LABELS[model.id.toLowerCase()];
-      const label = role ? `${model.displayName} (${role})` : model.displayName;
+      const hint = model.isDefault ? "default" : CODEX_MODEL_ROLE_LABELS[model.id.toLowerCase()];
+      const label = hint ? `${model.displayName} (${hint})` : model.displayName;
       this.codexModelSelect.createEl("option", { value: model.id, text: label });
     }
     if (configured && !selectHasOption(this.codexModelSelect, configured)) {
