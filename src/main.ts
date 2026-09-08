@@ -2991,9 +2991,13 @@ class VaultPowerShellView extends ItemView {
     setIcon(icon, getAgentProviderIcon(entry.provider));
     const body = row.createDiv("vault-agent-history-body");
     body.createDiv({ cls: "vault-agent-history-row-title", text: entry.title });
+    if (entry.open) {
+      row.addClass("is-open");
+    }
     const meta = body.createDiv("vault-agent-history-meta");
     meta.createSpan({ text: formatRelativeTime(entry.lastActiveAt) });
     if (entry.turnCount !== null) {
+      meta.createSpan({ cls: "vault-agent-history-meta-dot", text: "\u00b7" });
       meta.createSpan({ text: `${entry.turnCount}턴` });
     }
     if (entry.open) {
