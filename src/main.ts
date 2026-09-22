@@ -157,10 +157,16 @@ const CODEX_TURN_COMPLETION_FALLBACK_MS = 15000;
 // Tier hints for models whose role stays stable as new tops arrive. Never put
 // a "frontier"/"best" here: the newest default comes from codex's own
 // isDefault flag, and a static label would keep pointing at last month's model.
-const CODEX_MODEL_ROLE_LABELS: Record<string, string> = {
-  "gpt-5.6-terra": "balanced",
-  "gpt-5.6-luna": "fast"
-};
+// Tier names survive across generations (5.6-luna, 6-luna), so match the
+// suffix rather than a full id that would go stale at the next release.
+const CODEX_MODEL_TIER_HINTS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/-terra$/, "balanced"],
+  [/-luna$/, "fast"]
+];
+function getCodexModelTierHint(modelId: string): string | undefined {
+  const id = modelId.toLowerCase();
+  return CODEX_MODEL_TIER_HINTS.find(([pattern]) => pattern.test(id))?.[1];
+}
 const CLAUDE_CUSTOM_MODEL_VALUE = "__custom_model__";
 // Candidate matcher for vault-file mentions in transcript text. Deliberately
 // loose (allows spaces for Korean file names, absolute Windows paths, and a
@@ -3505,7 +3511,7 @@ class VaultPowerShellView extends ItemView {
       text: defaultModel ? `${defaultModel.displayName} (default)` : "Codex default"
     });
     for (const model of this.codexModels) {
-      const hint = model.isDefault ? "default" : CODEX_MODEL_ROLE_LABELS[model.id.toLowerCase()];
+      const hint = model.isDefault ? "default" : getCodexModelTierHint(model.id);
       const label = hint ? `${model.displayName} (${hint})` : model.displayName;
       this.codexModelSelect.createEl("option", { value: model.id, text: label });
     }
