@@ -173,17 +173,20 @@ const VAULT_PATH_CANDIDATE_SOURCE =
 const CLAUDE_LATEST_MODEL_CHOICES = [
   { value: "", label: "Claude default" },
   { value: "best", label: "Best (auto)" },
-  { value: "fable", label: "Fable 5 (latest: fable)" },
-  // The `opus` alias still resolves to Opus 4.8 (verified against claude 2.1.204,
-  // 2026-07-28); pick the pinned claude-opus-5 entry to run Opus 5.
-  { value: "opus", label: "Opus 4.8 (latest: opus)" },
+  // Alias targets verified against claude 2.1.280 (2026-09-23): fable and
+  // best -> claude-fable-5-1, opus -> claude-opus-5-5, sonnet -> claude-sonnet-5,
+  // haiku -> claude-haiku-4-5. Aliases move; the pinned entries below do not.
+  { value: "fable", label: "Fable 5.1 (latest: fable)" },
+  { value: "opus", label: "Opus 5.5 (latest: opus)" },
   { value: "sonnet", label: "Sonnet 5 (latest: sonnet)" },
   { value: "haiku", label: "Haiku 4.5 (latest: haiku)" }
 ];
 const CLAUDE_PINNED_MODEL_CHOICES = [
   { value: "claude-fable-5-1", label: "Fable 5.1 (pinned)" },
   { value: "claude-fable-5", label: "Fable 5 (pinned)" },
+  { value: "claude-opus-5-5", label: "Opus 5.5 (pinned)" },
   { value: "claude-opus-5", label: "Opus 5 (pinned)" },
+  { value: "claude-opus-4-8", label: "Opus 4.8 (pinned)" },
   { value: "claude-sonnet-5", label: "Sonnet 5 (pinned)" },
   { value: "claude-haiku-4-5", label: "Haiku 4.5 (pinned)" },
   { value: "claude-opus-4-7", label: "Opus 4.7 (pinned)" },
@@ -208,7 +211,7 @@ const CLAUDE_PERMISSION_MODE_CHOICES = [
   { value: "bypassPermissions", label: "Permission: bypassPermissions" }
 ];
 // Antigravity CLI --model values are display names, verified against
-// `agy models` output (agy 1.0.16, 2026-07-06).
+// `agy models` output (agy 1.1.27, 2026-09-23).
 // Fallback only -- the live list comes from `agy models` at session start.
 // Antigravity bakes the reasoning effort into the model id (-low/-medium/-high),
 // and a separate --effort that disagrees with the id is rejected outright, so
@@ -218,6 +221,12 @@ const GEMINI_MODEL_CHOICES = [
   { value: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" },
   { value: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (Medium)" },
   { value: "gemini-3.8-flash-low", label: "Gemini 3.8 Flash (Low)" },
+  { value: "gemini-3.7-flash-high", label: "Gemini 3.7 Flash (High)" },
+  { value: "gemini-3.7-flash-medium", label: "Gemini 3.7 Flash (Medium)" },
+  { value: "gemini-3.7-flash-low", label: "Gemini 3.7 Flash (Low)" },
+  { value: "gemini-3.6-flash-high", label: "Gemini 3.6 Flash (High)" },
+  { value: "gemini-3.6-flash-medium", label: "Gemini 3.6 Flash (Medium)" },
+  { value: "gemini-3.6-flash-low", label: "Gemini 3.6 Flash (Low)" },
   { value: "gemini-3.1-pro-high", label: "Gemini 3.1 Pro (High)" },
   { value: "gemini-3.1-pro-low", label: "Gemini 3.1 Pro (Low)" },
   { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (Thinking)" },
